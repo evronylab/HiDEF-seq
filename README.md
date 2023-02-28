@@ -235,4 +235,6 @@ In the [analysisoutput_path] directory:
 14. mutation_signatures.RDS: R data file with sigfit analysis results
 
 ## Citation
-If you use HiDEF-seq, please cite: 
+If you use HiDEF-seq, please cite:
+
+Liu MH, Costa B, Choi U, Bandler RC, Lassen E, Grońska-Pęski M, Schwing A, Murphy ZR, Rosenkjær D, Picciotto S, Bianchi V, Stengs L, Edwards M, Loh CA, Truong TK, Brand RE, Pastinen R, Wagner JR, Skytte AB, Tabori U, Shoag JE, Evrony GD. Single-strand mismatch and damage patterns revealed by single-molecule DNA sequencing. bioRxiv 2023.02.19.526140; doi: https://doi.org/10.1101/2023.02.19.526140 (2023).

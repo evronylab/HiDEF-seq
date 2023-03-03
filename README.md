@@ -46,14 +46,14 @@ The analyses are performed using the CHM13 T2T v1.0 reference genome (https://gi
 ## Germline sequencing data processing
 Prior to starting the HiDEF-seq pipeline, germline sequencing data (either Illumina OR PacBio), must be processed for each sample.
 
-The scripts for performing this are in the germline_analysis folder, and instructions for running them are below.
+The scripts for performing this are in the [germline_analysis folder](https://github.com/evronylab/HiDEF-seq/tree/main/germline_analysis), and instructions for running them are below.
 
 ### A. Script requirements
 - [bwa](https://github.com/lh3/bwa) in the system PATH 
 - [samtools](http://www.htslib.org/download/) in the system PATH
 - singularity (for running DeepVariant)
 - [GATK](https://github.com/broadinstitute/gatk/releases)
-- DeepVariant: ```singularity pull docker://google/deepvariant:latest```. This makes an SIF file ('singularity image file')
+- DeepVariant: ```singularity pull docker://google/deepvariant:1.2.0```. This makes an SIF file ('singularity image file'). Note, we have used DeepVariant v1.2.0 and have not tested subsequent versions.
 - [Picard .jar file](https://github.com/broadinstitute/picard/releases/tag/2.27.5)
 - [bedGraphToBigWig](http://hgdownload.soe.ucsc.edu/admin/exe/)
 
@@ -78,7 +78,7 @@ The scripts for performing this are in the germline_analysis folder, and instruc
 
 ### C. PacBio germline sequencing data processing
 1. Install these two pbbioconda tools: pbmerge, pbmm2 (https://github.com/PacificBiosciences/pbbioconda)
-2. Index reference genome: ```pbmm2 index [chm13.draft_v1.0.fasta] [chm13.draft_v1.0.mmi]
+2. Index reference genome: ```pbmm2 index [chm13.draft_v1.0.fasta] [chm13.draft_v1.0.mmi]```
 3. Generate HiFi reads (at least 3 SMRTcells per sample)
 4. Merge HiFi reads from all SMRTcells of each sample with 'pbmerge'
 5. Align reads to the genome: ```pbmm2 align --log-level INFO -j [cpus] [chm13.draft_v1.0.mmi] [samplename.merged.hifi.bam] [samplename.merged.hifi.aligned.bam] --preset CCS --sort```

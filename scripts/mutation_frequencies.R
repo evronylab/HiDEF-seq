@@ -18,9 +18,10 @@
 #					- fwd
 #					- rev
 #					- dsDNA
-#     - trinucleotide_contexts: list of sample names (sampleid) containing information for fwd/rev/dsDNA trinucleotide context analysis (for fwd/rev: trinucleotide contexts are without collapsing, i.e. all 64 possibilities; for dsDNA: trinucleotide contexts are collapsed to 32 with central pyrmidine)
+#     - trinucleotide_contexts: list of sample names (sampleid) containing information for fwd/rev/dsDNA trinucleotide context analysis (for fwd/rev/fwdrev: trinucleotide contexts are without collapsing, i.e. all 64 possibilities; for dsDNA: trinucleotide contexts are collapsed to 32 with central pyrmidine)
 #       - fwd
 #       - rev
+#				- fwdrev (combined fwd and rev strands)
 #       - dsDNA
 #       	=> For each:
 #       	  genomefreq: trinucleotide frequencies of full genome
@@ -276,14 +277,24 @@ genome.noN.granges <- GenomicRanges::setdiff(genome.granges,Nref.granges)
 
 genome.noN.trinucleotide_counts.fwd64 <- trinucleotideFrequency(getSeq(eval(parse(text=yaml.config$BSgenomepackagename)),genome.noN.granges),simplify.as="collapsed")[trinucleotides_64]
 
+genome.noN.trinucleotide_counts.32 <- trinucleotide64to32(genome.noN.trinucleotide_counts.fwd64)
+
 genome.noN.trinucleotide_counts.rev64 <- genome.noN.trinucleotide_counts.fwd64
 names(genome.noN.trinucleotide_counts.rev64) <- reverseComplement(DNAStringSet(names(genome.noN.trinucleotide_counts.rev64)))
 genome.noN.trinucleotide_counts.rev64 <- genome.noN.trinucleotide_counts.rev64[trinucleotides_64]
 
-genome.noN.trinucleotide_counts.32 <- trinucleotide64to32(genome.noN.trinucleotide_counts.fwd64)
+#Now swap fwd and rev genome trinucleotide counts, for consistence with interrogated base contexts and call contexts that reflect the template strand (i.e., - strand for fwd calls/reads and + strand for rev calls/reads).
+genome.noN.trinucleotide_counts.originalrev64 <- genome.noN.trinucleotide_counts.rev64
+genome.noN.trinucleotide_counts.rev64 <- genome.noN.trinucleotide_counts.fwd64
+genome.noN.trinucleotide_counts.fwd64 <- genome.noN.trinucleotide_counts.originalrev64
+rm(genome.noN.trinucleotide_counts.originalrev64)
+
+#Calculate trinucleotide counts for both genome strands
+genome.noN.trinucleotide_counts.fwdrev64 <- genome.noN.trinucleotide_counts.fwd64 + genome.noN.trinucleotide_counts.rev64
 
 genome.noN.trinucleotide_freq.fwd64 <- genome.noN.trinucleotide_counts.fwd64/sum(genome.noN.trinucleotide_counts.fwd64)
 genome.noN.trinucleotide_freq.rev64 <- genome.noN.trinucleotide_counts.rev64/sum(genome.noN.trinucleotide_counts.rev64)
+genome.noN.trinucleotide_freq.fwdrev64 <- genome.noN.trinucleotide_counts.fwdrev64/sum(genome.noN.trinucleotide_counts.fwdrev64)
 genome.noN.trinucleotide_freq.32 <- genome.noN.trinucleotide_counts.32/sum(genome.noN.trinucleotide_counts.32)
   
 cat("DONE\n\n")
@@ -505,12 +516,12 @@ for(sampleid in names(bamfilezmw_all)){
       minGQquantile <- 0.5
       minDepthquantile <- 0.5
       if(all(chrs_to_analyze=="chrM")){
-        cat("    => Calculating sensitivity for known high VAF chrM variants...\n")
+        cat("    => Calculating sensitivity for known high VAF chrM variants...")
         minVAF <- 0.9
         maxVAF <- 1.0
         sensitivitygenotype <- "1.1"
       }else{
-        cat("    => Calculating sensitivity for known heterozygous germline variants...\n")
+        cat("    => Calculating sensitivity for known heterozygous germline variants...")
         minVAF <- 0.3
         maxVAF <- 0.7
         sensitivitygenotype <- "0.1"
@@ -689,36 +700,28 @@ for(sampleid in names(bamfilezmw_all)){
         
         numsensitivity_variants.output <- length(hetvariants.gr)
         sensitivity.output <- sensitivity
-        cat("       Sensitivity for",numsensitivity_variants.output,"high-quality germline variants:",sensitivity.output,"\n\n")
 
         #Remove temp files
         invisible(file.remove(pileuptempfile,zmwstempfile,paste0(zmwstempfile,".subreads.aligned.bam"),paste0(zmwstempfile,".subreads.aligned.bam.bai"),paste0(zmwstempfile,".subreads.aligned.bam.header"),paste0(zmwstempfile,".subreads.aligned.bam.sam"),paste0(zmwstempfile,".subreads.aligned.rg.bam"),paste0(zmwstempfile,".subreads.aligned.rg.bam.bai")))
       }
       
+      cat("DONE\n\n")
       
-      ##Output statistics
-      cat("    => Filtering statistics:\n\n")
+      ##Calculate statistics
+      cat("    => Calculating output statistics...")
       
       #Output fraction of total ZMWs that were filtered by ZMW filters
       numZMW_filteredbyZMWfilters_beforemaxmutperZMW.output <- length(which(includezmws==FALSE))
 	    numZMW.output <- length(zmw.granges)
 	    fracZMW_filteredbyZMWfilters_beforemaxmutperZMW.output <- numZMW_filteredbyZMWfilters_beforemaxmutperZMW.output/numZMW.output
 	      
-      cat("    Fraction of total ZMWs filtered by ZMW filters, before filter for max number of mutations per ZMW:",numZMW_filteredbyZMWfilters_beforemaxmutperZMW.output,"filtered ZMWs /",numZMW.output,"total ZMWs =",fracZMW_filteredbyZMWfilters_beforemaxmutperZMW.output,"\n")
-      cat("\n")
-
-      
       #Output fraction of total ZMWs|strands that were filtered due to number of mutations greater than threshold
       numFwdRevStrand_filtered_bymaxmutperStrand.output <- sum(length(fwd.granges[includezmws])-length(which(rp.fwd<=yaml.config$mutratefilters$maxmutationsperssdna)),length(rev.granges[includezmws])-length(which(rp.rev<=yaml.config$mutratefilters$maxmutationsperssdna)))
       numFwdRevStrand.output <- sum(length(fwd.granges),length(rev.granges))
       fracFwdRevStrand_filtered_bymaxmutperStrand.output <- numFwdRevStrand_filtered_bymaxmutperStrand.output/numFwdRevStrand.output
       numZMW_filtered_bymaxmutperZMW.output <- length(zmw.granges[includezmws])-length(which(rp.zmw<=yaml.config$mutratefilters$maxmutationsperzmw))
       fracZMW_filtered_bymaxmutperZMW.output <- numZMW_filtered_bymaxmutperZMW.output/numZMW.output
-      
-      cat("    Fraction of total strands filtered for ssDNA analysis due to number of mutations greater than maxmutationsperssdna:",numFwdRevStrand_filtered_bymaxmutperStrand.output,"filtered strands /",numFwdRevStrand.output,"total strands =",fracFwdRevStrand_filtered_bymaxmutperStrand.output,"\n")
-      cat("    Fraction of total ZMWs filtered for dsDNA analysis due to number of mutations greater than maxmutationsperzmw:",numZMW_filtered_bymaxmutperZMW.output,"filtered ZMWs /",numZMW.output,"total ZMWs =",fracZMW_filtered_bymaxmutperZMW.output,"\n")
-      cat("\n")
-      
+
       #Output fraction of total sequenced bases that were filtered by the ZMW filters
 			numFwdRevStrandBases_filteredbyZMWfilters_beforemaxmutperStrand.output <- sum(sum(width(fwd.granges[!includezmws])),sum(width(rev.granges[!includezmws])))
 			numFwdRevStrandBases.output <- sum(sum(width(fwd.granges)),sum(width(rev.granges)))
@@ -726,20 +729,12 @@ for(sampleid in names(bamfilezmw_all)){
 			numZMWBases_filteredbyZMWfilters_beforemaxmutperZMW.output <- sum(width(zmw.granges[!includezmws]))
 			numZMWBases.output <- sum(width(zmw.granges))
 			fracZMWBases_filteredbyZMWfilters_beforemaxmutperZMW.output <- numZMWBases_filteredbyZMWfilters_beforemaxmutperZMW.output/numZMWBases.output
-      
-      cat("    Fraction of total sequenced fwd+rev bases filtered for ssDNA analysis due to ZMW filters, before filter for max number of mutations per strand:",numFwdRevStrandBases_filteredbyZMWfilters_beforemaxmutperStrand.output,"filtered bases /",numFwdRevStrandBases.output,"total bases =",fracFwdRevStrandBases_filteredbyZMWfilters_beforemaxmutperStrand.output,"\n")
-      cat("    Fraction of total sequenced duplex bases filtered due to ZMW filters, before filter for max number of mutations per ZMW:",numZMWBases_filteredbyZMWfilters_beforemaxmutperZMW.output,"filtered duplex bases /",numZMWBases.output,"total duplex bases =",fracZMWBases_filteredbyZMWfilters_beforemaxmutperZMW.output,"\n")
-      
 
 			numFwdRevStrandBases_filtered_bymaxmutperStrand.output <- sum(sum(width(fwd.granges[includezmws]))-rawmutationreadbases.fwd,sum(width(rev.granges[includezmws]))-rawmutationreadbases.rev)
 			fracFwdRevStrandBases_filtered_bymaxmutperStrand.output <- numFwdRevStrandBases_filtered_bymaxmutperStrand.output/numFwdRevStrandBases.output
 			numZMWBases_filtered_bymaxmutperZMW.output <- sum(width(zmw.granges[includezmws]))-rawmutationreadbases.zmw
 			fracZMWBases_filtered_bymaxmutperZMW.output <- numZMWBases_filtered_bymaxmutperZMW.output/numZMWBases.output
-      
-      cat("    Fraction of total sequenced fwd+rev bases filtered for ssDNA analysis due to number of mutations greater than maxmutationsperssdna:",numFwdRevStrandBases_filtered_bymaxmutperStrand.output,"filtered bases /",numFwdRevStrandBases.output,"total bases =",fracFwdRevStrandBases_filtered_bymaxmutperStrand.output,"\n")
-      cat("    Fraction of total sequenced duplex bases filtered for dsDNA analysis due to number of mutations greater than maxmutationsperssdna:",numZMWBases_filtered_bymaxmutperZMW.output,"filtered duplex bases /",numZMWBases.output,"total duplex bases =",fracZMWBases_filtered_bymaxmutperZMW.output,"\n")
-      cat("\n")
-      
+
       #Output fraction of final ZMW bases (i.e. after basic ZMW filters and filters removing ZMWs with more than max number of mutations) that were filtered.
 			numFwdRevStrandBases_filtered_afterZMWfiltersandmaxmutperStrand.output <- sum(rawmutationreadbases.fwd-numbases.fwd,rawmutationreadbases.rev-numbases.rev)
 			numFwdRevStrandBases_afterZMWfilterandmaxmutperStrand.output <- sum(rawmutationreadbases.fwd,rawmutationreadbases.rev)
@@ -749,10 +744,6 @@ for(sampleid in names(bamfilezmw_all)){
 			numZMWBases_afterZMWfilterandmaxmutperZMW.output <- rawmutationreadbases.zmw
 			fracZMWBases_filtered_afterZMWfiltersandmaxmutperZMW.output <- numZMWBases_filtered_afterZMWfiltersandmaxmutperZMW.output/numZMWBases_afterZMWfilterandmaxmutperZMW.output
 			
-      cat("    Fraction fwd+rev ssDNA bases filtered from final ZMWs for ssDNA analysis:",numFwdRevStrandBases_filtered_afterZMWfiltersandmaxmutperStrand.output,"filtered bases /",numFwdRevStrandBases_afterZMWfilterandmaxmutperStrand.output,"total bases =",fracFwdRevStrandBases_filtered_afterZMWfiltersandmaxmutperStrand.output,"\n")
-      cat("    Fraction duplex bases filtered from final ZMWs for dsDNA analysis:",numZMWBases_filtered_afterZMWfiltersandmaxmutperZMW.output,"filtered duplex bases /",numZMWBases_afterZMWfilterandmaxmutperZMW.output,"total duplex bases =",fracZMWBases_filtered_afterZMWfiltersandmaxmutperZMW.output,"\n")
-      cat("\n")
-
       #Output efficiency (i.e. fraction of total bases remaining after ZMW-level and regional filters)
 			numFwdRevStrandBases_interrogated.output <- sum(numbases.fwd,numbases.rev)
 			fracFwdRevStrandBases_interrogated_from_numFwdRevStrandBases.output <- numFwdRevStrandBases_interrogated.output/numFwdRevStrandBases.output
@@ -762,19 +753,13 @@ for(sampleid in names(bamfilezmw_all)){
 			
 			numSubreadBases.output <- sum(bamfilezmw_all[[sampleid]][[genome]]$tag.fwd$ec*bamfilezmw_all[[sampleid]][[genome]]$isize.fwd,bamfilezmw_all[[sampleid]][[genome]]$tag.rev$ec*bamfilezmw_all[[sampleid]][[genome]]$isize.rev)
 			fracZMWBases_interrogated_from_numSubreadBases.output <- numZMWBases_interrogated.output/numSubreadBases.output
-      
-      cat("    => Efficiency\n")
-      cat("    Fraction fwd+rev ssDNA bases interrogated for ssDNA analysis out of total ssDNA bases sequenced (i.e. efficiency):",numFwdRevStrandBases_interrogated.output,"interrogated bases /",numFwdRevStrandBases.output,"total bases sequenced =",fracFwdRevStrandBases_interrogated_from_numFwdRevStrandBases.output,"\n")
-      cat("    Fraction duplex bases interrogated for dsDNA analysis out of total duplex bases sequenced (i.e. efficiency with max value 1.0):",numZMWBases_interrogated.output,"interrogated duplex bases /",numZMWBases.output,"total duplex bases sequenced =",fracZMWBases_interrogated_from_numZMWBases.output,"\n")
-      cat("    Fraction duplex bases interrogated for dsDNA analysis out of total subread bases sequenced:",numZMWBases_interrogated.output,"interrogated duplex bases /",numSubreadBases.output,"total subread bases sequenced =",fracZMWBases_interrogated_from_numSubreadBases.output,"\n")
-      cat("\n")
-      
-      #Output raw mutation frequencies
+
+      #Output raw call burdens
 			num_raw_FwdRevmutations.output <- sum(nummutations.fwd,nummutations.rev)
 			num_raw_FwdRevmutations_lci.output <- poisson.test(num_raw_FwdRevmutations.output)$conf.int[1]
 			num_raw_FwdRevmutations_uci.output <- poisson.test(num_raw_FwdRevmutations.output)$conf.int[2]
 			
-				 #Calculate ratio of raw lci and raw uci FwdRev mutation counts to raw FwdRev mutation count, for calculating lci and uci of corrected FwdRev burdens
+			#Calculate ratio of raw lci and raw uci FwdRev mutation counts to raw FwdRev mutation count, for calculating lci and uci of corrected FwdRev burdens
 			raw_FwdRev_lci_to_calc_ratio <- num_raw_FwdRevmutations_lci.output/num_raw_FwdRevmutations.output
 			raw_FwdRev_uci_to_calc_ratio <- num_raw_FwdRevmutations_uci.output/num_raw_FwdRevmutations.output
 			
@@ -791,7 +776,7 @@ for(sampleid in names(bamfilezmw_all)){
 			num_raw_ZMWmutations_lci.output <- poisson.test(num_raw_ZMWmutations.output)$conf.int[1]
 			num_raw_ZMWmutations_uci.output <- poisson.test(num_raw_ZMWmutations.output)$conf.int[2]
 			
-				 #Calculate ratio of raw lci and raw uci ZMW mutation counts to raw ZMW mutation count, for calculating lci and uci of corrected ZMW burdens
+			#Calculate ratio of raw lci and raw uci ZMW mutation counts to raw ZMW mutation count, for calculating lci and uci of corrected ZMW burdens
 			raw_ZMW_lci_to_calc_ratio <- num_raw_ZMWmutations_lci.output/num_raw_ZMWmutations.output
 			raw_ZMW_uci_to_calc_ratio <- num_raw_ZMWmutations_uci.output/num_raw_ZMWmutations.output
 			
@@ -803,14 +788,7 @@ for(sampleid in names(bamfilezmw_all)){
 			freq_sensCorrected_ZMWmutations.output <- num_sensCorrected_ZMWmutations.output/numZMWBases_interrogated.output
 			freq_sensCorrected_ZMWmutations_lci.output <- freq_sensCorrected_ZMWmutations.output*raw_ZMW_lci_to_calc_ratio
 			freq_sensCorrected_ZMWmutations_uci.output <- freq_sensCorrected_ZMWmutations.output*raw_ZMW_uci_to_calc_ratio
-			
-      cat("    => Raw mutation frequencies\n")
-      cat("    ssDNA mutation frequency:",num_raw_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_raw_FwdRevmutations.output,"mutations per base\n")
-      cat("    ssDNA mutation frequency (corrected for square root of dsDNA sensitivity):",num_sensCorrected_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_sensCorrected_FwdRevmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency:",num_raw_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_raw_ZMWmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency (corrected for sensitivity):",num_sensCorrected_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_sensCorrected_ZMWmutations.output,"mutations per base\n")
-      cat("\n")
-      
+
       ## Create granges objects of mutations
       fwdzmwstoinclude <- rp.fwd>0 & rp.fwd<=yaml.config$mutratefilters$maxmutationsperssdna
       revzmwstoinclude <- rp.rev>0 & rp.rev<=yaml.config$mutratefilters$maxmutationsperssdna
@@ -857,7 +835,7 @@ for(sampleid in names(bamfilezmw_all)){
  
       ## Calculate mutation frequencies corrected for trinucleotide context of analyzed portion of the genome (genomic regions remaining after regional filters).
       
-      #A. Calculate trinucleotide context counts and distributions of mutations (64 trinucleotide contexts for fwd and rev ssDNA mutations, and 32 trinucleotide contexts for dsDNA mutations)
+      #A. Calculate trinucleotide context counts and distributions of mutations (64 trinucleotide contexts for fwd and rev ssDNA mutations, 64 trinucleotide contexts for combined fwd/rev mutations, and 32 trinucleotide contexts for dsDNA mutations)
       if(nrow(fwdmutations)>0){
         fwdmutations.trinucleotide_counts64 <- trinucleotideFrequency(getSeq(eval(parse(text=yaml.config$BSgenomepackagename)),resize(fwdmutations.granges,3,fix="center")),simplify.as="collapsed")[trinucleotides_64]
         fwdmutations.trinucleotide_freq64 <- fwdmutations.trinucleotide_counts64/sum(fwdmutations.trinucleotide_counts64)
@@ -876,6 +854,8 @@ for(sampleid in names(bamfilezmw_all)){
         revmutations.trinucleotide_freq64 <- 0
       }
       
+      fwdrevmutations.trinucleotide_counts64 <- fwdmutations.trinucleotide_counts64 + revmutations.trinucleotide_counts64
+      
       if(nrow(dsDNAmutations)>0){
         dsDNAmutations.trinucleotide_counts32 <- trinucleotide64to32(trinucleotideFrequency(getSeq(eval(parse(text=yaml.config$BSgenomepackagename)),resize(dsDNAmutations.granges,3,fix="center")),simplify.as="collapsed")[trinucleotides_64])
         dsDNAmutations.trinucleotide_freq32 <- dsDNAmutations.trinucleotide_counts32/sum(dsDNAmutations.trinucleotide_counts32)
@@ -885,32 +865,43 @@ for(sampleid in names(bamfilezmw_all)){
         dsDNAmutations.trinucleotide_counts32 <- trinucleotide64to32(dsDNAmutations.trinucleotide_counts32)
       }
       
-      #B. Calculate trinucleotide context distributions of interrogated bases in genome. 64 trinucleotide contexts for fwd and rev strand regions, and 32 trinucleotide contexts for dsDNA regions. Note: this ignores regions that are < 3 base pairs.
-      genome.noN.fwdfiltered.trinucleotide_freq.fwd64 <- trinucleotideFrequency_kmc(genome.noN.granges.fwdfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=TRUE)[trinucleotides_64]
-      genome.noN.revfiltered.trinucleotide_freq.rev64 <- trinucleotideFrequency_kmc(genome.noN.granges.revfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=TRUE)[trinucleotides_64]
-      genome.noN.zmwfiltered.trinucleotide_freq.32 <- trinucleotide64to32(trinucleotideFrequency_kmc(genome.noN.granges.zmwfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=TRUE)[trinucleotides_64])
+      #B. Calculate trinucleotide context distributions of interrogated bases in genome. 64 trinucleotide contexts for fwd and rev strand regions, 64 trinucleotide contexts for combined fwd/rev strand regions, and 32 trinucleotide contexts for dsDNA regions. Note: this ignores regions that are < 3 base pairs.
+      genome.noN.fwdfiltered.trinucleotide_counts.fwd64 <- trinucleotideFrequency_kmc(genome.noN.granges.fwdfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64]
+      genome.noN.revfiltered.trinucleotide_counts.rev64 <- trinucleotideFrequency_kmc(genome.noN.granges.revfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64]
+      genome.noN.fwdrevfiltered.trinucleotide_counts.fwdrev64 <- genome.noN.fwdfiltered.trinucleotide_counts.fwd64 + genome.noN.revfiltered.trinucleotide_counts.rev64
+      genome.noN.zmwfiltered.trinucleotide_counts.32 <- trinucleotide64to32(trinucleotideFrequency_kmc(genome.noN.granges.zmwfiltered,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64])
 
-      #C. Calculate trinucleotide context counts and distributions of interrogated bases in reads. 64 trinucleotide context for fwd and rev strand mutation reads, and 32 context for dsDNA mutation reads. Note: this ignores regions that are < 3 base pairs.
+      genome.noN.fwdfiltered.trinucleotide_freq.fwd64 <- genome.noN.fwdfiltered.trinucleotide_counts.fwd64/sum(genome.noN.fwdfiltered.trinucleotide_counts.fwd64)
+      genome.noN.revfiltered.trinucleotide_freq.rev64 <- genome.noN.revfiltered.trinucleotide_counts.rev64/sum(genome.noN.revfiltered.trinucleotide_counts.rev64)
+      genome.noN.fwdrevfiltered.trinucleotide_freq.fwdrev64 <- genome.noN.fwdrevfiltered.trinucleotide_counts.fwdrev64/sum(genome.noN.fwdrevfiltered.trinucleotide_counts.fwdrev64)
+      genome.noN.zmwfiltered.trinucleotide_freq.32 <- genome.noN.zmwfiltered.trinucleotide_counts.32/sum(genome.noN.zmwfiltered.trinucleotide_counts.32)
+      
+      #C. Calculate trinucleotide context counts and distributions of interrogated bases in reads. 64 trinucleotide context for fwd and rev strand mutation reads, 64 trinucleotide context for combined fwd/rev strand mutation reads, and 32 context for dsDNA mutation reads. Note: this ignores regions that are < 3 base pairs.
       mutationreads.fwd.trinucleotide_counts.fwd64 <- trinucleotideFrequency_kmc(mutationreads.fwd,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64]
       mutationreads.rev.trinucleotide_counts.rev64 <- trinucleotideFrequency_kmc(mutationreads.rev,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64]
+      mutationreads.fwdrev.trinucleotide_counts.fwdrev64 <- mutationreads.fwd.trinucleotide_counts.fwd64 + mutationreads.rev.trinucleotide_counts.rev64
       mutationreads.zmw.trinucleotide_counts.32 <- trinucleotide64to32(trinucleotideFrequency_kmc(mutationreads.zmw,yaml.config$fastaref,yaml.config$kmc_bindir,yaml.config$seqkit_bin,as.prob=FALSE)[trinucleotides_64])
       
       mutationreads.fwd.trinucleotide_freq.fwd64 <- mutationreads.fwd.trinucleotide_counts.fwd64/sum(mutationreads.fwd.trinucleotide_counts.fwd64)
       mutationreads.rev.trinucleotide_freq.rev64 <- mutationreads.rev.trinucleotide_counts.rev64/sum(mutationreads.rev.trinucleotide_counts.rev64)
+      mutationreads.fwdrev.trinucleotide_freq.fwdrev64 <- mutationreads.fwdrev.trinucleotide_counts.fwdrev64/sum(mutationreads.fwdrev.trinucleotide_counts.fwdrev64)
       mutationreads.zmw.trinucleotide_freq.32 <- mutationreads.zmw.trinucleotide_counts.32/sum(mutationreads.zmw.trinucleotide_counts.32)
 
-      #D. Correct fwd, rev, zmw trinucleotide mutation counts for ratio of trinucleotide context distributions of interrogated bases in the genome to interrogated bases in the reads. For any trinucleotide context for which the fraction of the trinucleotide in the interrogated bases in the reads is 0, the final corrected mutation count will result in NaN, because when dividing the interrogated bases in the genome by an interrogated bases in reads fraction of 0 will lead to 'Inf', which then multiplied by the raw mutation count will equal NaN. However, in these edge cases, the correct mutation count is set to 0, because it should not be possible to detect a mutation in a trinucleotide context that was not interrogated in the reads.
+      #D. Correct fwd, rev, fwd/rev combined, and zmw trinucleotide mutation counts for ratio of trinucleotide context distributions of interrogated bases in the genome to interrogated bases in the reads. For any trinucleotide context for which the fraction of the trinucleotide in the interrogated bases in the reads is 0, the final corrected mutation count will result in NaN, because when dividing the interrogated bases in the genome by an interrogated bases in reads fraction of 0 will lead to 'Inf', which then multiplied by the raw mutation count will equal NaN. However, in these edge cases, the correct mutation count is set to 0, because it should not be possible to detect a mutation in a trinucleotide context that was not interrogated in the reads.
         fwdmutations.trinucleotide_counts64.filteredgenomecorrected <- apply(merge3way(fwdmutations.trinucleotide_counts64,genome.noN.fwdfiltered.trinucleotide_freq.fwd64,mutationreads.fwd.trinucleotide_freq.fwd64),1,function(x){x[1]*x[2]/x[3]})
         fwdmutations.trinucleotide_counts64.filteredgenomecorrected[is.na(fwdmutations.trinucleotide_counts64.filteredgenomecorrected)] <- 0
       
         revmutations.trinucleotide_counts64.filteredgenomecorrected <- apply(merge3way(revmutations.trinucleotide_counts64,genome.noN.revfiltered.trinucleotide_freq.rev64,mutationreads.rev.trinucleotide_freq.rev64),1,function(x){x[1]*x[2]/x[3]})
         revmutations.trinucleotide_counts64.filteredgenomecorrected[is.na(revmutations.trinucleotide_counts64.filteredgenomecorrected)] <- 0
+        
+        fwdrevmutations.trinucleotide_counts64.filteredgenomecorrected <- apply(merge3way(fwdrevmutations.trinucleotide_counts64,genome.noN.fwdrevfiltered.trinucleotide_freq.fwdrev64,mutationreads.fwdrev.trinucleotide_freq.fwdrev64),1,function(x){x[1]*x[2]/x[3]})
+        fwdrevmutations.trinucleotide_counts64.filteredgenomecorrected[is.na(fwdrevmutations.trinucleotide_counts64.filteredgenomecorrected)] <- 0
       
         dsDNAmutations.trinucleotide_counts32.filteredgenomecorrected <- apply(merge3way(dsDNAmutations.trinucleotide_counts32,genome.noN.zmwfiltered.trinucleotide_freq.32,mutationreads.zmw.trinucleotide_freq.32),1,function(x){x[1]*x[2]/x[3]})
         dsDNAmutations.trinucleotide_counts32.filteredgenomecorrected[is.na(dsDNAmutations.trinucleotide_counts32.filteredgenomecorrected)] <- 0
       
-      #E. Output mutation frequencies
-      num_interrogatedgenomeCorrected_FwdRevmutations.output <- sum(fwdmutations.trinucleotide_counts64.filteredgenomecorrected,revmutations.trinucleotide_counts64.filteredgenomecorrected)
+      #E. Output mutation frequencies corrected for trinucleotide context of interrogated bases in the genome
+      num_interrogatedgenomeCorrected_FwdRevmutations.output <- sum(fwdrevmutations.trinucleotide_counts64.filteredgenomecorrected)
 			freq_interrogatedgenomeCorrected_FwdRevmutations.output <- num_interrogatedgenomeCorrected_FwdRevmutations.output/numFwdRevStrandBases_interrogated.output
 			freq_interrogatedgenomeCorrected_FwdRevmutations_lci.output <- freq_interrogatedgenomeCorrected_FwdRevmutations.output*raw_FwdRev_lci_to_calc_ratio
 			freq_interrogatedgenomeCorrected_FwdRevmutations_uci.output <- freq_interrogatedgenomeCorrected_FwdRevmutations.output*raw_FwdRev_uci_to_calc_ratio
@@ -929,14 +920,7 @@ for(sampleid in names(bamfilezmw_all)){
 			freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output <- num_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output/numZMWBases_interrogated.output
 			freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations_lci.output <- freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output*raw_ZMW_lci_to_calc_ratio
 			freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations_uci.output <- freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output*raw_ZMW_uci_to_calc_ratio
-        
-      cat("    => Mutation frequencies corrected for trinucleotide context in analyzed portion of the genome\n")
-      cat("    ssDNA mutation frequency:",num_interrogatedgenomeCorrected_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_interrogatedgenomeCorrected_FwdRevmutations.output,"mutations per base\n")
-      cat("    ssDNA mutation frequency (corrected for square root of dsDNA sensitivity):",num_sensCorrected_interrogatedgenomeCorrected_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_sensCorrected_interrogatedgenomeCorrected_FwdRevmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency:",num_interrogatedgenomeCorrected_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_interrogatedgenomeCorrected_ZMWmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency (corrected for sensitivity):",num_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_sensCorrected_interrogatedgenomeCorrected_ZMWmutations.output,"mutations per base\n")
-      cat("\n")
-      
+
       ## Calculate: 1) Mutation frequencies corrected for trinucleotide context of full genome; 2) Genome-wide mutation burdens per haploid and diploid cell, which assumes that the mutation rate in the regions of the genome that are not analyzed (i.e. filtered out) are the same as regions of the genome that were analyzed; and, 3) Haploid equivalents that were interrogated for each sample.
 
       #A. Correct fwd, rev, zmw trinucleotide mutation counts for ratio of trinucleotide context distributions of full genome to interrogated bases in the reads. For any trinucleotide context for which the fraction of the trinucleotide in the interrogated bases in the reads is 0, the final corrected mutation count will result in NaN, because when dividing the interrogated bases in the genome by an interrogated bases in reads fraction of 0 will lead to 'Inf', which then multiplied by the raw mutation count will equal NaN. However, in these cases, the correct mutation count is set to 0, because it should not be possible to detect a mutation in a trinucleotide context that was not interrogated in the reads. Nevertheless, this will skew the results, because technically in a full genome, these sites are present in the genome. Therefore, we will output in the results which trinucleotides contexts in the interrogated base distribution had a count of 0.
@@ -947,13 +931,17 @@ for(sampleid in names(bamfilezmw_all)){
       revmutations.trinucleotide_counts64.genomecorrected <- apply(merge3way(revmutations.trinucleotide_counts64,genome.noN.trinucleotide_freq.rev64,mutationreads.rev.trinucleotide_freq.rev64),1,function(x){x[1]*x[2]/x[3]})
       revmutations.trinucleotide_counts64.genomecorrected[is.na(revmutations.trinucleotide_counts64.genomecorrected)] <- 0
       mutationreads.rev.trinucleotidesmissing <- names(mutationreads.rev.trinucleotide_freq.rev64)[mutationreads.rev.trinucleotide_freq.rev64==0]
+
+			fwdrevmutations.trinucleotide_counts64.genomecorrected <- apply(merge3way(fwdrevmutations.trinucleotide_counts64,genome.noN.trinucleotide_freq.fwdrev64,mutationreads.fwdrev.trinucleotide_freq.fwdrev64),1,function(x){x[1]*x[2]/x[3]})
+      fwdrevmutations.trinucleotide_counts64.genomecorrected[is.na(fwdrevmutations.trinucleotide_counts64.genomecorrected)] <- 0
+      mutationreads.fwdrev.trinucleotidesmissing <- names(mutationreads.fwdrev.trinucleotide_freq.fwdrev64)[mutationreads.fwdrev.trinucleotide_freq.fwdrev64==0]
       
       dsDNAmutations.trinucleotide_counts32.genomecorrected <- apply(merge3way(dsDNAmutations.trinucleotide_counts32,genome.noN.trinucleotide_freq.32,mutationreads.zmw.trinucleotide_freq.32),1,function(x){x[1]*x[2]/x[3]})
       dsDNAmutations.trinucleotide_counts32.genomecorrected[is.na(dsDNAmutations.trinucleotide_counts32.genomecorrected)] <- 0
       mutationreads.zmw.trinucleotidesmissing <- names(mutationreads.zmw.trinucleotide_freq.32)[mutationreads.zmw.trinucleotide_freq.32==0]
       
-      #B. Output mutation frequencies
-			num_fullgenomeCorrected_FwdRevmutations.output <- sum(fwdmutations.trinucleotide_counts64.genomecorrected,revmutations.trinucleotide_counts64.genomecorrected)
+      #B. Output mutation frequencies corrected for trinucleotide context of full genome
+			num_fullgenomeCorrected_FwdRevmutations.output <- sum(fwdrevmutations.trinucleotide_counts64.genomecorrected)
 			freq_fullgenomeCorrected_FwdRevmutations.output <- num_fullgenomeCorrected_FwdRevmutations.output/numFwdRevStrandBases_interrogated.output
 			freq_fullgenomeCorrected_FwdRevmutations_lci.output <- freq_fullgenomeCorrected_FwdRevmutations.output*raw_FwdRev_lci_to_calc_ratio
 			freq_fullgenomeCorrected_FwdRevmutations_uci.output <- freq_fullgenomeCorrected_FwdRevmutations.output*raw_FwdRev_uci_to_calc_ratio
@@ -972,17 +960,10 @@ for(sampleid in names(bamfilezmw_all)){
 			freq_sensCorrected_fullgenomeCorrected_ZMWmutations.output <- num_sensCorrected_fullgenomeCorrected_ZMWmutations.output/numZMWBases_interrogated.output
 			freq_sensCorrected_fullgenomeCorrected_ZMWmutations_lci.output <- freq_sensCorrected_fullgenomeCorrected_ZMWmutations.output*raw_ZMW_lci_to_calc_ratio
 			freq_sensCorrected_fullgenomeCorrected_ZMWmutations_uci.output <- freq_sensCorrected_fullgenomeCorrected_ZMWmutations.output*raw_ZMW_uci_to_calc_ratio
-
-      cat("    => Mutation frequencies corrected for trinucleotide context across full genome\n")
-      cat("    ssDNA mutation frequency:",num_fullgenomeCorrected_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_fullgenomeCorrected_FwdRevmutations.output,"mutations per base\n")
-      cat("    ssDNA mutation frequency (corrected for square root of dsDNA sensitivity):",num_sensCorrected_fullgenomeCorrected_FwdRevmutations.output,"mutations /",numFwdRevStrandBases_interrogated.output,"bases =",freq_sensCorrected_fullgenomeCorrected_FwdRevmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency:",num_fullgenomeCorrected_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_fullgenomeCorrected_ZMWmutations.output,"mutations per base\n")
-      cat("    dsDNA mutation frequency (corrected for sensitivity):",num_sensCorrected_fullgenomeCorrected_ZMWmutations.output,"mutations /",numZMWBases_interrogated.output,"bases =",freq_sensCorrected_fullgenomeCorrected_ZMWmutations.output,"mutations per base\n")
-      
-      cat("      Trinucleotide contexts missing from interrogated bases of ssDNA reads:",paste(c(mutationreads.fwd.trinucleotidesmissing,mutationreads.rev.trinucleotidesmissing),collapse=","),"\n")
-      cat("      Trinucleotide contexts missing from interrogated bases of dsDNA reads:",paste(mutationreads.zmw.trinucleotidesmissing,collapse=","),"\n")
-      cat("\n")
-      
+			
+			FwdRev_interrogatedbases_trinucleotides_missing.output <- paste(mutationreads.fwdrev.trinucleotidesmissing,collapse=",")
+			ZMW_interrogatedbases_trinucleotides_missing.output <- paste(mutationreads.zmw.trinucleotidesmissing,collapse=",")
+			
       #C. Extrapolate fwd, rev, zmw mutation frequencies to haploid and diploid genome-corrected mutation burden counts. Note, this only extrapolates to chromosomes being analyzed per the configuration file (i.e. usually chr1-22 + chrX). For any trinucleotide context for which the number of counts of a trinucleotide context in the interrogated bases in the reads is 0, the final corrected mutation count will result in NaN, because dividing the interrogated bases in the genome by an interrogated bases in reads fraction of 0 will lead to 'Inf', which then multiplied by the raw mutation count will equal NaN. However, in these cases, the correct mutation count for that trinucleotide context is set to 0, because it should not be possible to detect a mutation in a trinucleotide context that was not interrogated in the reads. Nevertheless, this will skew the results, because technically in a full genome, these sites are present in the genome. Therefore, we will output in the results which trinucleotides contexts in the interrogated bases distribution had a count of 0.
       fwdmutations.genomecorrected.haploidcounts64 <- apply(merge3way(fwdmutations.trinucleotide_counts64,genome.noN.trinucleotide_counts.fwd64,mutationreads.fwd.trinucleotide_counts.fwd64),1,function(x){x[1]*x[2]/x[3]})
       fwdmutations.genomecorrected.haploidcounts64[is.na(fwdmutations.genomecorrected.haploidcounts64)] <- 0
@@ -990,11 +971,14 @@ for(sampleid in names(bamfilezmw_all)){
       revmutations.genomecorrected.haploidcounts64 <- apply(merge3way(revmutations.trinucleotide_counts64,genome.noN.trinucleotide_counts.rev64,mutationreads.rev.trinucleotide_counts.rev64),1,function(x){x[1]*x[2]/x[3]})
       revmutations.genomecorrected.haploidcounts64[is.na(revmutations.genomecorrected.haploidcounts64)] <- 0
 
+      fwdrevmutations.genomecorrected.haploidcounts64 <- apply(merge3way(fwdrevmutations.trinucleotide_counts64,genome.noN.trinucleotide_counts.fwdrev64,mutationreads.fwdrev.trinucleotide_counts.fwdrev64),1,function(x){x[1]*x[2]/x[3]})
+      fwdrevmutations.genomecorrected.haploidcounts64[is.na(fwdrevmutations.genomecorrected.haploidcounts64)] <- 0
+      
       dsDNAmutations.genomecorrected.haploidcounts32 <- apply(merge3way(dsDNAmutations.trinucleotide_counts32,genome.noN.trinucleotide_counts.32,mutationreads.zmw.trinucleotide_counts.32),1,function(x){x[1]*x[2]/x[3]})
       dsDNAmutations.genomecorrected.haploidcounts32[is.na(dsDNAmutations.genomecorrected.haploidcounts32)] <- 0
       
-      #D. Output haploid and diploid genome-wide mutation burdens per cell, and haploid equivalents that were sequenced, as well as (95%) confidence intervals.
-			num_fullgenomeCorrected_FwdRevmutations.perHaploid.output <- sum(fwdmutations.genomecorrected.haploidcounts64,revmutations.genomecorrected.haploidcounts64)
+      #D. Output haploid and diploid genome-wide mutation burdens per cell, and haploid equivalents that were sequenced, as well as (95%) confidence intervals, corrected for full genome
+			num_fullgenomeCorrected_FwdRevmutations.perHaploid.output <- sum(fwdrevmutations.genomecorrected.haploidcounts64)
 			num_fullgenomeCorrected_FwdRevmutations.perHaploid_lci.output <- num_fullgenomeCorrected_FwdRevmutations.perHaploid.output*raw_FwdRev_lci_to_calc_ratio
 			num_fullgenomeCorrected_FwdRevmutations.perHaploid_uci.output <- num_fullgenomeCorrected_FwdRevmutations.perHaploid.output*raw_FwdRev_uci_to_calc_ratio
 			
@@ -1028,23 +1012,7 @@ for(sampleid in names(bamfilezmw_all)){
 			
 			num_dsDNAhaploidequivalents_interrogated_in_FwdRevreads.output <- (numFwdRevStrandBases_interrogated.output/2)/sum(width(genome.noN.granges))
 			num_dsDNAhaploidequivalents_interrogated_in_ZMWreads.output <- numZMWBases_interrogated.output/sum(width(genome.noN.granges))
-      
-      cat("    => Mutation counts per haploid and diploid genome corrected for trinucleotide context across full genome\n")
-      cat("    ssDNA mutation count:",num_fullgenomeCorrected_FwdRevmutations.perHaploid.output,"mutations per haploid genome\n")
-      cat("    ssDNA mutation count (corrected for square root of dsDNA sensitivity):",num_sensCorrected_fullgenomeCorrected_FwdRevmutations.perHaploid.output,"mutations per haploid genome\n")
-      cat("    ssDNA mutation count:",num_fullgenomeCorrected_FwdRevmutations.perDiploid.output,"mutations per diploid genome\n")
-      cat("    ssDNA mutation count (corrected for square root of dsDNA sensitivity):",num_sensCorrected_fullgenomeCorrected_FwdRevmutations.perDiploid.output,"mutations per diploid genome\n")
-      
-      cat("    dsDNA mutation count:",num_fullgenomeCorrected_ZMWmutations.perHaploid.output,"mutations per haploid genome\n")
-      cat("    dsDNA mutation count (corrected for sensitivity):",num_sensCorrected_fullgenomeCorrected_ZMWmutations.perHaploid.output,"mutations per haploid genome\n")
-      cat("    dsDNA mutation count:",num_fullgenomeCorrected_ZMWmutations.perDiploid.output,"mutations per diploid genome\n")
-      cat("    dsDNA mutation count (corrected for sensitivity):",num_sensCorrected_fullgenomeCorrected_ZMWmutations.perDiploid.output,"mutations per diploid genome\n")
-      
-      cat("    Double-strand haploid equivalents interrogated in ssDNA reads:",num_dsDNAhaploidequivalents_interrogated_in_FwdRevreads.output,"\n")
-      cat("    Double-strand haploid equivalents interrogated in dsDNA reads:",num_dsDNAhaploidequivalents_interrogated_in_ZMWreads.output,"\n")
-      
-      cat("\n")
-      
+
       ##Save output calculations in data frame
       temp.df <- data.frame(sampleid=sampleid,genome=genome,filterid=filterindex,
 				numsensitivity_variants=numsensitivity_variants.output,sensitivity=sensitivity.output,
@@ -1098,6 +1066,8 @@ for(sampleid in names(bamfilezmw_all)){
 				freq_sensCorrected_ZMWmutations=freq_sensCorrected_ZMWmutations.output,
 				freq_sensCorrected_ZMWmutations_lci=freq_sensCorrected_ZMWmutations_lci.output,
 				freq_sensCorrected_ZMWmutations_uci=freq_sensCorrected_ZMWmutations_uci.output,
+				FwdRev_interrogatedbases_trinucleotides_missing=FwdRev_interrogatedbases_trinucleotides_missing.output,
+				ZMW_interrogatedbases_trinucleotides_missing=ZMW_interrogatedbases_trinucleotides_missing.output,
 				num_interrogatedgenomeCorrected_FwdRevmutations=num_interrogatedgenomeCorrected_FwdRevmutations.output,
 				freq_interrogatedgenomeCorrected_FwdRevmutations=freq_interrogatedgenomeCorrected_FwdRevmutations.output,
 				freq_interrogatedgenomeCorrected_FwdRevmutations_lci=freq_interrogatedgenomeCorrected_FwdRevmutations_lci.output,
@@ -1160,34 +1130,43 @@ for(sampleid in names(bamfilezmw_all)){
       
       output.df <- rbind(output.df,temp.df)
       
-      ##Save fwd, rev, dsDNA mutations, trinucleotide context distributions of mutations, interrogated read bases, interrogated genome, and full genome. This will be used in subsequent mutational signature analyses.
+      ##Save fwd, rev, combined fwd/rev, dsDNA mutations, trinucleotide context distributions of mutations, interrogated read bases, interrogated genome, and full genome. This will be used in subsequent mutational signature analyses.
       mutations[[samplename]]$fwd <- fwdmutations.granges
       mutations[[samplename]]$rev <- revmutations.granges
+      mutations[[samplename]]$fwdrev <- c(fwdmutations.granges,revmutations.granges)
       mutations[[samplename]]$dsDNA <- dsDNAmutations.granges
       
       trinucleotide_contexts[[samplename]]$fwd$genomefreq <- genome.noN.trinucleotide_freq.fwd64
       trinucleotide_contexts[[samplename]]$rev$genomefreq <- genome.noN.trinucleotide_freq.rev64
+      trinucleotide_contexts[[samplename]]$fwdrev$genomefreq <- genome.noN.trinucleotide_freq.fwdrev64
       trinucleotide_contexts[[samplename]]$dsDNA$genomefreq <- genome.noN.trinucleotide_freq.32
       
       trinucleotide_contexts[[samplename]]$fwd$filteredgenomefreq <- genome.noN.fwdfiltered.trinucleotide_freq.fwd64
       trinucleotide_contexts[[samplename]]$rev$filteredgenomefreq <- genome.noN.revfiltered.trinucleotide_freq.rev64
+      trinucleotide_contexts[[samplename]]$fwdrev$filteredgenomefreq <- genome.noN.fwdrevfiltered.trinucleotide_freq.fwdrev64
       trinucleotide_contexts[[samplename]]$dsDNA$filteredgenomefreq <- genome.noN.zmwfiltered.trinucleotide_freq.32
       
       trinucleotide_contexts[[samplename]]$fwd$mutationreadsfreq <- mutationreads.fwd.trinucleotide_freq.fwd64
       trinucleotide_contexts[[samplename]]$rev$mutationreadsfreq <- mutationreads.rev.trinucleotide_freq.rev64
+      trinucleotide_contexts[[samplename]]$fwdrev$mutationreadsfreq <- mutationreads.fwdrev.trinucleotide_freq.fwdrev64
       trinucleotide_contexts[[samplename]]$dsDNA$mutationreadsfreq <- mutationreads.zmw.trinucleotide_freq.32
 
       trinucleotide_contexts[[samplename]]$fwd$mutationcounts <- fwdmutations.trinucleotide_counts64
       trinucleotide_contexts[[samplename]]$rev$mutationcounts <- revmutations.trinucleotide_counts64
+      trinucleotide_contexts[[samplename]]$fwdrev$mutationcounts <- fwdrevmutations.trinucleotide_counts64
       trinucleotide_contexts[[samplename]]$dsDNA$mutationcounts <- dsDNAmutations.trinucleotide_counts32
                   
       trinucleotide_contexts[[samplename]]$fwd$mutationcounts.genomecorrected <- fwdmutations.trinucleotide_counts64.genomecorrected
       trinucleotide_contexts[[samplename]]$rev$mutationcounts.genomecorrected <- revmutations.trinucleotide_counts64.genomecorrected
+      trinucleotide_contexts[[samplename]]$fwdrev$mutationcounts.genomecorrected <- fwdrevmutations.trinucleotide_counts64.genomecorrected
       trinucleotide_contexts[[samplename]]$dsDNA$mutationcounts.genomecorrected <- dsDNAmutations.trinucleotide_counts32.genomecorrected
 
       trinucleotide_contexts[[samplename]]$fwd$mutationcounts.filteredgenomecorrected <- fwdmutations.trinucleotide_counts64.filteredgenomecorrected
       trinucleotide_contexts[[samplename]]$rev$mutationcounts.filteredgenomecorrected <- revmutations.trinucleotide_counts64.filteredgenomecorrected
+      trinucleotide_contexts[[samplename]]$fwdrev$mutationcounts.filteredgenomecorrected <- fwdrevmutations.trinucleotide_counts64.filteredgenomecorrected
       trinucleotide_contexts[[samplename]]$dsDNA$mutationcounts.filteredgenomecorrected <- dsDNAmutations.trinucleotide_counts32.filteredgenomecorrected
+      
+      cat("DONE\n\n")
     
     }
   }

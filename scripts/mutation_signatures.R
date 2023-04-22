@@ -21,8 +21,6 @@ suppressPackageStartupMessages(library(Biostrings))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(rtracklayer))
-# suppressPackageStartupMessages(library(signature.tools.lib))
-# suppressPackageStartupMessages(library(MutationalPatterns))
 
 ######
 #Load configuration
@@ -61,45 +59,6 @@ numsamples <- length(samplenames)
 
 mutation_signatures <- list() #Output for results to save to mutation_signatures.RDS
 
-######
-#signature.tools.lib: Plot ssDNA and dsDNA mutational signatures
-######
-
-# #Function to subset from a signature.tools.lib *uncollapsed* (192 tnc) mutation catalogue either mutations with central purine, or mutations with central pyrimidine, and output them to a new catalogue that is labeled with central pyrimidine row names even if central purine was selected. This will allow for plotting of each strand separately using signature.tools.lib followed by manual renaming of mutation legend for central purine plot.
-# signature.tools.lib_Cat_pur_pyr <- function(x,type=c("purine","pyrimidine")){
-#   if(type=="purine"){
-#     output <- x[grep("A|G",substr(rownames(x),3,3)),]
-#     leftnucleotide <- reverseComplement(DNAStringSet(substr(rownames(output),7,7)))
-#     rightnucleotide <- reverseComplement(DNAStringSet(substr(rownames(output),1,1)))
-#     refnucleotide <- reverseComplement(DNAStringSet(substr(rownames(output),3,3)))
-#     altnucleotide <- reverseComplement(DNAStringSet(substr(rownames(output),5,5)))
-#     
-#     rownames(output) <- paste0(leftnucleotide,"[",refnucleotide,">",altnucleotide,"]",rightnucleotide)
-#     output <- output[order(match(rownames(output),rownames(x)[grep("C|T",substr(rownames(x),3,3))])),]
-#       
-#   }else if(type=="pyrimidine"){
-#     output <- x[grep("C|T",substr(rownames(x),3,3)),]
-#   }
-#   
-#   return(output)
-# }
-
-# ssDNA signatures: central pyrimidine and purine separately
-# par(mfrow=c(ceiling(numsamples/2),2))
-# 
-# plotSubsSignatures(signature.tools.lib_Cat_pur_pyr(mutation_frequencies$signature.tools.lib$ssDNA,"pyrimidine"),output_file=paste0(yaml.config$analysisoutput_path,"/signature.tools.lib.mutation_frequencies.ssDNA.pyrimidine.pdf"))
-# 
-# plotSubsSignatures(signature.tools.lib_Cat_pur_pyr(mutation_frequencies$signature.tools.lib$ssDNA,"purine"),output_file=paste0(yaml.config$analysisoutput_path,"/signature.tools.lib.mutation_frequencies.ssDNA.purine.pdf"))
-# 
-# #ssDNA signatures: collapsed to 96 tnc
-# par(mfrow=c(ceiling(numsamples/2),2))
-# 
-# plotSubsSignatures(mutation_frequencies$signature.tools.libcollapsed$ssDNA,output_file=paste0(yaml.config$analysisoutput_path,"/signature.tools.lib.mutation_frequencies.ssDNA.collapsed.pdf"))
-# 
-# #dsDNA signatures: collapsed to 96 tnc
-# par(mfrow=c(ceiling(numsamples/2),2))
-# 
-# plotSubsSignatures(mutation_frequencies$signature.tools.libcollapsed$dsDNA,output_file=paste0(yaml.config$analysisoutput_path,"/signature.tools.lib.mutation_frequencies.dsDNA.pdf"))
 
 ######
 #Sigfit: Load general data required for analysis
@@ -155,7 +114,7 @@ if(nrow(mutation_frequencies$SigFitcollapsed$dsDNA)==0){
 	}
 	plot_spectrum(dsDNA.probability.uncorrected,pdf_path=paste0(yaml.config$analysisoutput_path,"/sigfit.dsDNA.probability.uncorrected.pdf"))
 	
-	dsDNA.probability.corrected <- (SigFit_dsDNA_catalogue/mutation_opportunities)/rowSums(SigFit_dsDNA_catalogue/mutation_opportunities)
+	dsDNA.probability.corrected <- (SigFit_dsDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,])/rowSums(SigFit_dsDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,])
 		#Change samples with no mutations to all 0s instead of NA
 	for(i in 1:nrow(dsDNA.probability.corrected)){
 		if(all(is.na(dsDNA.probability.corrected[i,]))){
@@ -166,7 +125,7 @@ if(nrow(mutation_frequencies$SigFitcollapsed$dsDNA)==0){
 	
 	#Output observed and corrected counts into tables
 	write.table(SigFit_dsDNA_catalogue,paste0(yaml.config$analysisoutput_path,"/dsDNA.trinuc.counts.uncorrected.txt"),quote=FALSE,sep="\t",col.names=NA)
-	write.table(SigFit_dsDNA_catalogue/mutation_opportunities,paste0(yaml.config$analysisoutput_path,"/dsDNA.trinuc.counts.corrected.txt"),quote=FALSE,sep="\t",col.names=NA)
+	write.table(SigFit_dsDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,],paste0(yaml.config$analysisoutput_path,"/dsDNA.trinuc.counts.corrected.txt"),quote=FALSE,sep="\t",col.names=NA)
 	
 	##Fit signatures to known COSMIC signatures, and plot spectra, exposures, and reconstruction
 	SigFit_dsDNA_fit_signatures <- list()
@@ -221,7 +180,7 @@ if(nrow(mutation_frequencies$SigFitcollapsed$dsDNA)==0){
 ######
 #Sigfit: ssDNA UNCOLLAPSED mutational signatures plotting
 ######
-#This uses Sigfit's capability of analyzing transcribed vs untranscribed strand mutations to separate central pyrimidine mutation context (which we arbitrarily annotate as transcribed strand) vs central purine mutation context (which we arbitrarily annotate as untranscribed strand). Important to note that transcribed/untranscribed does NOT actually correspond to transcriptional strand, but simply central pyrimidine vs central purine mutation contexts, respectively.
+#This uses Sigfit's capability of analyzing transcribed vs untranscribed strand mutations to separate central pyrimidine mutation context (which we arbitrarily annotate as transcribed strand) vs central purine mutation context (which we arbitrarily annotate as untranscribed strand). Important to note that transcribed and untranscribed do NOT actually correspond to transcriptional strand, but simply central pyrimidine vs central purine mutation contexts, respectively.
 
 cat("#### ssDNA uncollapsed mutation signature analysis...\n")
 
@@ -240,28 +199,31 @@ if(nrow(mutation_frequencies$SigFit$ssDNA)==0){
 		rownames(SigFit_ssDNA_catalogue)[nrow(SigFit_ssDNA_catalogue)] <- i
 	}
 	SigFit_ssDNA_catalogue <- SigFit_ssDNA_catalogue[samplenames,]
-	
+
 	##Create matrix of mutational opportunities for each sample. Since this is a ssDNA analysis separated by central pyrimidine vs central purine, this is created as follows:
-	# 1) Calculate the average of fwd and rev strand nterrogated read trinucleotide frequencies, because we are jointly analyzing fwd and rev strand mutations
-	#	2) Separate trinucleotide frequencies for central pyrimidine from those for central purine, and reverse complement the labels of the central purine trinucleotide frequencies. Note that the labels of the central purine trinucleotides were reverse complemented in the prior step so that the labels can be matched up to the genome trinucleotide frequencies that are only specified for central pyrimidines.
-	# 3) Divide the central pyrimidine and central purine trinucleotide frequencies by their respective sums.
-	# 4) Divide the human reference genome trinucleotide frequencies by its sum.
-	# 5) Divide (3) by (4).
-	# 6) Concatenate the resulting central pyrimidine and central purine frequencies from (3), so that central pyrimidine and central purine frequencies are in the positions corresponding to transcribed and untranscribed strand mutations, respectively.
+	#	1) Separate trinucleotide frequencies for central pyrimidine from those for central purine, and reverse complement the labels of the central purine trinucleotide frequencies.
+	#	2) Retrieve 96 central pyrimidine trinucleotide contexts in correct order from each of the 32 trinucleotide context central pyrimidine and central purine trinucleotide frequencies.
+	# 3) Concatenate the 96 central pyrimidine and 96 central purine trinucleotide frequencies into a 192 trinucleotide frequencies vector, so that central pyrimidine and central purine frequencies are in the positions corresponding to transcribed and untranscribed strand mutations, respectively.
+	# 4) Divide the 192 trinucleotide frequencies by their sum
+	# 5) Divide the human reference genome trinucleotide frequencies (repeated twice in tandem, since each genome context is the frequency both for the central pyrimidine and central purine contexts; i.e. they are the same) by their sum (i.e. sum of the repeated twice in tandem frequencies).
+	# 6) Divide (4) by (5).
 	# This produces a mutational opportunity matrix reflecting the residual over/under opportunity of our method beyond the baseline trinucleotide distribution of the human genome. For example, if a specific trinucleotide was under-observed in our reads relative to the human genome, it will have a mutation opportunity < 1, and then during signature fitting, sigfit will increase the mutation counts for that trinucleotide.
 	mutation_opportunities <- matrix(nrow=numsamples,ncol=length(genome_freqs_labels)*2,dimnames=list(samplenames,c(paste0("T:",genome_freqs_labels),paste0("U:",genome_freqs_labels))))
 	
 	for(i in samplenames){
-		mutationreads_opportunities <- apply(rbind(mutation_frequencies$trinucleotide_contexts[[i]]$fwd$mutationreadsfreq,mutation_frequencies$trinucleotide_contexts[[i]]$rev$mutationreadsfreq),2,mean)
-		
+		mutationreads_opportunities <- mutation_frequencies$trinucleotide_contexts[[i]]$fwdrev$mutationreadsfreq
+
 		mutationreads_opportunities_pyr <- mutationreads_opportunities[substr(names(mutationreads_opportunities),2,2) %in% c("C","T")]
 		mutationreads_opportunities_pur <- mutationreads_opportunities[substr(names(mutationreads_opportunities),2,2) %in% c("A","G")]
 		names(mutationreads_opportunities_pur) <- reverseComplement(DNAStringSet(names(mutationreads_opportunities_pur)))
 		
-		mutationreads_opportunities_pyr <- (mutationreads_opportunities_pyr[genome_freqs_labels]/sum(mutationreads_opportunities_pyr[genome_freqs_labels]))/(human_trinuc_freqs()/sum(human_trinuc_freqs()))
-		mutationreads_opportunities_pur <- (mutationreads_opportunities_pur[genome_freqs_labels]/sum(mutationreads_opportunities_pur[genome_freqs_labels]))/(human_trinuc_freqs()/sum(human_trinuc_freqs()))
-	
+		mutationreads_opportunities_pyr <- mutationreads_opportunities_pyr[genome_freqs_labels]
+		mutationreads_opportunities_pur <- mutationreads_opportunities_pur[genome_freqs_labels]
+		
 		mutation_opportunities[i,] <- c(mutationreads_opportunities_pyr,mutationreads_opportunities_pur)
+		
+		mutation_opportunities[i,] <- (mutation_opportunities[i,]/sum(mutation_opportunities[i,]))/(rep(human_trinuc_freqs(),2)/sum(rep(human_trinuc_freqs(),2)))
+
 	}
 	
 	##Plot mutation spectra with y-axis of either counts or probability, and for probability y-axis both uncorrected and corrected for mutation opportunities (3 total PDFs)
@@ -276,7 +238,7 @@ if(nrow(mutation_frequencies$SigFit$ssDNA)==0){
 	}
 	plot_spectrum(ssDNA.probability.uncorrected,pdf_path=paste0(yaml.config$analysisoutput_path,"/sigfit.ssDNA.probability.uncorrected.pdf"))
 	
-	ssDNA.probability.corrected <- (SigFit_ssDNA_catalogue/mutation_opportunities)/rowSums(SigFit_ssDNA_catalogue/mutation_opportunities)
+	ssDNA.probability.corrected <- (SigFit_ssDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,])/rowSums(SigFit_ssDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,])
 		#Change samples with no mutations to all 0s instead of NA
 	for(i in 1:nrow(ssDNA.probability.corrected)){
 		if(all(is.na(ssDNA.probability.corrected[i,]))){
@@ -287,7 +249,7 @@ if(nrow(mutation_frequencies$SigFit$ssDNA)==0){
 	
 	#Output observed and corrected counts into tables
 	write.table(SigFit_ssDNA_catalogue,paste0(yaml.config$analysisoutput_path,"/ssDNA.trinuc.counts.uncorrected.txt"),quote=FALSE,sep="\t",col.names=NA)
-	write.table(SigFit_ssDNA_catalogue/mutation_opportunities,paste0(yaml.config$analysisoutput_path,"/ssDNA.trinuc.counts.corrected.txt"),quote=FALSE,sep="\t",col.names=NA)
+	write.table(SigFit_ssDNA_catalogue[samplenames,]/mutation_opportunities[samplenames,],paste0(yaml.config$analysisoutput_path,"/ssDNA.trinuc.counts.corrected.txt"),quote=FALSE,sep="\t",col.names=NA)
 
 }
 
@@ -309,29 +271,32 @@ if(nrow(mutation_frequencies$SigFitcollapsed$ssDNA)==0){
 	}
 	SigFit_ssDNAcollapsed_catalogue <- SigFit_ssDNAcollapsed_catalogue[samplenames,]
 	
-	##Create a matrix of mutational opportunities for each sample. This is calculated for each sample as follows:
-	#  (1) Calculate the average of fwd and rev strand interrogated read trinucleotide frequencies.
-	#	 (2) Separate trinucleotide frequencies for central pyrimidine from those for central purine, and reverse complement the labels of the central purine trinucleotide frequencies.
-	#  (3) Divide the central pyrimidine and central purine trinucleotide frequencies by their respective sums.
-	#  (4) Divide the human reference genome trinucleotide frequencies by its sum.
-	#  (5) Divide (3) by (4).
-	#	 (6) Calculate the mean value for each central pyrimidine trinucleotide context and its reverse complement central purine 
+	##Create matrix of mutational opportunities for each sample. This is calculated for each sample as follows:
+	#	1) Separate trinucleotide frequencies for central pyrimidine from those for central purine, and reverse complement the labels of the central purine trinucleotide frequencies.
+	#	2) Retrieve 96 central pyrimidine trinucleotide contexts in correct order from each of the 32 trinucleotide context central pyrimidine and central purine trinucleotide frequencies.
+	# 3) Sum the 96 central pyrimidine with the reverse complement 96 central purine trinucleotide frequencies.
+	# 4) Divide the 96 trinucleotide frequencies by their sum
+	# 5) Divide the human reference genome trinucleotide frequencies by their sum.
+	# 6) Divide (4) by (5).
 	# This produces a mutational opportunity matrix reflecting the residual over/under opportunity of our method beyond the baseline trinucleotide distribution of the human genome. For example, if a specific trinucleotide was under-observed in our reads relative to the human genome, it will have a mutation opportunity < 1, and then during signature fitting, sigfit will increase the mutation counts for that trinucleotide.
 	mutation_opportunities <- matrix(nrow=numsamples,ncol=length(genome_freqs_labels),dimnames=list(samplenames,genome_freqs_labels))
 	
 	for(i in samplenames){
-		mutationreads_opportunities <- apply(rbind(mutation_frequencies$trinucleotide_contexts[[i]]$fwd$mutationreadsfreq,mutation_frequencies$trinucleotide_contexts[[i]]$rev$mutationreadsfreq),2,mean)
-		
+		mutationreads_opportunities <- mutation_frequencies$trinucleotide_contexts[[i]]$fwdrev$mutationreadsfreq
+
 		mutationreads_opportunities_pyr <- mutationreads_opportunities[substr(names(mutationreads_opportunities),2,2) %in% c("C","T")]
 		mutationreads_opportunities_pur <- mutationreads_opportunities[substr(names(mutationreads_opportunities),2,2) %in% c("A","G")]
 		names(mutationreads_opportunities_pur) <- reverseComplement(DNAStringSet(names(mutationreads_opportunities_pur)))
 		
-		mutationreads_opportunities_pyr <- (mutationreads_opportunities_pyr[genome_freqs_labels]/sum(mutationreads_opportunities_pyr[genome_freqs_labels]))/(human_trinuc_freqs()/sum(human_trinuc_freqs()))
-		mutationreads_opportunities_pur <- (mutationreads_opportunities_pur[genome_freqs_labels]/sum(mutationreads_opportunities_pur[genome_freqs_labels]))/(human_trinuc_freqs()/sum(human_trinuc_freqs()))
+		mutationreads_opportunities_pyr <- mutationreads_opportunities_pyr[genome_freqs_labels]
+		mutationreads_opportunities_pur <- mutationreads_opportunities_pur[genome_freqs_labels]
 		
-		mutation_opportunities[i,] <- apply(rbind(mutationreads_opportunities_pyr,mutationreads_opportunities_pur),2,mean)
+		mutation_opportunities[i,] <- mutationreads_opportunities_pyr + mutationreads_opportunities_pur
+		
+		mutation_opportunities[i,] <- (mutation_opportunities[i,]/sum(mutation_opportunities[i,]))/(human_trinuc_freqs()/sum(human_trinuc_freqs()))
+
 	}
-	
+
 	##Plot mutation spectra with y-axis of either counts or probability, and for probability y-axis both uncorrected and corrected for mutation opportunities (3 total PDFs)
 	plot_spectrum(SigFit_ssDNAcollapsed_catalogue,pdf_path=paste0(yaml.config$analysisoutput_path,"/sigfit.ssDNAcollapsed.counts.uncorrected.pdf"))
 	
@@ -344,7 +309,7 @@ if(nrow(mutation_frequencies$SigFitcollapsed$ssDNA)==0){
 	}
 	plot_spectrum(ssDNAcollapsed.probability.uncorrected,pdf_path=paste0(yaml.config$analysisoutput_path,"/sigfit.ssDNAcollapsed.probability.uncorrected.pdf"))
 	
-	ssDNAcollapsed.probability.corrected <- (SigFit_ssDNAcollapsed_catalogue/mutation_opportunities)/rowSums(SigFit_ssDNAcollapsed_catalogue/mutation_opportunities)
+	ssDNAcollapsed.probability.corrected <- (SigFit_ssDNAcollapsed_catalogue[samplenames,]/mutation_opportunities[samplenames,])/rowSums(SigFit_ssDNAcollapsed_catalogue[samplenames,]/mutation_opportunities[samplenames,])
 		#Change samples with no mutations to all 0s instead of NA
 	for(i in 1:nrow(ssDNAcollapsed.probability.corrected)){
 		if(all(is.na(ssDNAcollapsed.probability.corrected[i,]))){

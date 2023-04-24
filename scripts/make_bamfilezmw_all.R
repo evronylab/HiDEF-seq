@@ -240,34 +240,34 @@ cat("DONE\n")
 bamfilezmw$zmw.isize <- apply(cbind(bamfilezmw$pos.fwd+bamfilezmw$isize.fwd,bamfilezmw$pos.rev+bamfilezmw$isize.rev),1,min)-apply(cbind(bamfilezmw$pos.fwd,bamfilezmw$pos.rev),1,max)
 
 #Concatenate reference mismatch positions and query mismatch bases into one string to enable easy matching
-rpandqn.fwd <- apply(cbind(bamfilezmw$tag.fwd$rp,bamfilezmw$tag.fwd$qn),1,function(x){  paste0(x[[1]],x[[2]])  })
-rpandqn.rev <- apply(cbind(bamfilezmw$tag.rev$rp,bamfilezmw$tag.rev$qn),1,function(x){  paste0(x[[1]],x[[2]])  })
+rpandqn.fwd <- apply(cbind(bamfilezmw$tag.fwd$rp,bamfilezmw$tag.fwd$qn),1,function(x){  paste0(x[[1]],x[[2]])  },simplify=FALSE)
+rpandqn.rev <- apply(cbind(bamfilezmw$tag.rev$rp,bamfilezmw$tag.rev$qn),1,function(x){  paste0(x[[1]],x[[2]])  },simplify=FALSE)
 
 #Make list of all positions in fwd reads that match rev reads for both reference mismatch position and query mismatch base, and vice versa
-rpandqn.fwd.match <- apply(cbind(rpandqn.fwd,rpandqn.rev),1,function(x){  x[[1]] %in% x[[2]]  })
-rpandqn.rev.match <- apply(cbind(rpandqn.fwd,rpandqn.rev),1,function(x){  x[[2]] %in% x[[1]]  })
+rpandqn.fwd.match <- apply(cbind(rpandqn.fwd,rpandqn.rev),1,function(x){  x[[1]] %in% x[[2]]  },simplify=FALSE)
+rpandqn.rev.match <- apply(cbind(rpandqn.fwd,rpandqn.rev),1,function(x){  x[[2]] %in% x[[1]]  },simplify=FALSE)
 
 #Add columns with details of matching positions to bamfilezmw.
 for(i in c("rp","rn","qn","noN")){
-  bamfilezmw[[paste0("zmw.",i)]] <- apply(cbind(bamfilezmw$tag.fwd[[i]],rpandqn.fwd.match),1,function(x){  x[[1]][x[[2]]]  })
+  bamfilezmw[[paste0("zmw.",i)]] <- apply(cbind(bamfilezmw$tag.fwd[[i]],rpandqn.fwd.match),1,function(x){  x[[1]][x[[2]]]  },simplify=FALSE)
 }
 
 #Annotate zmw.fwdqp and zmw.revqp.
-bamfilezmw[["zmw.fwdqp"]] <- apply(cbind(bamfilezmw$tag.fwd$qp,rpandqn.fwd.match),1,function(x){x[[1]][x[[2]]]})
-bamfilezmw[["zmw.revqp"]] <- apply(cbind(bamfilezmw$tag.rev$qp,rpandqn.rev.match),1,function(x){x[[1]][x[[2]]]})
+bamfilezmw[["zmw.fwdqp"]] <- apply(cbind(bamfilezmw$tag.fwd$qp,rpandqn.fwd.match),1,function(x){x[[1]][x[[2]]]},simplify=FALSE)
+bamfilezmw[["zmw.revqp"]] <- apply(cbind(bamfilezmw$tag.rev$qp,rpandqn.rev.match),1,function(x){x[[1]][x[[2]]]},simplify=FALSE)
 
 #Annotate zmw.fwdqq and zmw.revqq, and zmw.avgqq.
-bamfilezmw[["zmw.fwdqq"]] <- apply(cbind(bamfilezmw$tag.fwd$qq,rpandqn.fwd.match),1,function(x){x[[1]][x[[2]]]})
-bamfilezmw[["zmw.revqq"]] <- apply(cbind(bamfilezmw$tag.rev$qq,rpandqn.rev.match),1,function(x){x[[1]][x[[2]]]})
+bamfilezmw[["zmw.fwdqq"]] <- apply(cbind(bamfilezmw$tag.fwd$qq,rpandqn.fwd.match),1,function(x){x[[1]][x[[2]]]},simplify=FALSE)
+bamfilezmw[["zmw.revqq"]] <- apply(cbind(bamfilezmw$tag.rev$qq,rpandqn.rev.match),1,function(x){x[[1]][x[[2]]]},simplify=FALSE)
 bamfilezmw[["zmw.avgqq"]] <- apply(
   cbind(bamfilezmw[["zmw.fwdqq"]],bamfilezmw[["zmw.revqq"]]),1,
   function(x){rowMeans(cbind(x[1][[1]],x[2][[1]]))}
-)
+,simplify=FALSE)
 
 #Annotate zmw.vcfSNV.
 for(i in names(bamfilezmw$vcfSNV.fwd)){
   for(j in names(bamfilezmw$vcfSNV.fwd[[i]])){
-    bamfilezmw[["zmw.vcfSNV"]][[i]][[j]] <- apply(cbind(bamfilezmw$vcfSNV.fwd[[i]][[j]],rpandqn.fwd.match),1,function(x){  x[[1]][x[[2]]]  })
+    bamfilezmw[["zmw.vcfSNV"]][[i]][[j]] <- apply(cbind(bamfilezmw$vcfSNV.fwd[[i]][[j]],rpandqn.fwd.match),1,function(x){  x[[1]][x[[2]]]  },simplify=FALSE)
   }
 }
 
@@ -296,7 +296,7 @@ bamfile_filenames <- list()
 vcffile_filenames <- list()
 
 for(i in names(yaml.config$make_bamfilezmw_all_config)){
-	sampleindex <- grep(i,bamfilezmw_samplenames)
+	sampleindex <- match(i,bamfilezmw_samplenames)
   bamfilezmw_genomeversions[[i]] <- yaml.config$genome
   bamfile_filenames[[i]] <- paste0(yaml.config$process_subreads_output_path,"/",yaml.config$ccs_BAM_prefix,".",bamfilezmw_samplenames[sampleindex],".ccs.demux.",sub(":.*","",yaml.config$barcodes[sampleindex]),".postccsfilter.aligned.final.bam")
   vcffile_filenames[[i]] <- yaml.config$make_bamfilezmw_all_config[[i]]$vcffile_filenames

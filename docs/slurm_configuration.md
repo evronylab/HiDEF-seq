@@ -2,7 +2,7 @@
 HiDEF-seq and its wrapper script that runs the pipeline needs to be configured for the SLURM cluster, per these instructions.
 
 ### A. Download HiDEF-seq docker/singularity image:
-- Download with singularity: ```singularity pull docker://gcr.io/evronylab-general-3134/hidef-seq:latest```
+- Download with singularity: ```singularity pull docker://gevrony/hidef-seq:latest```
 
 ### B. Configure HiDEF-seq wrapper script: 
 - A wrapper script (run-hidef-seq.bash) is used to run the HiDEF-seq singularity image, because this enables submission of SLURM jobs from within the singularity image.

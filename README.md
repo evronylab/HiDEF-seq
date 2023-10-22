@@ -39,9 +39,9 @@ The analyses are performed using the CHM13 T2T v1.0 reference genome (https://gi
 4. Make a BED file of chromosome sizes: ```awk '{print $1 "\t0\t" $2}' chm13.draft_v1.0.fasta.fai > chm13.draft_v1.0.chrsize.bed```
 5. Make a bwa index: ```bwa index chm13.draft_v1.0.fasta```
 6. Download additional required references files:
-    - [clip_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/clip_all.CHM13_v1.bw)
-    - [orphan_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/orphan_cov_all.CHM13_v1.bw)
-    - [prop_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/prop_cov_all.CHM13_v1.bw)
+    - [clip_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/clip_all.CHM13_v1.bw)
+    - [orphan_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/orphan_cov_all.CHM13_v1.bw)
+    - [prop_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/prop_cov_all.CHM13_v1.bw)
 
 ## Germline sequencing data processing
 Prior to starting the HiDEF-seq pipeline, germline sequencing data (either Illumina OR PacBio), must be processed for each sample.

@@ -1,5 +1,5 @@
 ## Configuration of the HiDEF-seq pipeline for the SLURM cluster
-HiDEF-seq and its wrapper script that runs the pipeline needs to be configured for the SLURM cluster, per these instructions.
+HiDEF-seq and its wrapper script that runs the pipeline needs to be configured for the SLURM cluster, per these instructions. The typical installation time is approximately two hours.
 
 ### A. Download HiDEF-seq docker/singularity image:
 - Download with singularity: ```singularity pull docker://gevrony/hidef-seq:1.1```

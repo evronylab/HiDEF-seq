@@ -121,3 +121,17 @@ HiDEF-seq and its wrapper script that runs the pipeline needs to be configured f
       
     x. If the above process does not work, continue to run ```[full path to run-HiDEF-seq.bash] sacct```, iteratively, and add files to SLURM_REQUIRED_PATHS that are missing per the error messages.
       - Your HPC admins should be able to advise you on any other files required by SLURM to run that need to be made available to the singularity image via the SLURM_REQUIRED_PATHS configuration.
+
+### C. Test HiDEF-seq pipeline:
+After configuring the SLURM cluster, you can test the first step (process_subreads) of the HiDEF-seq pipeline as follows:
+1. Download [test.subreads.bam](https://storage.googleapis.com/hidef-seq-references/test_data/test.subreads.bam) and [test.subreads.bam.pbi](https://storage.googleapis.com/hidef-seq-references/test_data/test.subreads.bam.pbi).
+2. Download [test.config.yaml](../test/test.config.yaml) and fill in all [bracketed items]
+3. On the above configured SLURM cluster, run the command: ```[full path to run-HiDEF-seq.bash] HiDEF_pipeline.sh [path to test.config.yaml] process_subreads```
+4. Expected runtime is ~30 minutes with the following output files in the [processed reads output path] that was configured in the test.config.yaml file:
+    - test.[sampleID].ccs.demux.[barcodeID].postccsfilter.aligned.final.bam for 4 samples (with corresponding .bai and .pbi index files)
+    - process_subreads.DONE runtime file containing a jobID
+    - logs directory containing:
+      - subreads.zmwcount.txt, subreads.cxfiltered.zmwcount.txt, ccs.zmwcount.txt, [barcodeID].lima.zmwcount.txt
+      - test.ccs.demux.lima.counts, test.ccs.demux.lima.report, test.ccs.demux.lima.summary
+      - test.[sampleID].ccs.demux.[barcodeID].bam.ccsfilterstats, test.[sampleID].ccs.demux.[barcodeID].postccsfilter.aligned.bam.pbmm2filterstats
+      - test.ccsmetrics.chunk[1-30].json, test.ccsreport.chunk[1-30].json, test.ccsreport.chunk[1-30].txt

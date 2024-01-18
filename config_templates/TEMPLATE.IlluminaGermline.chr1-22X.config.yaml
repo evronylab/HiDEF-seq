@@ -14,7 +14,7 @@ samtools_bin: samtools
 samtools_1.10_bin: /hidef/bin/samtools_1.10/samtools
 seqkit_bin: /hidef/bin/seqkit
 kmc_bindir: /hidef/bin/kmc/bin
-gsutil_bin: /scratch/projects/evronylab/bin/google-cloud-sdk/bin/gsutil
+gsutil_bin: [gsutil path]
 HiDEFpipeline: /hidef/scripts
 slurm_himemjob_options: --mem=320G
 slurm_add_options:
@@ -26,8 +26,8 @@ genome: CHM13_v1
 chrsizes: /hidef/references_CHM13v1/chrsizes.tsv
 chrs_to_analyze: /hidef/references_CHM13v1/chr1-22X.txt
 Nrefbed: /hidef/references_CHM13v1/chm13.draft_v1.0.N.merged.bed
-fastaref: /scratch/projects/evronylab/reference-files/CHM13v1/chm13.draft_v1.0.fasta
-genomemmiindex: /scratch/projects/evronylab/reference-files/CHM13v1/chm13.draft_v1.0.mmi
+fastaref: [chm13.draft_v1.0.fasta]
+genomemmiindex: [chm13.draft_v1.0.mmi]
 BSgenomepackagename: BSgenome.Hsapiens.T2T.CHM13v1
 gnomad_sensitivity_ref: /hidef/references_CHM13v1/af.only.0.001.gnomad.v3.1.2.CHM13_v1.bw
 
@@ -80,12 +80,12 @@ make_bamfilezmw_all_config:
 ###
 
 #Bigwig cache directory (stores bigwig files that are used across analyses, to save time)
-bigwig_cachedir: /scratch/evrong01/HiDEF-seq/bigwig_cachedir
+bigwig_cachedir: [bigwig_cachedir folder]
 
 #Output basename and path
 analysisoutput_basename: [analysisoutput_basename]
 analysisoutput_path: [analysisoutput_path]
-gcloudoutput_path: gs://fc-secure-024a1aae-a4f9-4025-aa93-f759f93a8203/final-output/HiDEF_PacBio
+gcloudoutput_path: [gcloud output path for final BAM files]
 
 #Basic filters
 # First sub-level is filter set index. List as many filter sets as desired, each under a consecutive integer index
@@ -283,7 +283,7 @@ bigwigfilters:
       applyto: null
     5: 
       bigwigfiltertype: ZMW
-      bigwigfile: /scratch/projects/evronylab/reference-files/CHM13v1/orphan_cov_all.CHM13_v1.bw
+      bigwigfile: [orphan_cov_all.CHM13_v1.bw]
       binsize: 20
       threshold: gte0.15
       zmwthreshold: gte0.2
@@ -307,7 +307,7 @@ bigwigfilters:
       applyto: both
     8: 
       bigwigfiltertype: SNV
-      bigwigfile: /scratch/projects/evronylab/reference-files/CHM13v1/prop_cov_all.CHM13_v1.bw
+      bigwigfile: [prop_cov_all.CHM13_v1.bw]
       binsize: 20
       threshold: lt0.7
       zmwthreshold: null
@@ -315,7 +315,7 @@ bigwigfilters:
       applyto: both
     9: 
       bigwigfiltertype: SNV
-      bigwigfile: /scratch/projects/evronylab/reference-files/CHM13v1/orphan_cov_all.CHM13_v1.bw
+      bigwigfile: [orphan_cov_all.CHM13_v1.bw]
       binsize: 20
       threshold: gte0.2
       zmwthreshold: null
@@ -323,7 +323,7 @@ bigwigfilters:
       applyto: both
     10: 
       bigwigfiltertype: SNV
-      bigwigfile: /scratch/projects/evronylab/reference-files/CHM13v1/clip_all.CHM13_v1.bw
+      bigwigfile: [clip_all.CHM13_v1.bw]
       binsize: 200
       threshold: gte0.009
       zmwthreshold: null

@@ -1,0 +1,64 @@
+---
+##############################################
+##### Configuration for analysis scripts #####
+##############################################
+
+###
+### Tools
+###
+condabase_script: /hidef/mambaforge/etc/profile.d/conda.sh
+conda_pbbioconda_env: /hidef/bin/pbconda
+wigToBigWig_bin: /hidef/bin/wigToBigWig
+bcftools_bin: bcftools
+samtools_bin: samtools
+samtools_1.10_bin: /hidef/bin/samtools_1.10/samtools
+seqkit_bin: /hidef/bin/seqkit
+kmc_bindir: /hidef/bin/kmc/bin
+gsutil_bin: [gsutil path]
+HiDEFpipeline: /hidef/scripts
+slurm_himemjob_options: --mem=320G
+slurm_add_options:
+
+###
+#Genome reference information and files
+###
+genome: CHM13_v1
+chrsizes: /hidef/references_CHM13v1/chrsizes.tsv
+chrs_to_analyze: /hidef/references_CHM13v1/chr1-22X.txt
+Nrefbed: /hidef/references_CHM13v1/chm13.draft_v1.0.N.merged.bed
+fastaref: [chm13.draft_v1.0.fasta]
+genomemmiindex: [chm13.draft_v1.0.mmi]
+BSgenomepackagename: BSgenome.Hsapiens.T2T.CHM13v1
+gnomad_sensitivity_ref: /hidef/references_CHM13v1/af.only.0.001.gnomad.v3.1.2.CHM13_v1.bw
+
+###
+### Sample configuration
+###
+samplenames:
+  - 1443
+  - 1104
+  - 5697
+  - 5840
+
+tissues:
+  - Kidney
+  - Kidney
+  - Kidney
+  - Kidney
+
+barcodes:
+  - bc1002:ACACACAGACTGTGAG
+  - bc1001:CACATATCAGAGTGCG
+  - bc1003:ACACATCTCGTGAGAG
+  - bc1008:ACAGTCGAGCGCTGCG
+
+###
+### Configuration for process_subreads.sh
+###
+subreads_filename: [path to test.subreads.bam]
+process_subreads_output_path: [processed reads output path]
+ccs_BAM_prefix: test
+ccschunks: 30
+minccsrq: 0.99
+minoverlap: 0.9
+removetempdir: true

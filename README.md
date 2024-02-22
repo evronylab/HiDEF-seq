@@ -234,6 +234,8 @@ In the [analysisoutput_path] directory:
       - Reconstructions: sigfit reconstruction of spectra using component signatures
 14. mutation_signatures.RDS: R data file with sigfit analysis results
 
+See the [manuscript folder](manuscript) for data and basic analysis scripts related to our publication.
+
 ## Citation
 If you use HiDEF-seq, please cite:
 

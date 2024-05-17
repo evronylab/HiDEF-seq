@@ -1,5 +1,5 @@
 # HiDEF-seq
-HiDEF-seq is a single-molecule sequencing method with single-molecule accuracy for single base substitutions, when present in either one or both strands of DNA. This repository contains scripts and a pipeline for analysis of HiDEF-seq data. The protocol for creating and sequencing HiDEF-seq libraries is detailed in the [HiDEF-seq manuscript](https://www.biorxiv.org/content/10.1101/2023.02.19.526140v1).
+HiDEF-seq is a single-molecule sequencing method with single-molecule accuracy for single base substitutions, when present in either one or both strands of DNA. This repository contains scripts and a pipeline for analysis of HiDEF-seq data. The protocol for preparing HiDEF-seq libraries from high-quality DNA can be found at [protocols.io](https://www.protocols.io/view/hidef-seq-kxygxy9mwl8j/v1). See the [HiDEF-seq pre-print](https://www.biorxiv.org/content/10.1101/2023.02.19.526140v1) for other versions of the HiDEF-seq library preparation protocol (e.g., protocols for low-quality DNA, random fragmentation, larger DNA fragments, etc).
 
 Before starting HiDEF-seq analysis, every sample requires germline sequencing data that must be processed prior to running the HiDEF-seq pipeline.
 

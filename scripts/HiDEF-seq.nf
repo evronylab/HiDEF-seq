@@ -217,10 +217,12 @@ process pbmm2Align {
 }
 
 /*****************************************************************
- * Workflow Definition
+ * Individual Workflow Definitions
  *****************************************************************/
 
-workflow {
+workflow processReads {
+
+    main:
 
     // Create channel for the input reads file.
     reads_ch = Channel.fromPath(params.reads_filename)
@@ -292,4 +294,13 @@ workflow {
     
     // Count ZMWs after pbmm2 alignment.
     alignedCCS.map { tup -> tuple(tup[1], "aligned_pbmm2_zmwcount.txt") } | countZMWs
+}
+
+
+/*****************************************************************
+ * Main Workflow
+ *****************************************************************/
+
+workflow {
+    processReads()
 }

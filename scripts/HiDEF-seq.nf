@@ -85,7 +85,7 @@ process ccsChunk {
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
     ${ld_preload_cmd}
-    ccs -j 8 --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
+    ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunk_id}/${params.ccschunks} \\
         --movie-name ${params.ccs_BAM_prefix}.ccs.chunk${chunk_id} \\

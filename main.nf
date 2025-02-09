@@ -238,6 +238,9 @@ workflow processReads {
     // Count ZMWs on the original input.
     reads_ch.map { f -> tuple(f, "original_zmwcount.txt") } | countZMWs
     
+    // Declare filteredCCS in the outer scope.
+    def filteredCCS
+    
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
         

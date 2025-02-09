@@ -251,13 +251,13 @@ workflow processReads {
                         | ccsChunk
         
         // Merge all CCS chunks.
-        mergedCCS = ccsChunks.collect() | mergeCCS
+        mergxyzedCCS = ccsChunks.collect() | mergeCCS
         
         // Count ZMWs after CCS merge.
-        mergedCCS.map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
+        mergxyzedCCS.map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
-        filteredCCS = mergedCCS | filterAdapter
+        filteredCCS = mergxyzedCCS | filterAdapter
     }
     else if( params.data_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.

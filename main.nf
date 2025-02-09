@@ -68,8 +68,7 @@ process ccsChunk {
     container '${params.hidef_container}'
     
     input:
-      path reads_file
-      val chunk_id
+      tuple path(reads_file), val(chunk_id)
 
     output:
       path "${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam"
@@ -264,6 +263,9 @@ workflow processReads {
     else if( params.data_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.
         filteredCCS = reads_ch | filterAdapter
+    }
+    else {
+        error "Unsupported data_type '${params.data_type}'."
     }
 
     // Count ZMWs after adapter filtering.

@@ -274,15 +274,15 @@ workflow processReads {
     demuxedCCS = limaDemux(filteredCCS, barcodesFasta)
     
     //Create channels for each demultiplexed sample.
-    demuxMap = demuxedCCS.bam.collect().map { files ->
-    def map = [:]
+    demuxMap = demuxedCCS.bam.collect().collect { files ->
+    def result = [:]
     files.each { file ->
          def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
          if (m) {
-             map[m[0][1]] = file
+             result[m[0][1]] = file
          }
       }
-      return map
+      return result
     }
 
     samples_to_align_ch = Channel.fromList(params.samples).map { sample ->

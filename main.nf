@@ -118,7 +118,7 @@ process mergeCCS {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmerge -o ${params.ccs_BAM_prefix}.ccs.bam \$(ls ${params.ccs_BAM_prefix}.ccs.chunk*.bam | xargs)
+    pbmerge -o ${params.ccs_BAM_prefix}.ccs.bam ${bam_chunks.join(' ')}
     """
 }
 

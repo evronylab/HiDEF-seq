@@ -251,7 +251,7 @@ workflow processReads {
                         | ccsChunk
         
         // Merge all CCS chunks.
-        mergedCCS = ccsChunks.collect() | mergeCCS
+        mergedCCS = mergeCCS(ccsChunks.collect())
         
         // Count ZMWs after CCS merge.
         mergedCCS.map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
@@ -274,7 +274,7 @@ workflow processReads {
     demuxedCCS = limaDemux(filteredCCS, barcodesFasta)
     
     //Create channels for each demultiplexed sample.
-    demuxMap = demuxedCCS.bam.collect().collect { files ->
+    demuxMap = demuxedCCS.bam.collect().map { files ->
     def map = [:]
     files.each { file ->
          def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/

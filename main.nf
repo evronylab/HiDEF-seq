@@ -274,7 +274,7 @@ workflow processReads {
     demuxedCCS = limaDemux(filteredCCS, barcodesFasta)
     
     //Create channels for each demultiplexed sample.
-    demuxMap = demuxedCCS.out.bam.collect().map { files ->
+    demuxMap = demuxedCCS.out.bam.collect().collect { files ->
     def map = [:]
     files.each { file ->
          def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/

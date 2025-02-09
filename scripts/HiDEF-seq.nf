@@ -10,6 +10,7 @@ process makeBarcodesFasta {
     memory '2 GB'
     time '5m'
     tag "Make Barcodes Fasta"
+    container '${params.hidef_container}'
 
     input:
       val content
@@ -31,6 +32,7 @@ process countZMWs {
     memory '8 GB'
     time '30m'
     tag "Count ZMWs"
+    container '${params.hidef_container}'
     
     input:
       tuple path(inFile), val(outName)
@@ -63,6 +65,7 @@ process ccsChunk {
     memory '64 GB'
     time '24h'
     tag { "CCS chunk ${chunk_id}" }
+    container '${params.hidef_container}'
     
     input:
       path reads_file
@@ -102,6 +105,7 @@ process mergeCCS {
     memory '32 GB'
     time '4h'
     tag "Merge CCS chunks"
+    container '${params.hidef_container}'
     
     input:
       path bam_chunks
@@ -127,6 +131,7 @@ process filterAdapter {
     memory '64 GB'
     time '10h'
     tag "Filter Bad Adapters"
+    container '${params.hidef_container}'
     
     input:
       path inBam
@@ -154,6 +159,7 @@ process limaDemux {
     memory '64 GB'
     time '12h'
     tag "Lima Demultiplexing"
+    container '${params.hidef_container}'
     
     input:
       path filteredBam
@@ -189,6 +195,7 @@ process pbmm2Align {
     memory '64 GB'
     time '12h'
     tag { "pbmm2 Alignment: ${sample_basename}" }
+    container '${params.hidef_container}'
     
     input:
       tuple val(sample_basename), file(demuxBam)

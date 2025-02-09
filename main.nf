@@ -251,8 +251,7 @@ workflow processReads {
                         | ccsChunk
         
         // Merge all CCS chunks.
-        collectedChunks = ccsChunks.collect()
-        mergedCCS = mergeCCS(collectedChunks)
+        mergedCCS = ccsChunks.collect() | mergeCCS
         
         // Count ZMWs after CCS merge.
         mergedCCS.map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs

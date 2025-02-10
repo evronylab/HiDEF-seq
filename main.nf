@@ -238,7 +238,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    countZMWs( reads_ch | map { f -> tuple(f, "raw_zmwcount.txt") } )
+    reads_ch | map { f -> tuple(f, "raw_zmwcount.txt") } | countZMWs
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -252,7 +252,7 @@ workflow processReads {
         mergeCCS( ccsChunk.out | collect )
         
         // Count ZMWs after CCS merge.
-        countZMWs( mergeCCS.out | map { f -> tuple(f, "ccs_zmwcount.txt") } )
+        mergeCCS.out | map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )
@@ -266,7 +266,7 @@ workflow processReads {
     }
 
     // Count ZMWs after adapter filtering.
-    countZMWs( filterAdapter.out | map { f -> tuple(f, "filteredAdapter_zmwcount.txt") } )
+    filterAdapter.out | map { f -> tuple(f, "filteredAdapter_zmwcount.txt") } | countZMWs
         
     // Demultiplex with lima.
     limaDemux( filterAdapter.out, makeBarcodesFasta.out )
@@ -301,7 +301,7 @@ workflow processReads {
     pbmm2Align( samples_to_align_ch )
     
     // Count ZMWs after pbmm2 alignment.
-    countZMWs( pbmm2Align.out | map { f -> tuple(f, "aligned_zmwcount.txt") } )
+    pbmm2Align.out | map { f -> tuple(f, "aligned_zmwcount.txt") } | countZMWs
 }
 
 

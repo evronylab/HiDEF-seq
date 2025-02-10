@@ -246,9 +246,9 @@ workflow processReads {
         // Run CCS in chunks.
         chunk_ids = Channel.of(1..params.ccschunks)
 
-        ccsChunks = reads_ch.combine(chunk_ids)
+        ccsChunks_ch = reads_ch.combine(chunk_ids)
                         .map { r, id -> tuple(r, id) }
-                        | ccsChunk
+        ccsChunks = ccsChunks_ch | ccsChunk
         
         // Merge all CCS chunks.
         mergedCCS = mergeCCS(ccsChunks.collect())

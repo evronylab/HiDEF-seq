@@ -318,7 +318,10 @@ workflow processReads {
  *****************************************************************/
 
 workflow {
-  if( !params.task || params.task=="" || params.task == "processReads" ){
+
+  // Run processReads workflow
+  if( params.task=="all" || params.task == "processReads" ){
     processReads()
   }
+
 }

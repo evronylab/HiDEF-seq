@@ -8,7 +8,7 @@
 process makeBarcodesFasta {
     cpus 1
     memory '2 GB'
-    time '5.m'
+    time '5m'
     tag "Make Barcodes Fasta"
     container "${params.hidef_container}"
 
@@ -30,7 +30,7 @@ process makeBarcodesFasta {
 process countZMWs {
     cpus 1
     memory '8 GB'
-    time '30.m'
+    time '30m'
     tag "Count ZMWs"
     container "${params.hidef_container}"
     
@@ -63,7 +63,7 @@ process countZMWs {
 process ccsChunk {
     cpus 8
     memory '64 GB'
-    time '24.h'
+    time '24h'
     tag { "CCS chunk ${chunk_id}" }
     container "${params.hidef_container}"
     
@@ -102,7 +102,7 @@ process ccsChunk {
 process mergeCCS {
     cpus 2
     memory '32 GB'
-    time '4.h'
+    time '4h'
     tag "Merge CCS chunks"
     container "${params.hidef_container}"
     
@@ -128,7 +128,7 @@ process mergeCCS {
 process filterAdapter {
     cpus 8
     memory '64 GB'
-    time '10.h'
+    time '10h'
     tag "Filter Bad Adapters"
     container "${params.hidef_container}"
     
@@ -156,7 +156,7 @@ process filterAdapter {
 process limaDemux {
     cpus 8
     memory '64 GB'
-    time '12.h'
+    time '12h'
     tag "Lima Demultiplexing"
     container "${params.hidef_container}"
     
@@ -191,7 +191,7 @@ process limaDemux {
 process pbmm2Align {
     cpus 8
     memory '64 GB'
-    time '12.h'
+    time '12h'
     tag { "pbmm2 Alignment: ${sample_basename}" }
     container "${params.hidef_container}"
     

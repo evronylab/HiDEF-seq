@@ -10,7 +10,7 @@ process makeBarcodesFasta {
     memory '2 GB'
     time '5m'
     tag "Make Barcodes Fasta"
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
 
     input:
       val content
@@ -25,20 +25,20 @@ process makeBarcodesFasta {
 }
 
 /*
-  countZMWs: Runs zmwfilter on an input file and writes the ZMW count to a file.
+  countZMWs: Runs zmwfilter on an input BAM file and writes the ZMW count to a file.
 */
 process countZMWs {
     cpus 1
     memory '8 GB'
     time '30m'
     tag "Count ZMWs"
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
-      tuple path(inFile), val(outName)
+      tuple path(inFile), val(outFileSuffix)
     
     output:
-      path outName
+      path "*"
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy'
     
@@ -46,7 +46,7 @@ process countZMWs {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    zmwfilter --show-all ${inFile} | wc -l > ${outName}
+    zmwfilter --show-all ${inFile} | wc -l > \$(basename ${inFile} .bam).${outFileSuffix}
     """
 }
 
@@ -65,7 +65,7 @@ process ccsChunk {
     memory '64 GB'
     time '24h'
     tag { "CCS chunk ${chunk_id}" }
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
       tuple path(reads_file), val(chunk_id)
@@ -104,7 +104,7 @@ process mergeCCS {
     memory '32 GB'
     time '4h'
     tag "Merge CCS chunks"
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
       path bam_chunks
@@ -130,7 +130,7 @@ process filterAdapter {
     memory '64 GB'
     time '10h'
     tag "Filter Bad Adapters"
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
       path inBam
@@ -158,7 +158,7 @@ process limaDemux {
     memory '64 GB'
     time '12h'
     tag "Lima Demultiplexing"
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
       path filteredBam
@@ -194,7 +194,7 @@ process pbmm2Align {
     memory '64 GB'
     time '12h'
     tag { "pbmm2 Alignment: ${sample_basename}" }
-    container '${params.hidef_container}'
+    container "${params.hidef_container}"
     
     input:
       tuple val(sample_basename), file(demuxBam)
@@ -227,77 +227,81 @@ workflow processReads {
     reads_ch = Channel.fromPath(params.reads_filename)
     
     // Make barcodes FASTA
-    def barcodeFastaContent = params.samples.collect { sample ->
-        def tokens = sample.barcode.tokenize(':')
-        return ">${tokens[0]}\n${tokens[1]}"
-    }.join("\n")
+    def barcodeFastaContent = params.samples
+      .collect {
+          sample ->
+            def tokens = sample.barcode.tokenize(':')
+            return ">${tokens[0]}\n${tokens[1]}"
+      }
+      .join("\n")
     
-    barcodesFasta = Channel.value(barcodeFastaContent) | makeBarcodesFasta
+    makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    reads_ch.map { f -> tuple(f, "original_zmwcount.txt") } | countZMWs
-    
-    // Declare filteredCCS in the outer scope.
-    def filteredCCS
-    
+    countZMWs( reads_ch | map { f -> tuple(f, "raw_zmwcount.txt") } )
+      
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
         
         // Run CCS in chunks.
         chunk_ids = Channel.of(1..params.ccschunks)
 
-        ccsChunks_ch = reads_ch.combine(chunk_ids)
-                        .map { r, id -> tuple(r, id) }
-        ccsChunks = ccsChunks_ch | ccsChunk
+        ccsChunk( reads_ch | combine(chunk_ids) | map { r, id -> tuple(r, id) } )
         
         // Merge all CCS chunks.
-        mergedCCS = mergeCCS(ccsChunks.collect())
+        mergeCCS( ccsChunk.out | collect )
         
         // Count ZMWs after CCS merge.
-        mergedCCS.map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
+        countZMWs( mergeCCS.out | map { f -> tuple(f, "ccs_zmwcount.txt") } )
         
         // Filter for reads with adapters on both ends.
-        filteredCCS = mergedCCS | filterAdapter
+        filterAdapter( mergeCCS.out )
     }
     else if( params.data_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.
-        filteredCCS = reads_ch | filterAdapter
+        filterAdapter( reads_ch )
     }
     else {
         error "Unsupported data_type '${params.data_type}'."
     }
 
     // Count ZMWs after adapter filtering.
-    filteredCCS.map { f -> tuple(f, "filtered_ccs_zmwcount.txt") } | countZMWs
+    countZMWs( filterAdapter.out | map { f -> tuple(f, "filteredAdapter_zmwcount.txt") } )
         
     // Demultiplex with lima.
-    demuxedCCS = limaDemux(filteredCCS, barcodesFasta)
+    limaDemux( filterAdapter.out, makeBarcodesFasta.out )
     
     //Create channels for each demultiplexed sample.
-    demuxMap = demuxedCCS.bam.collect().map { files ->
-    def result = [:]
-    files.each { file ->
-         def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
-         if (m) {
-             result[m[0][1]] = file
-         }
+    demuxMap = limaDemux.out.bam
+    .collect
+    .map {
+      files ->
+        def result = [:]
+        files.each
+        { file ->
+          def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
+            if (m) {
+              result[m[0][1]] = file
+            }
+        }
+        return result
       }
-      return result
-    }
 
-    samples_to_align_ch = Channel.fromList(params.samples).map { sample ->
-        def sname = sample.sample_name
-        def barcodeId = sample.barcode.tokenize(':')[0]
-        def sample_basename = "${params.ccs_BAM_prefix}.${sname}.ccs.filtered.demux.${barcodeId}"
-        def demux_bam = demuxMap[barcodeId]
-        return tuple(sample_basename, demux_bam)
-    }
+    samples_to_align_ch = Channel.fromList(params.samples)
+    | map {
+        sample ->
+          def sname = sample.sample_name
+          def barcodeId = sample.barcode.tokenize(':')[0]
+          def sample_basename = "${params.ccs_BAM_prefix}.${sname}.ccs.filtered.demux.${barcodeId}"
+          def demux_bam = demuxMap[barcodeId]
+          return tuple(sample_basename, demux_bam)
+      }
 
     // Run pbmm2 alignment for each sample.
-    alignedCCS = samples_to_align_ch | pbmm2Align
+    pbmm2Align( samples_to_align_ch )
     
     // Count ZMWs after pbmm2 alignment.
-    alignedCCS.map { tup -> tuple(tup[1], "aligned_pbmm2_zmwcount.txt") } | countZMWs
+    countZMWs( pbmm2Align.out | map { f -> tuple(f, "aligned_zmwcount.txt") } )
 }
 
 

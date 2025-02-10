@@ -35,7 +35,7 @@ process countZMWs {
     container "${params.hidef_container}"
     
     input:
-      tuple path(inFile), val(outFileSuffix)
+      tuple path(bamFile), path(pbiFile), val(outFileSuffix)
     
     output:
       path "*"
@@ -46,7 +46,7 @@ process countZMWs {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    zmwfilter --show-all ${inFile} | wc -l > \$(basename ${inFile} .bam).${outFileSuffix}
+    zmwfilter --show-all ${bamFile} | wc -l > \$(basename ${bamFile} .bam).${outFileSuffix}
     """
 }
 
@@ -68,10 +68,11 @@ process ccsChunk {
     container "${params.hidef_container}"
     
     input:
-      tuple path(reads_file), val(chunk_id)
+      tuple path(reads_file), path(index_file), val(chunk_id)
 
     output:
-      path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam"
+      path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam", emit: bam
+      path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam.pbi", emit: pbi
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsreport.*"
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsmetrics.*"
@@ -107,10 +108,11 @@ process mergeCCS {
     container "${params.hidef_container}"
     
     input:
-      path bam_chunks
+      tuple path bam_chunks, path pbi_chunks
 
     output:
-      path "${params.ccs_BAM_prefix}.ccs.bam"
+      path "${params.ccs_BAM_prefix}.ccs.bam", emit: bam
+      path "${params.ccs_BAM_prefix}.ccs.bam.pbi", emit: pbi
 
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy'
 
@@ -136,7 +138,8 @@ process filterAdapter {
       path inBam
     
     output:
-      path "${params.ccs_BAM_prefix}.ccs.filtered.bam"
+      path "${params.ccs_BAM_prefix}.ccs.filtered.bam", emit: bam
+      path "${params.ccs_BAM_prefix}.ccs.filtered.bam.pbi", emit: pbi
     
     script:
     """
@@ -162,11 +165,12 @@ process limaDemux {
     
     input:
       path filteredBam
+      path filteredBamPbi
       path barcodesFasta
 
     output:
       path "${params.ccs_BAM_prefix}.ccs.filtered.demux.*.bam", emit: bam
-      path "${params.ccs_BAM_prefix}.ccs.filtered.demux.*.bam.pbi", emit: bai
+      path "${params.ccs_BAM_prefix}.ccs.filtered.demux.*.bam.pbi", emit: pbi
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.lima.*"
     
@@ -200,9 +204,11 @@ process pbmm2Align {
       tuple val(sample_basename), file(demuxBam)
     
     output:
-      file("${sample_basename}.aligned.bam")
+      file("${sample_basename}.aligned.sorted.bam"), emit: bam
+      file("${sample_basename}.aligned.sorted.bam.pbi"), emit: pbi
+      file("${sample_basename}.aligned.sorted.bam.bai"), emit: bai
     
-    publishDir params.process_reads_output_path, mode: 'copy', pattern: "${sample_basename}.aligned.bam"
+    publishDir params.process_reads_output_path, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     
     script:
     """
@@ -212,6 +218,13 @@ process pbmm2Align {
     ${params.genome_mmi} \\
     ${demuxBam} \\
     ${sample_basename}.aligned.bam
+    conda deactivate
+
+    ${samtools_bin} sort -@8 -m 4G ${sample_basename}.aligned.bam > ${sample_basename}.aligned.sorted.bam
+    ${samtools_bin} index -@8 ${sample_basename}.aligned.sorted.bam
+
+    conda activate ${params.conda_pbbioconda_env}
+    pbindex ${sample_basename}.aligned.sorted.bam
     """
 }
 
@@ -224,7 +237,9 @@ workflow processReads {
     main:
 
     // Create channel for the input reads file.
-    reads_ch = Channel.fromPath(params.reads_filename)
+    reads_ch = Channel
+      .fromPath(params.reads_filename)
+      .map{ f -> tuple(f, path("${f}.pbi")) }
     
     // Make barcodes FASTA
     def barcodeFastaContent = params.samples
@@ -238,7 +253,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    //reads_ch | map { f -> tuple(f, "raw_zmwcount.txt") } | countZMWs
+    //reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -246,16 +261,16 @@ workflow processReads {
         // Run CCS in chunks.
         chunk_ids = Channel.of(1..params.ccschunks)
 
-        ccsChunk( reads_ch | combine(chunk_ids) | map { r, id -> tuple(r, id) } )
+        ccsChunk( reads_ch | combine(chunk_ids) | map { r, id -> tuple(r[0], r[1], id) } )
         
         // Merge all CCS chunks.
         mergeCCS( ccsChunk.out | collect )
         
         // Count ZMWs after CCS merge.
-        //mergeCCS.out | map { f -> tuple(f, "ccs_zmwcount.txt") } | countZMWs
+        //mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
-        filterAdapter( mergeCCS.out )
+        filterAdapter( mergeCCS.out.bam )
     }
     else if( params.data_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.
@@ -266,10 +281,10 @@ workflow processReads {
     }
 
     // Count ZMWs after adapter filtering.
-    //filterAdapter.out | map { f -> tuple(f, "filteredAdapter_zmwcount.txt") } | countZMWs
-        
+    //filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") } | countZMWs
+    
     // Demultiplex with lima.
-    limaDemux( filterAdapter.out, makeBarcodesFasta.out )
+    limaDemux( filterAdapter.out.bam, filterAdapter.out.pbi, makeBarcodesFasta.out )
     
     //Create channels for each demultiplexed sample.
     demuxMap = limaDemux.out.bam
@@ -301,7 +316,7 @@ workflow processReads {
     pbmm2Align( samples_to_align_ch )
     
     // Count ZMWs after pbmm2 alignment.
-    //pbmm2Align.out | map { f -> tuple(f, "aligned_zmwcount.txt") } | countZMWs
+    //pbmm2Align.out | map { f -> tuple(f[0], f[1], "aligned_zmwcount.txt") } | countZMWs
 }
 
 

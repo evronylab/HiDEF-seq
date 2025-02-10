@@ -57,7 +57,7 @@ process countZMWs {
   #1. Using ccs v8.0 (standalone version of ICS13 ccs, http://doi.org/10.5281/zenodo.10703290 ) that supports rich HiFi tags (--subread-pileup-summary-tags).
   #2. Set '--pbdc' and '--pbdc-skip-min-qv 0' to go into DeepConsensus code path to support rich HiFi tags but skip DeepConsensus polishing (by setting to skip any 100 bp window with average QV >0; i.e. every window)
   #3. Set '--binned-qvs=False' to keep full resolution quality values. Setting pptop-passes to 255 instead of 0 to match what occurs on Revio (since setting it to 0, i.e. unlimited, caused technical issues on Revio).
-  #4. Setting --instrument-files-layout --min-rq -1 --movie-name <hifireads.bam> --non-hifi-prefix <failreads.bam> to mimic what happens on Revio, since this outputs min-rq >= 0.99 into hifireads.bam and also removes other types of failed reads (per ff tag details here: https://pacbiofileformats.readthedocs.io/en/13.0/BAM.html#use-of-read-tags-for-fail-per-read-information). We then do independent rq filtering based on pipeline configuration later in the pipeline.
+  #4. Setting --instrument-files-layout --min-rq -1 --movie-name <hifireads.bam> --non-hifi-prefix fail to mimic what happens on Revio, since this outputs min-rq >= 0.99 into hifireads.bam and also removes other types of failed reads (per ff tag details here: https://pacbiofileformats.readthedocs.io/en/13.0/BAM.html#use-of-read-tags-for-fail-per-read-information). We then do independent rq filtering based on pipeline configuration later in the pipeline.
   #5. Off-instrument ccs run with CPUs differs slightly from on-instrument Revio ccs run with GPUs for the parameters --max-insertion-size and window size, due to technical details, but PacBio says this should negligibly affect the output and we should not specify these.
 */
 process ccsChunk {
@@ -71,7 +71,7 @@ process ccsChunk {
       tuple path(reads_file), val(chunk_id)
 
     output:
-      path "${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam"
+      path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam"
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsreport.*"
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsmetrics.*"
@@ -88,7 +88,7 @@ process ccsChunk {
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunk_id}/${params.ccschunks} \\
         --movie-name ${params.ccs_BAM_prefix}.ccs.chunk${chunk_id} \\
-        --non-hifi-prefix ${params.ccs_BAM_prefix}.failreads.chunk${chunk_id} \\
+        --non-hifi-prefix fail \\
         --report-file ${params.ccs_BAM_prefix}.ccsreport.chunk${chunk_id}.txt \\
         --report-json ${params.ccs_BAM_prefix}.ccsreport.chunk${chunk_id}.json \\
         --metrics-json ${params.ccs_BAM_prefix}.ccsmetrics.chunk${chunk_id}.json \\

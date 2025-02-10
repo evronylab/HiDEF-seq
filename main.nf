@@ -35,7 +35,7 @@ process countZMWs {
     container "${params.hidef_container}"
     
     input:
-      tuple path bamFile, path pbiFile, val outFileSuffix
+      tuple path(bamFile), path(pbiFile), val(outFileSuffix)
     
     output:
       path "*"
@@ -68,10 +68,10 @@ process ccsChunk {
     container "${params.hidef_container}"
     
     input:
-      tuple path reads_file, path index_file, val chunk_id
+      tuple path(reads_file), path(index_file), val(chunk_id)
 
     output:
-      tuple path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam", path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam.pbi"
+      tuple path("hifi_reads/${params.run_id}.ccs.chunk${chunk_id}.bam"), path("hifi_reads/${params.run_id}.ccs.chunk${chunk_id}.bam.pbi")
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsreport.*"
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsmetrics.*"
@@ -87,11 +87,11 @@ process ccsChunk {
     ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunk_id}/${params.ccschunks} \\
-        --movie-name ${params.ccs_BAM_prefix}.ccs.chunk${chunk_id} \\
+        --movie-name ${params.run_id}.ccs.chunk${chunk_id} \\
         --non-hifi-prefix fail \\
-        --report-file ${params.ccs_BAM_prefix}.ccsreport.chunk${chunk_id}.txt \\
-        --report-json ${params.ccs_BAM_prefix}.ccsreport.chunk${chunk_id}.json \\
-        --metrics-json ${params.ccs_BAM_prefix}.ccsmetrics.chunk${chunk_id}.json \\
+        --report-file ${params.run_id}.ccsreport.chunk${chunk_id}.txt \\
+        --report-json ${params.run_id}.ccsreport.chunk${chunk_id}.json \\
+        --metrics-json ${params.run_id}.ccsmetrics.chunk${chunk_id}.json \\
         ${reads_file}
     """
 }
@@ -107,10 +107,10 @@ process mergeCCS {
     container "${params.hidef_container}"
     
     input:
-      tuple path bam_chunks, path pbi_chunks
+      tuple path(bam_chunks), path(pbi_chunks)
 
     output:
-      tuple path "${params.ccs_BAM_prefix}.ccs.bam", path "${params.ccs_BAM_prefix}.ccs.bam.pbi"
+      tuple path("${params.run_id}.ccs.bam"), path("${params.run_id}.ccs.bam.pbi")
 
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy'
 
@@ -118,7 +118,7 @@ process mergeCCS {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmerge -o ${params.ccs_BAM_prefix}.ccs.bam ${bam_chunks.join(' ')}
+    pbmerge -o ${params.run_id}.ccs.bam ${bam_chunks.join(' ')}
     """
 }
 
@@ -133,24 +133,24 @@ process filterAdapter {
     container "${params.hidef_container}"
     
     input:
-      tuple path bamFile, path pbiFile
+      tuple path(bamFile), path(pbiFile)
     
     output:
-      tuple path "${params.ccs_BAM_prefix}.ccs.filtered.bam", path "${params.ccs_BAM_prefix}.ccs.filtered.bam.pbi"
+      tuple path("${params.run_id}.ccs.filtered.bam"), path("${params.run_id}.ccs.filtered.bam.pbi")
     
     script:
     """
-    ${params.samtools_bin} view -b -@8 -e "[ma]==0" ${bamFile} > ${params.ccs_BAM_prefix}.ccs.filtered.bam
+    ${params.samtools_bin} view -b -@8 -e "[ma]==0" ${bamFile} > ${params.run_id}.ccs.filtered.bam
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbindex ${params.ccs_BAM_prefix}.ccs.filtered.bam
+    pbindex ${params.run_id}.ccs.filtered.bam
     """
 }
 
 /*
   limaDemux: Demultiplexes the filtered BAM using lima.
   Assumes that the output for a given barcode will be named as:
-      ${ccs_BAM_prefix}.ccs.demux.${barcodeId}--${barcodeId}.bam
+      ${run_id}.ccs.demux.${barcodeId}--${barcodeId}.bam
   Resource request: 8 cores, 64GB, 12h.
 */
 process limaDemux {
@@ -161,11 +161,11 @@ process limaDemux {
     container "${params.hidef_container}"
     
     input:
-      tuple path filteredBam, path filteredBamPbi
+      tuple path(filteredBam), path(filteredBamPbi)
       path barcodesFasta
 
     output:
-      path "${params.ccs_BAM_prefix}.ccs.filtered.demux.*.bam", emit: bam
+      path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
     
     publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.lima.*"
     
@@ -177,7 +177,7 @@ process limaDemux {
          --min-ref-span 0.75 --min-scoring-regions 2 \\
          ${filteredBam} \\
          ${barcodesFasta} \\
-         ${params.ccs_BAM_prefix}.ccs.filtered.demux.bam
+         ${params.run_id}.ccs.filtered.demux.bam
     """
 }
 
@@ -185,7 +185,7 @@ process limaDemux {
   pbmm2Align: Aligns a demultiplexed BAM file using pbmm2.
   Resource request: 8 cores, 128GB, 30h.
   Here, for each sample the input BAM is assumed to have the name:
-      ${ccs_BAM_prefix}.ccs.demux.${barcodeId}--${barcodeId}.bam
+      ${run_id}.ccs.demux.${barcodeId}--${barcodeId}.bam
   and pbmm2Align renames the output to include the sample name.
 */
 process pbmm2Align {
@@ -196,10 +196,10 @@ process pbmm2Align {
     container "${params.hidef_container}"
     
     input:
-      tuple val sample_basename, file demuxBam
+      tuple val(sample_basename), val(barcodeId), file(demuxBam)
     
     output:
-      tuple path "${sample_basename}.aligned.sorted.bam", path "${sample_basename}.aligned.sorted.bam.pbi", path "${sample_basename}.aligned.sorted.bam.bai"
+      tuple val(sample_basename), val(barcodeId), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai")
     
     publishDir params.process_reads_output_path, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     
@@ -284,7 +284,7 @@ workflow processReads {
         def result = [:]
         files.each
         { file ->
-          def m = file.name =~ /${params.ccs_BAM_prefix}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
+          def m = file.name =~ /${params.run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
             if (m) {
               result[m[0][1]] = file
             }
@@ -297,16 +297,19 @@ workflow processReads {
         sample ->
           def sname = sample.sample_name
           def barcodeId = sample.barcode.tokenize(':')[0]
-          def sample_basename = "${params.ccs_BAM_prefix}.${sname}.ccs.filtered.demux.${barcodeId}"
+          def sample_basename = "${params.run_id}.${sname}.ccs.filtered.demux.${barcodeId}"
           def demux_bam = demuxMap[barcodeId]
-          return tuple(sample_basename, demux_bam)
+          return tuple(sample_basename, barcodeId, demux_bam)
       }
 
     // Run pbmm2 alignment for each sample.
     pbmm2Align( samples_to_align_ch )
     
     // Count ZMWs after pbmm2 alignment.
-    //pbmm2Align.out | map { f -> tuple(f[0], f[1], "aligned_zmwcount.txt") } | countZMWs
+    //pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") } | countZMWs
+
+    emit:
+    pbmm2Align.out
 }
 
 
@@ -315,5 +318,7 @@ workflow processReads {
  *****************************************************************/
 
 workflow {
+  if( !params.task || params.task=="" || params.task == "processReads" ){
     processReads()
+  }
 }

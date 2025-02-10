@@ -229,7 +229,7 @@ workflow processReads {
     // Create channel for the input reads file.
     reads_ch = Channel
       .fromPath(params.reads_filename)
-      .map{ f -> tuple(f, path("${f}.pbi")) }
+      .map{ f -> tuple(f, file("${f}.pbi")) }
     
     // Make barcodes FASTA
     def barcodeFastaContent = params.samples

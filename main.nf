@@ -35,7 +35,7 @@ process countZMWs {
     container "${params.hidef_container}"
     
     input:
-      tuple path(bamFile), path(pbiFile), val(outFileSuffix)
+      tuple path bamFile, path pbiFile, val outFileSuffix
     
     output:
       path "*"
@@ -68,7 +68,7 @@ process ccsChunk {
     container "${params.hidef_container}"
     
     input:
-      tuple path(reads_file), path(index_file), val(chunk_id)
+      tuple path reads_file, path index_file, val chunk_id
 
     output:
       tuple path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam", path "hifi_reads/${params.ccs_BAM_prefix}.ccs.chunk${chunk_id}.bam.pbi"
@@ -196,7 +196,7 @@ process pbmm2Align {
     container "${params.hidef_container}"
     
     input:
-      tuple val(sample_basename), file(demuxBam)
+      tuple val sample_basename, file demuxBam
     
     output:
       tuple path "${sample_basename}.aligned.sorted.bam", path "${sample_basename}.aligned.sorted.bam.pbi", path "${sample_basename}.aligned.sorted.bam.bai"
@@ -207,10 +207,7 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS \\
-    ${params.genome_mmi} \\
-    ${demuxBam} \\
-    ${sample_basename}.aligned.bam
+    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${demuxBam} ${sample_basename}.aligned.bam
     conda deactivate
 
     ${samtools_bin} sort -@8 -m 4G ${sample_basename}.aligned.bam > ${sample_basename}.aligned.sorted.bam

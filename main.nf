@@ -210,8 +210,8 @@ process pbmm2Align {
     pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${demuxBam} ${sample_basename}.aligned.bam
     conda deactivate
 
-    ${samtools_bin} sort -@8 -m 4G ${sample_basename}.aligned.bam > ${sample_basename}.aligned.sorted.bam
-    ${samtools_bin} index -@8 ${sample_basename}.aligned.sorted.bam
+    ${params.samtools_bin} sort -@8 -m 4G ${sample_basename}.aligned.bam > ${sample_basename}.aligned.sorted.bam
+    ${params.samtools_bin} index -@8 ${sample_basename}.aligned.sorted.bam
 
     conda activate ${params.conda_pbbioconda_env}
     pbindex ${sample_basename}.aligned.sorted.bam

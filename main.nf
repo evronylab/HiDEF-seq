@@ -64,14 +64,14 @@ process ccsChunk {
     cpus 8
     memory '64 GB'
     time '24h'
-    tag { "CCS chunk ${chunk_id}" }
+    tag { "CCS chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
     input:
       tuple path(bamFile), path(pbiFile), val(chunkID)
 
     output:
-      tuple path("hifi_reads/${params.run_id}.chunk${chunk_id}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunk_id}.hifi_reads.ccs.bam.pbi")
+      tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi")
     
     publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.ccs_report.*"
     publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.summary.json"
@@ -86,10 +86,10 @@ process ccsChunk {
     ${ld_preload_cmd}
     ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
-        --chunk ${chunk_id}/${params.ccs_chunks} \\
+        --chunk ${chunkID}/${params.ccs_chunks} \\
         --movie-name ${params.run_id}.chunk${chunkID} \\
         --non-hifi-prefix fail \\
-        --report-file statistics/${params.run_id}.chunk${chunk_id}.ccs_report.txt \\
+        --report-file statistics/${params.run_id}.chunk${chunkID}.ccs_report.txt \\
         ${bamFile}
     """
 }
@@ -241,9 +241,9 @@ workflow processReads {
     if( params.data_type == 'subreads' ) {
         
         // Run CCS in chunks.
-        chunk_ids = Channel.of(1..params.ccs_chunks)
+        chunkIDs = Channel.of(1..params.ccs_chunks)
 
-        ccsChunk( reads_ch | combine(chunk_ids) | map { it -> tuple(it[0], it[1], it[2]) } )
+        ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2]) } )
         
         // Merge all CCS chunks.
         mergeCCS( ccsChunk.out | collect )

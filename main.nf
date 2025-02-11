@@ -71,10 +71,10 @@ process ccsChunk {
       tuple path(reads_file), path(index_file), val(chunk_id)
 
     output:
-      tuple path("hifi_reads/${params.run_id}.ccs.chunk${chunk_id}.bam"), path("hifi_reads/${params.run_id}.ccs.chunk${chunk_id}.bam.pbi")
+      tuple path("hifi_reads/${params.run_id}.chunk${chunk_id}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunk_id}.hifi_reads.ccs.bam.pbi")
     
-    publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsreport.*"
-    publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccsmetrics.*"
+    publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.ccs_report.*"
+    publishDir "${params.process_reads_output_path}/logs", mode: 'copy', pattern: "*.summary.json"
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -87,11 +87,9 @@ process ccsChunk {
     ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunk_id}/${params.ccschunks} \\
-        --movie-name ${params.run_id}.ccs.chunk${chunk_id} \\
+        --movie-name ${params.run_id}.chunk${chunk_id} \\
         --non-hifi-prefix fail \\
-        --report-file ${params.run_id}.ccsreport.chunk${chunk_id}.txt \\
-        --report-json ${params.run_id}.ccsreport.chunk${chunk_id}.json \\
-        --metrics-json ${params.run_id}.ccsmetrics.chunk${chunk_id}.json \\
+        --report-file statistics/${params.run_id}.chunk${chunk_id}.ccs_report.txt \\
         ${reads_file}
     """
 }
@@ -284,7 +282,7 @@ workflow processReads {
         def result = [:]
         files.each
         { file ->
-          def m = file.name =~ /${params.run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
+            def m = file.name =~ /${params.run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
             if (m) {
               result[m[0][1]] = file
             }

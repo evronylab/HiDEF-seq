@@ -275,7 +275,7 @@ workflow processReads {
     limaDemux( filterAdapter.out, makeBarcodesFasta.out )
     
     //Create channels for each demultiplexed sample.
-    demuxMap = limaDemux.out.bam
+    demuxMap_ch = limaDemux.out.bam
     .collect
     .map {
       files ->
@@ -291,8 +291,8 @@ workflow processReads {
       }
 
     samples_to_align_ch = Channel.fromList(params.samples)
-    | map {
-        sample ->
+    .combine(demuxMap_ch)
+    .map{ sample, demuxMap ->
           def sname = sample.sample_name
           def barcodeId = sample.barcode.tokenize(':')[0]
           def sample_basename = "${params.run_id}.${sname}.ccs.filtered.demux.${barcodeId}"

@@ -247,7 +247,7 @@ workflow processReads {
         mergeCCS( ccsChunk.out | collect | map { it.transpose() } )
         
         // Count ZMWs after CCS merge.
-        mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
+        //mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )

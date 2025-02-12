@@ -25,32 +25,6 @@ process makeBarcodesFasta {
 }
 
 /*
-  countZMWs: Runs zmwfilter on an input BAM file and writes the ZMW count to a file.
-*/
-process countZMWs {
-    cpus 1
-    memory '8 GB'
-    time '30m'
-    tag "Count ZMWs"
-    container "${params.hidefseq_container}"
-    
-    input:
-      tuple path(bamFile), path(pbiFile), val(outFileSuffix)
-    
-    output:
-      path "*"
-    
-    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy'
-    
-    script:
-    """
-    source ${params.conda_base_script}
-    conda activate ${params.conda_pbbioconda_env}
-    zmwfilter --show-all ${bamFile} | wc -l > \$(basename ${bamFile} .bam).${outFileSuffix}
-    """
-}
-
-/*
   ccsChunk: Runs one chunk of CCS.
 
   #Notes:
@@ -186,7 +160,7 @@ process pbmm2Align {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_basename), val(barcodeID), file(bamFile)
+      tuple val(sample_basename), val(barcodeID), path(bamFile)
     
     output:
       tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai")
@@ -208,24 +182,34 @@ process pbmm2Align {
     """
 }
 
-
-/*****************************************************************
- * Helper Workflow Definitions
- *****************************************************************/
-
-//Wrapper for countZMWs to allow it to be called multiple times
-workflow countZMWsWrapper {
-
-    take:
-    inputCh
-    suffix
+/*
+  countZMWs: Runs zmwfilter on an input BAM file and writes the ZMW count to a file.
+*/
+process countZMWs {
+    cpus 1
+    memory '8 GB'
+    time '30m'
+    tag "Count ZMWs"
+    container "${params.hidefseq_container}"
     
-    main:
-    countZMWs( inputCh | map { tuple(it[0], it[1], suffix) } )
+    input:
+      tuple path(bamFile), path(pbiFile), val(outFileSuffix)
+    
+    output:
+      path "*"
+    
+    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy'
+    
+    script:
+    """
+    source ${params.conda_base_script}
+    conda activate ${params.conda_pbbioconda_env}
+    zmwfilter --show-all ${bamFile} | wc -l > \$(basename ${bamFile} .bam).${outFileSuffix}
+    """
 }
 
 /*****************************************************************
- * Primary Workflow Definitions
+ * Individual Workflow Definitions
  *****************************************************************/
 
 workflow processReads {
@@ -246,9 +230,6 @@ workflow processReads {
       .join("\n")
     
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
-    
-    // Count ZMWs on the original input.
-    countZMWsWrapper( reads_ch, "raw_zmwcount.txt" )
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -261,9 +242,6 @@ workflow processReads {
         // Merge all CCS chunks.
         mergeCCS( ccsChunk.out | collect | map { it.transpose() } )
         
-        // Count ZMWs after CCS merge.
-        countZMWsWrapper( mergeCCS.out, "ccs_zmwcount.txt" )
-        
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )
     }
@@ -275,9 +253,6 @@ workflow processReads {
         error "Unsupported data_type '${params.data_type}'."
     }
 
-    // Count ZMWs after adapter filtering.
-    countZMWsWrapper( filterAdapter.out, "filteredAdapter_zmwcount.txt" )
-    
     // Demultiplex with lima.
     limaDemux( filterAdapter.out, makeBarcodesFasta.out )
     
@@ -304,16 +279,33 @@ workflow processReads {
     .map{ sample, demuxMap ->
           def sname = sample.sample_name
           def barcodeID = sample.barcode.tokenize(':')[0]
-          def sample_basename = "${params.run_id}.${sname}.ccs.filtered.demux.${barcodeID}"
+          def sample_basename = "${params.run_id}.${sname}.ccs.filtered"
           def demux_bam = demuxMap[barcodeID]
           return tuple(sample_basename, barcodeID, demux_bam)
       }
 
     // Run pbmm2 alignment for each sample.
     pbmm2Align( samples_to_align_ch )
-    
-    // Count ZMWs after pbmm2 alignment.
-    countZMWsWrapper( pbmm2Align.out, "aligned_zmwcount.txt" )
+
+    // Create channels for counting ZMWs of BAMs created during processing
+    if( params.data_type == 'subreads' ) {
+      countZMWs_ch = Channel.merge(
+        reads_ch | map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") },
+        mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
+      )
+    }
+    else if( params.data_type == 'ccs' ) {
+      countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
+    }
+
+    countZMWs_ch = Channel.merge(
+      countZMWs_ch,
+      filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
+      limaDemux.out.bam | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
+      pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
+    )
+
+    countZMWs( countZMWs_ch )
 
     emit:
     pbmm2Align.out

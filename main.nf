@@ -292,7 +292,7 @@ workflow processReads {
         reads_ch | map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }//,
     //    mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
       )
-    //}
+    }
     //else if( params.data_type == 'ccs' ) {
     //  countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     //}
@@ -304,7 +304,7 @@ workflow processReads {
     //  pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
     //)
 
-    //countZMWs( countZMWs_ch )
+    countZMWs( countZMWs_ch )
 
     emit:
     pbmm2Align.out

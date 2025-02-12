@@ -73,8 +73,8 @@ process ccsChunk {
     output:
       tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi")
     
-    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.ccs_report.*"
-    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.summary.json"
+    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
+    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -109,8 +109,6 @@ process mergeCCS {
 
     output:
       tuple path("${params.run_id}.ccs.bam"), path("${params.run_id}.ccs.bam.pbi")
-
-    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy'
 
     script:
     """
@@ -235,7 +233,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    //reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
+    reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -246,10 +244,10 @@ workflow processReads {
         ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2]) } )
         
         // Merge all CCS chunks.
-        mergeCCS( ccsChunk.out | collect )
+        mergeCCS( ccsChunk.out | collect | map { it.transpose() } )
         
         // Count ZMWs after CCS merge.
-        //mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
+        mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )
@@ -272,7 +270,7 @@ workflow processReads {
     // Here, for each sample the input BAM is assumed to have the name:
     // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
     demuxMap_ch = limaDemux.out.bam
-    .collect
+    .collect()
     .map {
       files ->
         def result = [:]

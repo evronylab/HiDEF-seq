@@ -36,7 +36,7 @@ process makeBarcodesFasta {
 */
 process ccsChunk {
     cpus 8
-    memory '64 GB'
+    memory '32 GB'
     time '24h'
     tag { "CCS chunk ${chunkID}" }
     container "${params.hidefseq_container}"
@@ -73,7 +73,7 @@ process ccsChunk {
 */
 process mergeCCS {
     cpus 2
-    memory '32 GB'
+    memory '8 GB'
     time '4h'
     tag "Merge CCS chunks"
     container "${params.hidefseq_container}"
@@ -97,7 +97,7 @@ process mergeCCS {
 */
 process filterAdapter {
     cpus 8
-    memory '64 GB'
+    memory '32 GB'
     time '10h'
     tag "Filter Bad Adapters"
     container "${params.hidefseq_container}"
@@ -188,7 +188,7 @@ process pbmm2Align {
 process countZMWs {
     cpus 1
     memory '8 GB'
-    time '30m'
+    time '1h'
     tag "Count ZMWs"
     container "${params.hidefseq_container}"
     

@@ -134,14 +134,14 @@ process limaDemux {
     output:
       path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
     
-    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.lima.*"
+    publishDir "${params.process_reads_output_dir}/logs", mode: 'copy', pattern: "*.lima.{summary,counts}"
     
     script:
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    lima --ccs --same --split-named --min-score 80 --min-end-score 50 \\
-         --min-ref-span 0.75 --min-scoring-regions 2 \\
+    lima --ccs --split-named --min-score 80 --min-end-score 50 \\
+         --min-ref-span 0.75 --same --min-scoring-regions 2 \\
          ${bamFile} \\
          ${barcodesFasta} \\
          ${params.run_id}.ccs.filtered.demux.bam
@@ -299,7 +299,7 @@ workflow processReads {
     countZMWs_ch = countZMWs_ch
       .merge(
         filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
-        limaDemux.out.bam | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
+        limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
         pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
       )
       .collect()

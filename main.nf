@@ -8,7 +8,7 @@
 process makeBarcodesFasta {
     cpus 1
     memory '2 GB'
-    time '5m'
+    time '10m'
     tag "Make Barcodes Fasta"
     container "${params.hidefseq_container}"
 
@@ -74,7 +74,7 @@ process ccsChunk {
 process mergeCCS {
     cpus 2
     memory '8 GB'
-    time '4h'
+    time '6h'
     tag "Merge CCS chunks"
     container "${params.hidefseq_container}"
     
@@ -97,7 +97,7 @@ process mergeCCS {
 */
 process filterAdapter {
     cpus 8
-    memory '32 GB'
+    memory '16 GB'
     time '10h'
     tag "Filter Bad Adapters"
     container "${params.hidefseq_container}"

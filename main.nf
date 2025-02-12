@@ -233,7 +233,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    //reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
+    reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {

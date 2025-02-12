@@ -208,14 +208,29 @@ process pbmm2Align {
     """
 }
 
+
 /*****************************************************************
- * Individual Workflow Definitions
+ * Helper Workflow Definitions
+ *****************************************************************/
+
+//Wrapper for countZMWs to allow it to be called multiple times
+workflow countZMWsWrapper {
+
+    take:
+    inputCh
+    suffix
+    
+    main:
+    countZMWs( inputCh | map { tuple(it[0], it[1], suffix) } )
+}
+
+/*****************************************************************
+ * Primary Workflow Definitions
  *****************************************************************/
 
 workflow processReads {
 
     main:
-
     // Create channel for the input reads file.
     reads_ch = Channel
       .fromPath(params.reads_file)
@@ -233,7 +248,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    blah1 = reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
+    countZMWsWrapper( reads_ch, "raw_zmwcount.txt" )
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -247,7 +262,7 @@ workflow processReads {
         mergeCCS( ccsChunk.out | collect | map { it.transpose() } )
         
         // Count ZMWs after CCS merge.
-        blah2 = mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
+        countZMWsWrapper( mergeCCS.out, "ccs_zmwcount.txt" )
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )
@@ -261,7 +276,7 @@ workflow processReads {
     }
 
     // Count ZMWs after adapter filtering.
-    //filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") } | countZMWs
+    countZMWsWrapper( filterAdapter.out, "filteredAdapter_zmwcount.txt" )
     
     // Demultiplex with lima.
     limaDemux( filterAdapter.out, makeBarcodesFasta.out )
@@ -298,7 +313,7 @@ workflow processReads {
     pbmm2Align( samples_to_align_ch )
     
     // Count ZMWs after pbmm2 alignment.
-    //pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") } | countZMWs
+    countZMWsWrapper( pbmm2Align.out, "aligned_zmwcount.txt" )
 
     emit:
     pbmm2Align.out

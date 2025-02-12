@@ -233,7 +233,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
     
     // Count ZMWs on the original input.
-    reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
+    //reads_ch | map { f -> tuple(f[0], f[1], "raw_zmwcount.txt") } | countZMWs
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
@@ -247,7 +247,7 @@ workflow processReads {
         mergeCCS( ccsChunk.out | collect | map { it.transpose() } )
         
         // Count ZMWs after CCS merge.
-        //mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
+        mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") } | countZMWs
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )

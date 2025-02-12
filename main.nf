@@ -292,18 +292,18 @@ workflow processReads {
         .map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }
         .merge(mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") })
     }
-    //else if( params.data_type == 'ccs' ) {
-    //  countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
-    //}
+    else if( params.data_type == 'ccs' ) {
+      countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
+    }
 
-    //countZMWs_ch = Channel.merge(
-    //  countZMWs_ch,
-    //  filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
-    //  limaDemux.out.bam | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
-    //  pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
-    //)
+    countZMWs_ch = countZMWs_ch
+      .merge(
+        filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
+        limaDemux.out.bam | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
+        pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
+      )
 
-    countZMWs( countZMWs_ch )
+    countZMWs( countZMWs_ch | collect() | map { it.transpose() } )
 
     emit:
     pbmm2Align.out

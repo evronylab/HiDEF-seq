@@ -163,7 +163,7 @@ process pbmm2Align {
       tuple val(sample_basename), val(barcodeID), path(bamFile)
     
     output:
-      tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai"), emit: aligned_tuple
+      tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai") emit: aligned_tuple
     
     publishDir params.processReads_output_dir, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     

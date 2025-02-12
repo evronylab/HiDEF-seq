@@ -233,7 +233,6 @@ workflow processReads {
       
     // Branch according to data type.
     if( params.data_type == 'subreads' ) {
-        
         // Run CCS in chunks.
         chunkIDs = Channel.of(1..params.ccs_chunks)
 

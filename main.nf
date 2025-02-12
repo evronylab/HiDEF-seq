@@ -239,7 +239,7 @@ workflow processReads {
         ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2]) } )
         
         // Merge all CCS chunks.
-        mergeCCS( ccsChunk.out.collect().transpose() )
+        mergeCCS( ccsChunk.out.collect(flat: false).map{ it.transpose() } )
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )

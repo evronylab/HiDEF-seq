@@ -296,12 +296,12 @@ workflow processReads {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
 
-    reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }.subscribe { println "DEBUG: reads_ch.out: $it" }
-    mergeCCS.out.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }.subscribe { println "DEBUG: mergeCCS.out: $it" }
-    countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
-    filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }.subscribe { println "DEBUG: filterAdapter.out: $it" }
-    limaDemux.out.bam.flatten().map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") }.subscribe { println "DEBUG: limademux.out: $it" }
-    pbmm2Align.out.collect(flat: false).flatMap().map{ f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }.subscribe { println "DEBUG: pbmm2Align.out: $it" }
+    //reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }.subscribe { println "DEBUG: reads_ch.out: $it" }
+    //mergeCCS.out.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }.subscribe { println "DEBUG: mergeCCS.out: $it" }
+    //countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
+    //filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }.subscribe { println "DEBUG: filterAdapter.out: $it" }
+    //limaDemux.out.bam.flatten().map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") }.subscribe { println "DEBUG: limademux.out: $it" }
+    //pbmm2Align.out.collect(flat: false).flatMap().map{ f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }.subscribe { println "DEBUG: pbmm2Align.out: $it" }
 
     countZMWs_ch = countZMWs_ch +
           (
@@ -312,12 +312,10 @@ workflow processReads {
             )
             .collect(flat: false)
           )
-    //countZMWs_ch = Channel.of( countZMWs_ch.map { it.transpose() } )
-    countZMWs_ch = countZMWs_ch.flatMap()
 
-    countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
+    //countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
 
-    //countZMWs( countZMWs_ch )
+    countZMWs( countZMWs_ch.flatMap() )
 
     emit:
     pbmm2Align.out

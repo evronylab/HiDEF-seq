@@ -321,10 +321,11 @@ workflow processReads {
 workflow {
 
   // Save copy of parameters file to logs directory
+  import org.yaml.snakeyaml.Yaml
   def logDir = file("${params.analysis_output_dir}/logs")
   logDir.mkdirs()
-  def configFile = file(System.getenv('NXF_PARAMS_FILE'))
-  file("${logDir}/${configFile.name}").bytes = configFile.bytes
+  def yaml = new Yaml()
+  file("${logDir}/${configFile.name}").text = yaml.dump(params)
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

@@ -313,10 +313,11 @@ workflow processReads {
             .collect(flat: false)
           )
     //countZMWs_ch = Channel.of( countZMWs_ch.map { it.transpose() } )
+    countZMWs_ch = countZMWs_ch.flatMap()
 
     countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
 
-    countZMWs( countZMWs_ch )
+    //countZMWs( countZMWs_ch )
 
     emit:
     pbmm2Align.out

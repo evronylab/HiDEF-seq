@@ -163,7 +163,7 @@ process pbmm2Align {
       tuple val(sample_basename), val(barcodeID), path(bamFile)
     
     output:
-      tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai")
+      tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai"), emit: aligned_tuple
     
     publishDir params.processReads_output_dir, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     
@@ -300,7 +300,7 @@ workflow processReads {
       .merge(
         filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
         limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
-        pbmm2Align.out.collect(flat: false) | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
+        pbmm2Align.out.aligned_tuple.collect(flat: false) | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
       )
       .map { it.transpose() }
 

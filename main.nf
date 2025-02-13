@@ -323,7 +323,7 @@ import org.yaml.snakeyaml.Yaml
 workflow {
 
   // Save copy of parameters file to logs directory
-  def configFile = file(System.getenv('NXF_CONFIGFILE'))
+  def configFile = file(System.getenv("NXF_PARAMS_FILE"))
   def logDir = file("${params.analysis_output_dir}/logs")
   logDir.mkdirs()
   def yaml = new Yaml()

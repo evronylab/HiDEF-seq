@@ -318,7 +318,7 @@ workflow processReads {
  * Main Workflow
  *****************************************************************/
 
-//import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.Yaml
 
 workflow {
 

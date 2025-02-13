@@ -160,25 +160,27 @@ process pbmm2Align {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_basename), val(barcodeID), path(bamFile)
+      tuple val(sample_name), val(barcodeID), path(bamFile)
     
     output:
-      tuple val(sample_basename), val(barcodeID), path("${sample_basename}.aligned.sorted.bam"), path("${sample_basename}.aligned.sorted.bam.pbi"), path("${sample_basename}.aligned.sorted.bam.bai")
+      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
     
     publishDir params.processReads_output_dir, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     
     script:
     """
+    sample_basename=${params.run_id}.${sample_name}.ccs.filtered.aligned
+
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} ${sample_basename}.aligned.bam
+    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} \${sample_basename}.bam
     conda deactivate
 
-    ${params.samtools_bin} sort -@8 -m 4G ${sample_basename}.aligned.bam > ${sample_basename}.aligned.sorted.bam
-    ${params.samtools_bin} index -@8 ${sample_basename}.aligned.sorted.bam
+    ${params.samtools_bin} sort -@8 -m 4G \${sample_basename}.bam > \${sample_basename}.sorted.bam
+    ${params.samtools_bin} index -@8 \${sample_basename}.sorted.bam
 
     conda activate ${params.conda_pbbioconda_env}
-    pbindex ${sample_basename}.aligned.sorted.bam
+    pbindex ${sample_basename}.sorted.bam
     """
 }
 
@@ -276,11 +278,10 @@ workflow processReads {
     samples_to_align_ch = Channel.fromList(params.samples)
     .combine(demuxMap_ch)
     .map{ sample, demuxMap ->
-          def sname = sample.sample_name
+          def sample_name = sample.sample_name
           def barcodeID = sample.barcode.tokenize(':')[0]
-          def sample_basename = "${params.run_id}.${sname}.ccs.filtered"
           def demux_bam = demuxMap[barcodeID]
-          return tuple(sample_basename, barcodeID, demux_bam)
+          return tuple(sample_name, barcodeID, demux_bam)
       }
 
     // Run pbmm2 alignment for each sample.
@@ -296,13 +297,6 @@ workflow processReads {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
 
-    //reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }.subscribe { println "DEBUG: reads_ch.out: $it" }
-    //mergeCCS.out.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }.subscribe { println "DEBUG: mergeCCS.out: $it" }
-    //countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
-    //filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }.subscribe { println "DEBUG: filterAdapter.out: $it" }
-    //limaDemux.out.bam.flatten().map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") }.subscribe { println "DEBUG: limademux.out: $it" }
-    //pbmm2Align.out.collect(flat: false).flatMap().map{ f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }.subscribe { println "DEBUG: pbmm2Align.out: $it" }
-
     countZMWs_ch = countZMWs_ch +
           (
           filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }
@@ -312,8 +306,6 @@ workflow processReads {
             )
             .collect(flat: false)
           )
-
-    //countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
 
     countZMWs( countZMWs_ch.flatMap() )
 

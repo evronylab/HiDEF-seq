@@ -331,7 +331,7 @@ workflow {
   options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
   options.setIndent(2)
 
-  def yaml = new Yaml()
+  def yaml = new Yaml(options)
   file("${logsDir}/runParams.yaml").text = yaml.dump(params)
 
   // Run processReads workflow

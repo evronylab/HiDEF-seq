@@ -319,12 +319,18 @@ workflow processReads {
  *****************************************************************/
 
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.DumperOptions
 
 workflow {
 
   // Save copy of parameters file to logs directory
   def logsDir = file("${params.analysis_output_dir}/logs")
   logsDir.mkdirs()
+
+  def options = new DumperOptions()
+  options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+  options.setIndent(2)
+
   def yaml = new Yaml()
   file("${logsDir}/runParams.yaml").text = yaml.dump(params)
 

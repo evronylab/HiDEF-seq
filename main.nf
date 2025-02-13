@@ -291,11 +291,19 @@ workflow processReads {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }
         .concat(mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") })
         .collect(flat: false)
-        .flatten()
     }
     else if( params.data_type == 'ccs' ) {
       countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
+
+    countZMWs_ch = countZMWs_ch +
+      filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }
+        .concat(
+          limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
+          pbmm2Align.out.collect(flat: false).flatMap() | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
+        )
+        .collect(flat: false)
+      //.map { it.transpose() }
 
     reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }.subscribe { println "DEBUG: reads_ch.out: $it" }
     mergeCCS.out.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }.subscribe { println "DEBUG: mergeCCS.out: $it" }
@@ -304,16 +312,8 @@ workflow processReads {
     limaDemux.out.bam.flatten().map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") }.subscribe { println "DEBUG: limademux.out: $it" }
     pbmm2Align.out.collect(flat: false).flatMap().map{ f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }.subscribe { println "DEBUG: pbmm2Align.out: $it" }
 
-    countZMWs_ch = countZMWs_ch
-      .concat(
-        filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
-        limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
-        pbmm2Align.out.collect(flat: false).flatMap() | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
-      )
-      .collect()
-      .map { it.transpose() }
 
-    countZMWs( countZMWs_ch )
+    //countZMWs( countZMWs_ch )
 
     emit:
     pbmm2Align.out

@@ -323,10 +323,10 @@ import org.yaml.snakeyaml.Yaml
 workflow {
 
   // Save copy of parameters file to logs directory
-  def logDir = file("${params.analysis_output_dir}/logs")
-  logDir.mkdirs()
+  def logsDir = file("${params.analysis_output_dir}/logs")
+  logsDir.mkdirs()
   def yaml = new Yaml()
-  file("${logDir}/params.yaml").text = yaml.dump(params)
+  file("${logsDir}/runParams.yaml").text = yaml.dump(params)
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

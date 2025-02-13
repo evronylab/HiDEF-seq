@@ -296,7 +296,7 @@ workflow processReads {
       countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
 
-    limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi") | view ()
+    limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") } | view
     pbmm2Align.out.collect(flat: false).subscribe { println "DEBUG: pbmm2Align.out: $it" }
 
     countZMWs_ch = countZMWs_ch

@@ -325,7 +325,8 @@ workflow {
   def logDir = file("${params.analysis_output_dir}/logs")
   logDir.mkdirs()
   def yaml = new Yaml()
-  file("${logDir}/${configFile.name}").text = yaml.dump(params)
+  def paramsYaml = yaml.dump(params)
+  file("${logDir}/${configFile.name}").text = paramsYaml
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

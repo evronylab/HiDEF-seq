@@ -293,7 +293,7 @@ workflow processReads {
         .collect(flat: false)
     }
     else if( params.data_type == 'ccs' ) {
-      countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
+      countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
 
     reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }.subscribe { println "DEBUG: reads_ch.out: $it" }
@@ -316,7 +316,7 @@ workflow processReads {
 
     countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
 
-    //countZMWs( countZMWs_ch )
+    countZMWs( countZMWs_ch )
 
     emit:
     pbmm2Align.out

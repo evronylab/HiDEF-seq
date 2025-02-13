@@ -298,8 +298,6 @@ workflow processReads {
 
     pbmm2Align.out.subscribe { println "DEBUG: pbmm2Align.out: $it" }
 
-    pbmm2Align.out | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }.view()
-
     countZMWs_ch = countZMWs_ch
       .merge(
         filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },

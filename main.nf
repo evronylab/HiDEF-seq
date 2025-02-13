@@ -308,6 +308,7 @@ workflow processReads {
         limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
         pbmm2Align.out.collect(flat: false).flatMap() | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
       )
+      .collect()
       .map { it.transpose() }
 
     countZMWs( countZMWs_ch )

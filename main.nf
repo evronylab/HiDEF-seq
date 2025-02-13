@@ -47,8 +47,8 @@ process ccsChunk {
     output:
       tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi")
     
-    publishDir "${params.processReads_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
-    publishDir "${params.processReads_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -134,7 +134,7 @@ process limaDemux {
     output:
       path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
     
-    publishDir "${params.processReads_output_dir}/logs", mode: 'copy', pattern: "*.lima.{summary,counts}"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.{summary,counts}"
     
     script:
     """
@@ -165,7 +165,7 @@ process pbmm2Align {
     output:
       tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
     
-    publishDir params.processReads_output_dir, mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
+    publishDir "${params.analysis_output_dir}/processReads", mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
     
     script:
     """
@@ -200,7 +200,7 @@ process countZMWs {
     output:
       path "*"
     
-    publishDir "${params.processReads_output_dir}/logs", mode: 'copy'
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy'
     
     script:
     """
@@ -319,6 +319,11 @@ workflow processReads {
  *****************************************************************/
 
 workflow {
+
+  // Save copy of configuration file to logs directory
+  def logDir = file("${params.analysis_output_dir}/logs")
+  logDir.mkdirs()
+  file("$logDir/${file(System.getenv('NXF_PARAMS_FILE')).name}") << file(System.getenv('NXF_PARAMS_FILE')).text
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

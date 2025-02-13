@@ -296,13 +296,13 @@ workflow processReads {
       countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
     }
 
-    pbmm2Align.out.collect(flat: false).flatMap().subscribe { println "DEBUG: pbmm2Align.out: $it" }
+    pbmm2Align.out.flatMap().subscribe { println "DEBUG: pbmm2Align.out: $it" }
 
     countZMWs_ch = countZMWs_ch
       .merge(
         filterAdapter.out | map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") },
         limaDemux.out.bam.flatten() | map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
-        pbmm2Align.out.collect(flat: false).flatMap().map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
+        pbmm2Align.out.flatMap() | map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
       )
       .map { it.transpose() }
 

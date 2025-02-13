@@ -320,10 +320,11 @@ workflow processReads {
 
 workflow {
 
-  // Save copy of configuration file to logs directory
+  // Save copy of parameters file to logs directory
   def logDir = file("${params.analysis_output_dir}/logs")
   logDir.mkdirs()
-  file("$logDir/${file(System.getenv('NXF_PARAMS_FILE')).name}") << file(System.getenv('NXF_PARAMS_FILE')).text
+  def configFile = file(System.getenv('NXF_PARAMS_FILE'))
+  file("${logDir}/${configFile.name}").bytes = configFile.bytes
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

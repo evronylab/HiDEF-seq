@@ -288,10 +288,9 @@ workflow processReads {
 
     // Create channels for counting ZMWs of BAMs created during processing
     if( params.data_type == 'subreads' ) {
-      countZMWs_ch = Channel.of(
-          reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") },
-          mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }
-        )
+      countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "subreads_zmwcount.txt") }
+        .concat(mergeCCS.out | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") })
+        .collect(flat: false)
     }
     else if( params.data_type == 'ccs' ) {
       countZMWs_ch = reads_ch | map { f -> tuple(f[0], f[1], "ccs_zmwcount.txt") }

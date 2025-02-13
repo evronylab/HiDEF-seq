@@ -312,7 +312,7 @@ workflow processReads {
             )
             .collect(flat: false)
           )
-      .map { it.transpose() }
+    countZMWs_ch = countZMWs_ch.map { it.transpose() }
 
     countZMWs_ch.subscribe { println "DEBUG: countZMWs_ch.out: $it" }
 

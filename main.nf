@@ -156,7 +156,7 @@ process pbmm2Align {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag { "pbmm2 Alignment: ${sample_basename}" }
+    tag { "pbmm2 Alignment: ${params.run_id}.${sample_name}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -165,7 +165,7 @@ process pbmm2Align {
     output:
       tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
     
-    publishDir "${params.analysis_output_dir}/processReads", mode: 'copy', pattern: "${sample_basename}.aligned.sorted.bam*"
+    publishDir "${params.analysis_output_dir}/processReads", mode: 'copy', pattern: "${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam*"
     
     script:
     """
@@ -180,7 +180,7 @@ process pbmm2Align {
     ${params.samtools_bin} index -@8 \${sample_basename}.sorted.bam
 
     conda activate ${params.conda_pbbioconda_env}
-    pbindex ${sample_basename}.sorted.bam
+    pbindex \${sample_basename}.sorted.bam
     """
 }
 

@@ -156,7 +156,7 @@ process pbmm2Align {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag { "pbmm2 Alignment: ${params.run_id}.${sample_name}" }
+    tag { "pbmm2 Alignment: ${sample_name}" }
     container "${params.hidefseq_container}"
     
     input:

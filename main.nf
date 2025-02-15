@@ -301,7 +301,7 @@ workflow processReads {
           (
           filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }
             .concat(
-              limaDemux.out.bam.flatten().map { f -> tuple(f, file("${f}.pbi"), "limaDemux_zmwcount.txt") },
+              samples_to_align_ch.flatten().map { f -> tuple(f[2], file("${f[2]}.pbi"), "${f[0]}.limaDemux_zmwcount.txt") },
               pbmm2Align.out.collect(flat: false).flatMap().map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
             )
             .collect(flat: false)

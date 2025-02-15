@@ -47,8 +47,8 @@ process ccsChunk {
     output:
       tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi")
     
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "./statistics/*.ccs_report.*"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "./statistics/*.summary.json"
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -134,7 +134,7 @@ process limaDemux {
     output:
       path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
     
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.{summary,counts}"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: ["*.lima.summary", "*.lima.counts"]
     
     script:
     """

@@ -45,8 +45,10 @@ process ccsChunk {
       tuple path(bamFile), path(pbiFile), val(chunkID)
 
     output:
-      tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi")
-    
+      tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi"), emit: bampbi_tuple
+      path "statistics/*.ccs_report.*", emit: report
+      path "statistics/*.summary.json", emit: summary
+
     publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
     publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
 
@@ -133,6 +135,8 @@ process limaDemux {
 
     output:
       path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
+      path "*.lima.summary", emit: lima_summary
+      path "*.lima.counts", emit: lima_counts
     
     publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.summary"
     publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.counts"
@@ -242,7 +246,7 @@ workflow processReads {
         ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2]) } )
         
         // Merge all CCS chunks.
-        mergeCCS( ccsChunk.out.collect(flat: false).map{ it.transpose() } )
+        mergeCCS( ccsChunk.out.bampbi_tuple.collect(flat: false).map{ it.transpose() } )
         
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )

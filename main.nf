@@ -49,8 +49,8 @@ process ccsChunk {
       path "statistics/*.ccs_report.*", emit: report
       path "statistics/*.summary.json", emit: summary
 
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*"
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json"
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*", saveAs: { filename -> filename.getName() }
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json", saveAs: { filename -> filename.getName() }
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -306,7 +306,7 @@ workflow processReads {
           (
           filterAdapter.out.map { f -> tuple(f[0], f[1], "filteredAdapter_zmwcount.txt") }
             .concat(
-              samples_to_align_ch.flatten().map { f -> tuple(f[2], file("${f[2]}.pbi"), "${f[0]}.limaDemux_zmwcount.txt") },
+              samples_to_align_ch.map { f -> tuple(f[2], file("${f[2]}.pbi"), "${f[0]}.limaDemux_zmwcount.txt") },
               pbmm2Align.out.collect(flat: false).flatMap().map { f -> tuple(f[2], f[3], "aligned_zmwcount.txt") }
             )
             .collect(flat: false)

@@ -300,6 +300,7 @@ workflow processReads {
     }
     else if( params.data_type == 'ccs' ) {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
+        .collect(flat: false)
     }
 
     countZMWs_ch = countZMWs_ch +

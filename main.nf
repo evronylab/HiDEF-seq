@@ -303,8 +303,6 @@ workflow processReads {
         .collect(flat: false)
     }
 
-    countZMWs_ch.subscribe { println it }
-
     countZMWs_ch = countZMWs_ch +
           (
           filterAdapter.out.map { f -> tuple(f[0], f[1], "zmwcount.txt") }

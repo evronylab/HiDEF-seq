@@ -215,6 +215,45 @@ process countZMWs {
     """
 }
 
+process splitBAM {
+    cpus 4
+    memory '32 GB'
+    time '6h'
+    tag { "Split BAM: ${sample_name}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_name), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+    
+    output:
+      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
+
+    publishDir "${params.analysis_output_dir}/splitBAMs", mode: 'copy', pattern: "*.chunk*"
+
+    script:
+    """
+    source ${params.conda_base_script}
+    conda activate ${params.conda_pbbioconda_env}
+
+    sample_basename=\$(basename ${bamFile} .bam)
+    
+    zmwfilter --show-all ${bamFile} > \${sample_basename}.zmw.ids.txt
+    total_zmws=\$(wc -l < \${sample_basename}.zmw.ids.txt)
+    zmws_per_chunk=\$(( (total_zmws + ${params.analysis_chunks} - 1) / ${params.analysis_chunks} ))
+    split -a 4 --numeric-suffixes=1 -l \$zmws_per_chunk \${sample_basename}.zmw.ids.txt \${sample_basename}.chunk.
+
+    chunk_file=\$(ls \${sample_basename}.chunk.* | sort | sed -n '${chunkID}p')
+    chunk_bam=\${sample_basename}.chunk\${chunkID}.bam
+
+    zmwfilter --include \$chunk_file ${bamFile} > \$chunk_bam
+    pbindex \$chunk_bam
+
+    conda deactivate
+
+    ${params.samtools_bin} index -@4 \$chunk_bam
+    """
+}
+
 /*****************************************************************
  * Individual Workflow Definitions
  *****************************************************************/
@@ -317,8 +356,24 @@ workflow processReads {
 
     emit:
     pbmm2Align.out
+
 }
 
+
+workflow splitBAMs {
+
+    take:
+    alignedSamples_ch
+    
+    main:
+    chunkIDs = Channel.of(1..params.analysis_chunks)
+
+    splitBAMs( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], i[3], it[4], it[5]) } )
+
+    emit:
+    splitBAMs.out
+
+}
 
 /*****************************************************************
  * Main Workflow
@@ -343,6 +398,25 @@ workflow {
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){
     processReads()
+  }
+
+  // Run splitBAMs workflow
+  if( params.workflow=="all" ){
+    splitBAMs( processReads.out )
+  }
+  else if ( params.workflow == "splitBAMs" ){
+    alignedSamples_ch = Channel.fromList(params.samples)
+          .map { sample ->
+              def sample_name = sample.sample_name
+              def barcodeID = sample.barcode.tokenize(':')[0]
+              def bamFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
+              return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile)
+          }
+
+    splitBAMs( alignedSamples_ch )
+
   }
 
 }

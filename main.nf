@@ -371,7 +371,7 @@ workflow splitBAMs {
     splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], i[3], it[4], it[5]) } )
 
     emit:
-    splitBAMs.out
+    splitBAM.out
 
 }
 

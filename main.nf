@@ -243,7 +243,7 @@ process splitBAM {
     split -a 4 --numeric-suffixes=1 -l \$zmws_per_chunk \${sample_basename}.zmwIDs.txt \${sample_basename}.zmwIDs.chunk.
 
     chunk_file=\$(ls \${sample_basename}.zmwIDs.chunk.* | sort | sed -n "${chunkID}p")
-    chunk_bam=\${sample_basename}.chunk\${chunkID}.bam
+    chunk_bam=\${sample_basename}.chunk${chunkID}.bam
 
     zmwfilter --include \$chunk_file ${bamFile} > \$chunk_bam
     pbindex \$chunk_bam

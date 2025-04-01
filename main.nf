@@ -368,7 +368,7 @@ workflow splitBAMs {
     main:
     chunkIDs = Channel.of(1..params.analysis_chunks)
 
-    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], i[3], it[4], it[5]) } )
+    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4], it[5]) } )
 
     emit:
     splitBAM.out

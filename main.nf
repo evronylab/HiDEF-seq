@@ -170,7 +170,7 @@ process pbmm2Align {
     output:
       tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
     
-    publishDir "${params.analysis_output_dir}/processReads", mode: 'copy', pattern: "${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam*"
+    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam*"
     
     script:
     """
@@ -228,7 +228,7 @@ process splitBAM {
     output:
       tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
-    publishDir "${params.analysis_output_dir}/splitBAMs", mode: 'copy', pattern: "*.chunk*.bam*"
+    publishDir "${splitBAMs_output_dir}", mode: 'copy', pattern: "*.chunk*.bam*"
 
     script:
     """
@@ -397,11 +397,13 @@ workflow {
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
 
   // Run processReads workflow
+  processReads_output_dir="${params.analysis_output_dir}/processReads"
   if( params.workflow=="all" || params.workflow == "processReads" ){
     processReads()
   }
 
   // Run splitBAMs workflow
+  splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
   if( params.workflow=="all" ){
     splitBAMs( processReads.out )
   }
@@ -410,9 +412,9 @@ workflow {
           .map { sample ->
               def sample_name = sample.sample_name
               def barcodeID = sample.barcode.tokenize(':')[0]
-              def bamFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${params.analysis_output_dir}/processReads/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
+              def bamFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
               return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile)
           }
     splitBAMs( alignedSamples_ch )

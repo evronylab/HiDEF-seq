@@ -245,7 +245,7 @@ process splitBAM {
     chunk_file=\$(ls \${sample_basename}.zmwIDs.chunk.* | sort | sed -n "${chunkID}p")
     chunk_bam=\${sample_basename}.chunk\${chunkID}.bam
 
-    zmwfilter --include \$chunk_file ${bamFile} > \$chunk_bam
+    zmwfilter --include \$chunk_file ${bamFile} \$chunk_bam
     pbindex \$chunk_bam
 
     conda deactivate

@@ -382,10 +382,15 @@ workflow splitBAMs {
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.DumperOptions
 
+//Define output directories
+logs_output_dir="${params.analysis_output_dir}/logs"
+processReads_output_dir="${params.analysis_output_dir}/processReads"
+splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
+
 workflow {
 
   // Save copy of parameters file to logs directory
-  def logsDir = file("${params.analysis_output_dir}/logs")
+  def logsDir = file("${logs_output_dir}")
   logsDir.mkdirs()
 
   def options = new DumperOptions()
@@ -397,13 +402,11 @@ workflow {
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
 
   // Run processReads workflow
-  processReads_output_dir="${params.analysis_output_dir}/processReads"
   if( params.workflow=="all" || params.workflow == "processReads" ){
     processReads()
   }
 
   // Run splitBAMs workflow
-  splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
   if( params.workflow=="all" ){
     splitBAMs( processReads.out )
   }

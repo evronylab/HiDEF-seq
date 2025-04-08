@@ -2,7 +2,9 @@
 
 #extractVariants.R:
 # Loads and formats aligned ccs bamFile in HiDEF-seq format RDS file that includes all required alignment and variant information for analysis.  
-# Usage: extractVariants.R [bamFile] [sample_name] [configuration.yaml]
+# Usage: extractVariants.R [bamFile] [sample_id] [configuration.yaml]
+
+cat("#### Running extractVariants...\n")
 
 ######################
 ### Load required libraries
@@ -11,6 +13,7 @@ suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(Rsamtools))
 suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
+suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(vcfR))
 suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(tidyverse))
@@ -20,11 +23,12 @@ suppressPackageStartupMessages(library(qs))
 ######################
 ### Load configuration
 ######################
-args <- commandArgs(trailingOnly = TRUE)
-
 cat("#### Loading configuration...")
+
+#Command line arguments
+args <- commandArgs(trailingOnly = TRUE)
 bamFile <- args[1]
-sample_name <- args[2]
+sample_id <- args[2]
 yaml.config <- suppressWarnings(read.config(args[3]))
 
 #Load BSgenome reference, and install it first if needed
@@ -35,105 +39,142 @@ if(! yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
 		dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE, showWarnings = FALSE)
 		install.packages(yaml.config$BSgenome$BSgenome_file, repos = NULL,  lib = Sys.getenv("R_LIBS_USER"))
 	}else{
-		cat()
+		stop("ERROR: Must specify either BSgenome_name that is in available.genomes() or a BSgenome_file!", call.=FALSE)
 	}
 }
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE))
 
-bamfile_filenames <- list()
-vcffile_filenames <- list()
+#Comma-separated chromosomes to analyze across all chromgroups
+chroms_to_analyze <- yaml.config$chromgroups %>%
+  map_vec("chroms") %>%
+  map(str_split_1,",") %>%
+  unlist
 
-for(i in names(yaml.config$make_bamfilezmw_all_config)){
-	sampleindex <- match(i,bamfilezmw_samplenames)
-	bamfile_filenames[[i]] <- paste0(yaml.config$process_reads_output_path,"/tmpsplit/",yaml.config$ccs_BAM_prefix,".",bamfilezmw_samplenames[sampleindex],".ccs.demux.",sub(":.*","",yaml.config$barcodes[sampleindex]),".postccsfilter.aligned.final.",chunknumber,".bam")
-	vcffile_filenames[[i]] <- yaml.config$make_bamfilezmw_all_config[[i]]$vcffile_filenames
-}
-
-chrs_to_analyze <- str_split(yaml.config$chrs_to_analyze,",") %>% unlist
-
-bamfilezmw_all_outputpath <- paste0(sub(".RDS$","",yaml.config$bamfilezmw_all_filename),".",chunknumber,".RDS")
-
-cat("DONE\n\n")
-
-######################
-### Load bamFile
-######################
-
-####
-#A. Load BAM file
-####
-cat("  Loading BAM file:",bamfile,"...")
-bamWhatToRetrieve <- setdiff(scanBamWhat(),c("mrnm","mpos","mate_status"))
-bamfile <- scanBam(bamfile,param=ScanBamParam(what=bamWhatToRetrieve,tag=c("ec","np","rq","zm","sa","sm","sx")))[[1]]
-cat("DONE\n")
-
-#Keep only reads from selected chromosomes
-keepreads <- bamfile$rname %in% chroms
-
- #Check if no reads remaining
-if(!any(keepreads)){
-	cat("  No reads in selected chromosomes! Proceeding to next sample...\n")
-	return("No reads in selected chromosomes")
-}
-
-for(i in setdiff(names(bamfile),"tag"))
-{
-  bamfile[[i]] <- bamfile[[i]][keepreads]
-}
-
-for(i in names(bamfile$tag)){
-  bamfile$tag[[i]] <- bamfile$tag[[i]][keepreads]
-}
-
-####
-#B. Extract and pair the "+" and "-" strand (i.e. genome alignment strand) reads of each CCS molecule
-####
-#Separate CCS reads into "+" and "-" strand reads; i.e., by the strand of the reference genome that the CCS reads aligned to. Note that CCS reads are the synthesized strand. The "fwd." and "rev." labels of the new dataframes do not correspond to the "/fwd" and "/rev" strand designation in the CCS read name that is also stored in the 'ccsstrand' column. For example, a "/fwd" ccs read may be aligned to the reverse strand of the genome (and vice versa), and in this case the read's information will be in the ".rev" dataframe per the strand of the genome that the read aligned to.
-
-cat("  Pairing + and - strand CCS reads...")
-
-#Create dataframes of CCS reads
-ccs.df <- DataFrame(bamfile[setdiff(names(bamfile),"tag")])
-
-ccs.tags.df <- DataFrame(lapply(bamfile$tag,I))
-
-ccs.df <- cbind(ccs.df,ccs.tags.df)
-rm(ccs.tags.df)
-
-#Extract ccsstrand into new column
-ccs.df$ccsstrand <- if_else(grepl("/fwd$",ccs.df$qname),"fwd","rev")
-
-#Split into strand="+" and "-" data frames
-fwd.ccs.df <- ccs.df[ccs.df$strand=="+",]
-rev.ccs.df <- ccs.df[ccs.df$strand=="-",]
-rm(ccs.df)
-
-#Arrange rev.ccs.df to the same order of zmwname as the fwd.ccs.df, so that fwd and rev reads of each ZMW are in the same row in each data frame
-rev.ccs.df <- rev.ccs.df[match(fwd.ccs.df$zm,rev.ccs.df$zm),]
-
-#Add zmwidx column, to allow matching by index fwd/rev.ccs.df and other data (such as ccsIndels.fwd/rev) that is indexed in lists in the same order
-fwd.ccs.df$zmwidx <- 1:nrow(fwd.ccs.df)
-rev.ccs.df$zmwidx <- 1:nrow(rev.ccs.df)
-
-#Confirm that fwd and rev zmw names match
-if(!identical(fwd.ccs.df$zm,rev.ccs.df$zm)){
-	stop("ERROR: Not every ZMW has both fwd and rev ccs reads!")
-}
-
-#Confirm that there is only one alignment for each zmw
-if(any(duplicated(fwd.ccs.df$zm)) | any(duplicated(rev.ccs.df$zm))){
-  stop("ERROR: Some ZMWs have multiple alignments!")
-}
+#Output objects
+output <- list()
 
 cat("DONE\n")
 
+######################
+### Load BAM file
+######################
+cat("#### Loading BAM file:",bamFile,"...")
 
-####
-#C. Save CCS indel data
-####
-#For each CCS, save an IRanges objects with the locations of insertions and deletions relative to reference space, and translated to reference coordinates using the read start position. Also save sizes of insertions and deletions relative to the reference space, since otherwise that information is lost for deletions.
+bam <- bamFile %>%
+  scanBam(
+    param=ScanBamParam(
+      what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
+      tag=c("ec","np","rq","zm","sa","sm","sx")
+    )
+  ) %>%
+  pluck(1)
 
-cat("  Extracting CCS indel data...")
+#Create DataFrame of reads
+bam.df <- cbind(
+  DataFrame(bam[names(bam) != "tag"] %>% lapply(I)),
+  DataFrame(bam$tag %>% lapply(I))
+)
+rm(bam)
+
+# Convert to GRanges
+bam.df$end <- bam.df$pos + bam.df$isize - 1
+
+bam.gr <- bam.df %>%
+  makeGRangesFromDataFrame(
+    seqnames.field="rname",
+    start.field="pos",
+    end.field="end",
+    strand.field="strand",
+    keep.extra.columns=TRUE,
+    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+  )
+rm(bam.df)
+
+#Extract ccs strand
+bam.gr$ccs_strand <- bam.gr$qname %>% str_extract("(fwd|rev)$")
+
+#Count number of molecules
+output$stats$num_molecules_initial <- bam.gr$zm %>% n_distinct
+
+cat("DONE\n")
+
+######################
+### Initial molecule filtering
+######################
+cat("#### Initial molecule filtering...")
+
+# Keep only molecules with 1 forward and 1 reverse primary alignment on the same chromosome (flags = 0 and 16 are plus and minus strand primary alignments; flags =  2048 and 2064 are plus and minus strand supplementary alignments).
+zmwstokeep <- bam.gr %>%
+  as_tibble %>%
+  select(zm,strand,flag,seqnames) %>%
+  group_by(zm) %>%
+  filter(sum(strand=="+") == 1 & sum(strand=="-") == 1) %>%
+  ungroup %>%
+  filter( flag==0 | flag==16 ) %>%
+  group_by(zm) %>%
+  filter(n_distinct(seqnames) == 1) %>%
+  pluck("zm")
+
+bam.gr <- bam.gr[bam.gr$zm %in% zmwstokeep,]
+rm(zmwstokeep)
+
+# Count number of molecules
+output$stats$num_molecules_postalignmentfilter <- bam.gr$zm %>% n_distinct
+
+# Keep only molecules aligned to analyzed chromosomes
+bam.gr <- bam.gr[seqnames(bam.gr) %in% chroms_to_analyze]
+
+# Count number of molecules
+output$stats$num_molecules_postanalyzedchroms <- bam.gr$zm %>% n_distinct
+
+# Arrange bam.gr by ZMW id and strand
+bam.gr <- bam.gr[order(bam.gr$zm, strand(bam.gr))]
+
+# Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal or both plus and minus strand alignments)
+
+ # Create simplified GRanges to reduce memory use
+bam.gr.onlyranges <- GRanges(
+  seqnames = seqnames(bam.gr),
+  ranges = ranges(bam.gr),
+  strand = strand(bam.gr),
+  zm = bam.gr$zm
+  )
+
+ # Extract plus and minus strand reads separately. Due to prior sorting by ZMW id and strand, these are guaranteed to have the same ZMW id order.
+bam.gr.onlyranges.plus <- bam.gr.onlyranges[strand(bam.gr.onlyranges) == "+"]
+bam.gr.onlyranges.minus <- bam.gr.onlyranges[strand(bam.gr.onlyranges) == "-"]
+
+ # Confirm ZMW id order is the same for plus and minus strand reads
+if(! identical(bam.gr.onlyranges.plus$zm, bam.gr.onlyranges.minus$zm)){
+  stop("ERROR: ZMW ids of plus and minus strand reads do not match!")
+}
+
+ # Compute reciprocal overlap ractions
+bam.gr.onlyranges.overlap <- pintersect(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, ignore.strand=TRUE)
+bam.gr.onlyranges.overlap.plus  <- width(bam.gr.onlyranges.overlap) / width(bam.gr.onlyranges.plus)
+bam.gr.onlyranges.overlap.minus  <- width(bam.gr.onlyranges.overlap) / width(bam.gr.onlyranges.minus)
+
+zmwstokeep <- bam.gr.onlyranges.overlap$zm[
+  (bam.gr.onlyranges.overlap.plus >= yaml.config$min_strand_overlap) & (bam.gr.onlyranges.overlap.minus >= yaml.config$min_strand_overlap)
+  ]
+
+ # Keep only molecules passing reciprocal overlap filter
+bam.gr <- bam.gr[bam.gr$zm %in% zmwstokeep,]
+
+ # Remove intermediate objects
+rm(bam.gr.onlyranges, bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, bam.gr.onlyranges.overlap.plus, bam.gr.onlyranges.overlap.minus, zmwstokeep)
+
+# Count number of molecules
+output$stats$num_molecules_postminstrandoverlap <- bam.gr$zm %>% n_distinct
+
+cat("DONE\n")
+
+######################
+### Extract read indels
+######################
+#For each read, save an IRanges objects with the locations of insertions and deletions relative to reference space, and translated to reference coordinates using the read start position. Also save sizes of insertions and deletions relative to the reference space, since otherwise that information is lost for deletions.
+
+cat("#### Extracting read indels...")
 ccsIndels.fwd <- cigarRangesAlongReferenceSpace(fwd.ccs.df$cigar,ops=c("I","D"),with.ops=T)
 ccsIndels.rev <- cigarRangesAlongReferenceSpace(rev.ccs.df$cigar,ops=c("I","D"),with.ops=T)
 ccsIndels.fwd <- shift(ccsIndels.fwd,fwd.ccs.df$pos-1)
@@ -390,22 +431,6 @@ rm(vcfSNVs,vcfSNV.fwd,vcfSNV.rev,vcfSNV.zmw,fwd.mismatches.df,rev.mismatches.df,
 bamfilezmw$vcfIndels <- vcfIndels
 
 rm(vcfIndels)
-
-#CCS Granges: fwd/rev.ccs.granges contain all data; zmw.ccs.granges stores only coordinates and isize, and not all the other ccs data that is already stored in fwd/rev.ccs.granges.
-fwd.ccs.df$end <- fwd.ccs.df$pos + fwd.ccs.df$isize - 1
-rev.ccs.df$end <- rev.ccs.df$pos + rev.ccs.df$isize - 1
-
-fwd.ccs.granges <- makeGRangesFromDataFrame(fwd.ccs.df,seqnames.field="rname",start.field="pos",end.field="end",strand.field="strand",keep.extra.columns=TRUE)
-rev.ccs.granges <- makeGRangesFromDataFrame(rev.ccs.df,seqnames.field="rname",start.field="pos",end.field="end",strand.field="strand",keep.extra.columns=TRUE)
-zmw.ccs.granges <- makeGRangesFromDataFrame(data.frame(chrom=seqnames(fwd.ccs.granges),start=pmax(start(fwd.ccs.granges),start(rev.ccs.granges)),end=pmin(end(fwd.ccs.granges),end(rev.ccs.granges))))
-
-zmw.ccs.granges$isize <- width(zmw.ccs.granges) #Calculate and store zmw.isize as width(zmw.ccs.granges)
-
-bamfilezmw$fwd.ccs.granges <- fwd.ccs.granges
-bamfilezmw$rev.ccs.granges <- rev.ccs.granges
-bamfilezmw$zmw.ccs.granges <- zmw.ccs.granges
-
-rm(fwd.ccs.df,rev.ccs.df,fwd.ccs.granges,rev.ccs.granges,zmw.ccs.granges)
 
 #CCS Indels
 bamfilezmw$ccsIndels.fwd <- ccsIndels.fwd

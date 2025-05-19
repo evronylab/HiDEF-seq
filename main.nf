@@ -254,6 +254,28 @@ process splitBAM {
     """
 }
 
+process extractVariantsChunk {
+    cpus 2
+    memory '32 GB'
+    time '4h'
+    tag { "Extract Variants: ${sample_name} -> chunk ${chunkID}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_name), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+    
+    output:
+      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
+
+    publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.RDS"
+
+    script:
+    """
+    Rscript extractVariants.R ${bamFile} \$NXF_PARAMS_FILE
+    """
+}
+
+
 /*****************************************************************
  * Individual Workflow Definitions
  *****************************************************************/
@@ -375,6 +397,19 @@ workflow splitBAMs {
 
 }
 
+workflow extractVariants {
+
+    take:
+    splitBAMs_ch
+    
+    main:
+    extractVariantsChunk( splitBAMs_ch )
+
+    emit:
+    extractVariants.out
+
+}
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
@@ -386,6 +421,7 @@ import org.yaml.snakeyaml.DumperOptions
 logs_output_dir="${params.analysis_output_dir}/logs"
 processReads_output_dir="${params.analysis_output_dir}/processReads"
 splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
+extractVariants_output_dir="${params.analysis_output_dir}/extractVariants"
 
 workflow {
 
@@ -421,6 +457,24 @@ workflow {
               return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile)
           }
     splitBAMs( alignedSamples_ch )
+  }
+
+  // Run extractVariants workflow
+  if( params.workflow=="all" ){
+    extractVariants( splitBAMs.out )
+  }
+  else if ( params.workflow == "extractVariants" ){
+    splitBAMs_ch = Channel.fromList(params.samples)
+          .combine(Channel.of(1..params.analysis_chunks))
+          .map { sample, chunkID ->
+              def sample_name = sample.sample_name
+              def barcodeID = sample.barcode.tokenize(':')[0]
+              def bamFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
+              def pbiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
+              def baiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
+              return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile, chunkID)
+          }
+    extractVariants( splitBAMs_ch )
   }
 
 }

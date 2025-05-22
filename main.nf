@@ -271,7 +271,7 @@ process extractVariantsChunk {
 
     script:
     """
-    Rscript extractVariants.R ${bamFile} \$NXF_PARAMS_FILE
+    Rscript extractVariants.R ${bamFile} ${params.paramsFileName}
     """
 }
 
@@ -436,6 +436,10 @@ workflow {
   def yaml = new Yaml(options)
   def timestamp = new Date().format('yyyy_MMdd_HHmm')
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
+
+  //Get path of parameters file
+  def commandLineTokens = workflow.commandLine.tokenize()
+  def params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

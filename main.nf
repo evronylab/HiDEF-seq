@@ -406,7 +406,7 @@ workflow extractVariants {
     extractVariantsChunk( splitBAMs_ch )
 
     emit:
-    extractVariants.out
+    extractVariantsChunk.out
 
 }
 

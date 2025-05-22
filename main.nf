@@ -439,7 +439,7 @@ workflow {
 
   //Get path of parameters file
   def commandLineTokens = workflow.commandLine.tokenize()
-  def params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
+  params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Run processReads workflow
   if( params.workflow=="all" || params.workflow == "processReads" ){

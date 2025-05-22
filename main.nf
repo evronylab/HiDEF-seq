@@ -155,26 +155,26 @@ process limaDemux {
 
 /*
   pbmm2Align: Aligns a demultiplexed BAM file using pbmm2.
-  and renames the output to include the sample name.
+  and renames the output to include the sample ID.
 */
 process pbmm2Align {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag { "pbmm2 Alignment: ${sample_name}" }
+    tag { "pbmm2 Alignment: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_name), val(barcodeID), path(bamFile)
+      tuple val(sample_id), val(barcodeID), path(bamFile)
     
     output:
-      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
+      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
     
-    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam*"
+    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam*"
     
     script:
     """
-    sample_basename=${params.run_id}.${sample_name}.ccs.filtered.aligned
+    sample_basename=${params.run_id}.${sample_id}.ccs.filtered.aligned
 
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
@@ -219,14 +219,14 @@ process splitBAM {
     cpus 2
     memory '32 GB'
     time '4h'
-    tag { "Split BAM: ${sample_name}" }
+    tag { "Split BAM: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_name), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(sample_id), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
+      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
     publishDir "${splitBAMs_output_dir}", mode: 'copy', pattern: "*.chunk*.bam*"
 
@@ -258,14 +258,14 @@ process extractVariantsChunk {
     cpus 2
     memory '32 GB'
     time '4h'
-    tag { "Extract Variants: ${sample_name} -> chunk ${chunkID}" }
+    tag { "Extract Variants: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_name), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(sample_id), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_name), val(barcodeID), path("${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
+      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
 
     publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.RDS"
 
@@ -344,10 +344,10 @@ workflow processReads {
     samples_to_align_ch = Channel.fromList(params.samples)
     .combine(demuxMap_ch)
     .map{ sample, demuxMap ->
-          def sample_name = sample.sample_name
+          def sample_id = sample.sample_id
           def barcodeID = sample.barcode.tokenize(':')[0]
           def demux_bam = demuxMap[barcodeID]
-          return tuple(sample_name, barcodeID, demux_bam)
+          return tuple(sample_id, barcodeID, demux_bam)
       }
 
     // Run pbmm2 alignment for each sample.
@@ -449,12 +449,12 @@ workflow {
   else if ( params.workflow == "splitBAMs" ){
     alignedSamples_ch = Channel.fromList(params.samples)
           .map { sample ->
-              def sample_name = sample.sample_name
+              def sample_id = sample.sample_id
               def barcodeID = sample.barcode.tokenize(':')[0]
-              def bamFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${processReads_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.bam.bai")
-              return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile)
+              def bamFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+              return tuple(sample_id, barcodeID, bamFile, pbiFile, baiFile)
           }
     splitBAMs( alignedSamples_ch )
   }
@@ -467,12 +467,12 @@ workflow {
     splitBAMs_ch = Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .map { sample, chunkID ->
-              def sample_name = sample.sample_name
+              def sample_id = sample.sample_id
               def barcodeID = sample.barcode.tokenize(':')[0]
-              def bamFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
-              def pbiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
-              def baiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_name}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
-              return tuple(sample_name, barcodeID, bamFile, pbiFile, baiFile, chunkID)
+              def bamFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
+              def pbiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
+              def baiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
+              return tuple(sample_id, barcodeID, bamFile, pbiFile, baiFile, chunkID)
           }
     extractVariants( splitBAMs_ch )
   }

@@ -271,7 +271,7 @@ process extractVariantsChunk {
 
     script:
     """
-    Rscript extractVariants.R ${bamFile} ${params.paramsFileName}
+    extractVariants.R ${bamFile} ${params.paramsFileName}
     """
 }
 

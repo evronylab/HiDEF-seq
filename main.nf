@@ -301,7 +301,7 @@ workflow processReads {
     makeBarcodesFasta( Channel.value(barcodeFastaContent) )
       
     // Branch according to data type.
-    if( params.data_type == 'subreads' ) {
+    if( params.reads_type == 'subreads' ) {
         // Run CCS in chunks.
         chunkIDs = Channel.of(1..params.ccs_chunks)
 
@@ -313,12 +313,12 @@ workflow processReads {
         // Filter for reads with adapters on both ends.
         filterAdapter( mergeCCS.out )
     }
-    else if( params.data_type == 'ccs' ) {
+    else if( params.reads_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.
         filterAdapter( reads_ch )
     }
     else {
-        error "Unsupported data_type '${params.data_type}'."
+        error "Unsupported reads_type '${params.reads_type}'."
     }
 
     // Demultiplex with lima.
@@ -355,12 +355,12 @@ workflow processReads {
     pbmm2Align( samples_to_align_ch )
 
     // Create channels for counting ZMWs of BAMs created during processing
-    if( params.data_type == 'subreads' ) {
+    if( params.reads_type == 'subreads' ) {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
         .concat(mergeCCS.out.map { f -> tuple(f[0], f[1], "zmwcount.txt") })
         .collect(flat: false)
     }
-    else if( params.data_type == 'ccs' ) {
+    else if( params.reads_type == 'ccs' ) {
       countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
         .collect(flat: false)
     }

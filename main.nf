@@ -256,7 +256,7 @@ process splitBAM {
 
 process extractVariantsChunk {
     cpus 2
-    memory '32 GB'
+    memory '128 GB'
     time '4h'
     tag { "Extract Variants: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"

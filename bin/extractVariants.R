@@ -35,6 +35,9 @@ bamFile <- args[1]
 yaml.config <- suppressWarnings(read.config(args[2]))
 
 #Load BSgenome reference, and install it first if needed
+cat(yaml.config$BSgenome$BSgenome_name,"\n")
+cat(installed.genomes(),"\n")
+cat(Sys.getenv("R_LIBS_USER"),"\n")
 if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
 	if(yaml.config$BSgenome$BSgenome_name %in% available.genomes()){
 		BiocManager::install(yaml.config$BSgenome$BSgenome_name)

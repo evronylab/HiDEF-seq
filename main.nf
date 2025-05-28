@@ -271,7 +271,6 @@ process extractVariantsChunk {
 
     script:
     """
-    export R_LIBS_USER=${params.prepareFilters_cache_dir}
     extractVariants.R ${bamFile} ${params.paramsFileName}
     """
 }

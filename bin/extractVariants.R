@@ -34,20 +34,8 @@ args <- commandArgs(trailingOnly = TRUE)
 bamFile <- args[1]
 yaml.config <- suppressWarnings(read.config(args[2]))
 
-#Load BSgenome reference, and install it first if needed
-cat(installed.genomes(),"\n")
-cat(.libPaths(),"\n")
-if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
-	if(yaml.config$BSgenome$BSgenome_name %in% available.genomes()){
-		BiocManager::install(yaml.config$BSgenome$BSgenome_name)
-	}else if(!is.null(yaml.config$BSgenome$BSgenome_file)){
-		dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE, showWarnings = FALSE)
-		install.packages(yaml.config$BSgenome$BSgenome_file, repos = NULL,  lib = Sys.getenv("R_LIBS_USER"))
-	}else{
-		stop("ERROR: Must specify either BSgenome_name that is in available.genomes() or a BSgenome_file!", call.=FALSE)
-	}
-}
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE))
+#Load the BSgenome reference
+suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$prepareFilters_cache_dir))
 
 #Comma-separated chromosomes to analyze across all chromgroups
 chroms_to_analyze <- yaml.config$chromgroups %>%

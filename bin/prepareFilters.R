@@ -1,3 +1,18 @@
+#RUN THIS BEFORE extractVariants
+
+#Install BSgenome reference in cache dir if needed
+.libPaths(yaml.config$prepareFilters_cache_dir)
+if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
+	if(yaml.config$BSgenome$BSgenome_name %in% available.genomes()){
+		BiocManager::install(yaml.config$BSgenome$BSgenome_name,lib=yaml.config$prepareFilters_cache_dir)
+	}else if(!is.null(yaml.config$BSgenome$BSgenome_file)){
+		dir.create(yaml.config$prepareFilters_cache_dir, recursive = TRUE, showWarnings = FALSE)
+		install.packages(yaml.config$BSgenome$BSgenome_file, repos = NULL,  lib = yaml.config$prepareFilters_cache_dir)
+	}else{
+		stop("ERROR: Must specify either BSgenome_name that is in available.genomes() or a BSgenome_file!", call.=FALSE)
+	}
+}
+
 **Load all variants, not just analyzed chromosomes, and note that this will be used for all chunks
 
 ######################

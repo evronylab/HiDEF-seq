@@ -4,7 +4,7 @@
 # Loads and formats aligned ccs bamFile in HiDEF-seq format RDS file that includes all required alignment and variant information for analysis.  
 # Usage: extractVariants.R [bamFile] [configuration.yaml]
 
-cat("#### Running extractVariants...\n")
+cat("#### Running extractVariants ####\n")
 
 ######################
 ### Load required libraries
@@ -18,7 +18,7 @@ suppressPackageStartupMessages(library(vcfR))
 suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
-suppressPackageStartupMessages(library(qs))
+suppressPackageStartupMessages(library(qs2))
 
 ######################
 ### Load configuration
@@ -274,7 +274,7 @@ cat("> Processing run:",i,"\n")
 ######################
 ### Extract subread alignment tags
 ######################
-cat("#### Extracting subread alignment tags...")
+cat(" ## Extracting subread alignment tags...")
 
 #sa: the number of subread alignments that span each CCS read position
 # sa is run-length encoded (rle) in the BAM file as length,value pairs. We inverse the rle encoding back to standard per-position values
@@ -310,9 +310,9 @@ sx[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sx[strand(bam.gr[[i]]) %>
 cat("DONE\n")
 
 ######################
-### Extract read single base substitutions
+### Extract single base substitutions
 ######################
-cat("#### Extracting read single base substitutions...")
+cat(" ## Extracting single base substitutions...")
 
 #Extract substitution positions in query space, and name them with the position to retain this in the final data frame
 cigar_query_sbs <- cigarRangesAlongQuerySpace(bam.gr[[i]]$cigar,ops="X")
@@ -502,9 +502,9 @@ if(cigar_query_sbs %>% as.data.frame %>% nrow == 0){
 cat("DONE\n")
 
 ######################
-### Extract read indels
+### Extract indels
 ######################
-cat("#### Extracting read indels...")
+cat(" ## Extracting indels...")
 
 #Extract indel positions in query space, and name them with the position to retain this in the final data frame.
 cigar_query_indels <- cigarRangesAlongQuerySpace(bam.gr[[i]]$cigar,ops=c("I","D"))
@@ -711,7 +711,7 @@ bam.gr <- bam.gr %>% unlist
 bam.gr$seq <- NULL
 bam.gr$qual <- NULL
 
-qsave(
+qs_save(
   list(
   	run_metadata = run_metadata,
   	bam.gr = bam.gr,
@@ -719,7 +719,7 @@ qsave(
   	indels.df = indels.df %>% bind_rows(.id="run_id") %>% mutate(run_id=factor(run_id)),
   	stats = stats
   	),
-  bamFile %>% basename %>% str_replace(".bam$",".RDS")
+  bamFile %>% basename %>% str_replace(".bam$",".qs2")
   )
 
 cat("DONE\n")

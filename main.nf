@@ -271,7 +271,7 @@ process extractVariantsChunk {
 
     script:
     """
-    ls /home/evrong01/R/x86_64-pc-linux-gnu-library/4.4
+    export R_LIBS_SITE=${params.prepareFilters_cache_dir}
     extractVariants.R ${bamFile} ${params.paramsFileName}
     """
 }

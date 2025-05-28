@@ -707,7 +707,7 @@ cat("DONE\n")
 cat("#### Saving output...")
 
 #Collapse bam.gr back to a single GRanges object and remove seq and qual data that is no longer needed
-bam.gr <- bam.gr %>% unlist
+bam.gr <- bam.gr %>% unlist(use.names=F)
 bam.gr$seq <- NULL
 bam.gr$qual <- NULL
 

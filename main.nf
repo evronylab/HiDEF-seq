@@ -13,10 +13,10 @@ process makeBarcodesFasta {
     container "${params.hidefseq_container}"
 
     input:
-      val content
+      tuple val val(run_id), content
     
     output:
-      path "barcodes.fasta"
+      tuple val(run_id), path "barcodes.fasta"
     
     script:
       """
@@ -42,10 +42,10 @@ process ccsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple path(bamFile), path(pbiFile), val(chunkID)
+      tuple val(run_id), path(bamFile), path(pbiFile), val(chunkID)
 
     output:
-      tuple path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${params.run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi"), emit: bampbi_tuple
+      tuple val(run_id), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi"), emit: bampbi_tuple
       path "statistics/*.ccs_report.*", emit: report
       path "statistics/*.summary.json", emit: summary
 
@@ -63,17 +63,17 @@ process ccsChunk {
     ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunkID}/${params.ccs_chunks} \\
-        --movie-name ${params.run_id}.chunk${chunkID} \\
+        --movie-name ${run_id}.chunk${chunkID} \\
         --non-hifi-prefix fail \\
-        --report-file statistics/${params.run_id}.chunk${chunkID}.ccs_report.txt \\
+        --report-file statistics/${run_id}.chunk${chunkID}.ccs_report.txt \\
         ${bamFile}
     """
 }
 
 /*
-  mergeCCS: Merges all CCS chunk outputs into a single BAM.
+  mergeCCSchunks: Merges all CCS chunk outputs into a single BAM.
 */
-process mergeCCS {
+process mergeCCSchunks {
     cpus 2
     memory '8 GB'
     time '6h'
@@ -81,16 +81,16 @@ process mergeCCS {
     container "${params.hidefseq_container}"
     
     input:
-      tuple path(bamChunks), path(pbiChunks)
+      tuple val(run_id), path(bamChunks), path(pbiChunks)
 
     output:
-      tuple path("${params.run_id}.ccs.bam"), path("${params.run_id}.ccs.bam.pbi")
+      tuple val(run_id), path("${run_id}.ccs.bam"), path("${run_id}.ccs.bam.pbi")
 
     script:
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmerge -o ${params.run_id}.ccs.bam ${bamChunks.join(' ')}
+    pbmerge -o ${run_id}.ccs.bam ${bamChunks.join(' ')}
     """
 }
 
@@ -105,17 +105,17 @@ process filterAdapter {
     container "${params.hidefseq_container}"
     
     input:
-      tuple path(bamFile), path(pbiFile)
+      tuple val(run_id), path(bamFile), path(pbiFile)
     
     output:
-      tuple path("${params.run_id}.ccs.filtered.bam"), path("${params.run_id}.ccs.filtered.bam.pbi")
+      tuple val(run_id), path("${run_id}.ccs.filtered.bam"), path("${run_id}.ccs.filtered.bam.pbi")
     
     script:
     """
-    ${params.samtools_bin} view -b -@8 -e "[ma]==0" ${bamFile} > ${params.run_id}.ccs.filtered.bam
+    ${params.samtools_bin} view -b -@8 -e "[ma]==0" ${bamFile} > ${run_id}.ccs.filtered.bam
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbindex ${params.run_id}.ccs.filtered.bam
+    pbindex ${run_id}.ccs.filtered.bam
     """
 }
 
@@ -130,11 +130,11 @@ process limaDemux {
     container "${params.hidefseq_container}"
     
     input:
-      tuple path(bamFile), path(pbiFile)
+      tuple val(run_id), path(bamFile), path(pbiFile)
       path barcodesFasta
 
     output:
-      path "${params.run_id}.ccs.filtered.demux.*.bam", emit: bam
+      tuple val(run_id), path "${run_id}.ccs.filtered.demux.*.bam", emit: bam
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
     
@@ -149,7 +149,7 @@ process limaDemux {
          --min-ref-span 0.75 --same --min-scoring-regions 2 \\
          ${bamFile} \\
          ${barcodesFasta} \\
-         ${params.run_id}.ccs.filtered.demux.bam
+         ${run_id}.ccs.filtered.demux.bam
     """
 }
 
@@ -165,24 +165,50 @@ process pbmm2Align {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), val(barcodeID), path(bamFile)
+      tuple val(run_id), val(sample_id), path(bamFile)
     
     output:
-      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+      tuple val(run_id), val(sample_id), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.pbi"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.bai")
     
-    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam*"
+    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${run_id}.${sample_id}.ccs.filtered.aligned.bam*"
     
     script:
     """
-    sample_basename=${params.run_id}.${sample_id}.ccs.filtered.aligned
+    source ${params.conda_base_script}
+    conda activate ${params.conda_pbbioconda_env}
+    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} ${run_id}.${sample_id}.ccs.filtered.aligned.bam
+    """
+}
+
+/*
+  mergeAlignedSampleBAMs: Merges aligned BAM files from the same sample across different runs.
+*/
+process mergeAlignedSampleBAMs {
+    cpus 4
+    memory '8 GB'
+    time '6h'
+    tag { "Merge aligned sample BAMs: ${sample_id}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_id), path(bamFiles), path(pbiFiles)
+
+    output:
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+
+    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam*"
+
+    script:
+    """
+    sample_basename=${params.analysis_id}.${sample_id}.ccs.filtered.aligned
 
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} \${sample_basename}.bam
+    pbmerge -o \${sample_basename}.bam ${bamFiles.join(' ')}
     conda deactivate
-
-    ${params.samtools_bin} sort -@8 -m 4G \${sample_basename}.bam > \${sample_basename}.sorted.bam
-    ${params.samtools_bin} index -@8 \${sample_basename}.sorted.bam
+    
+    ${params.samtools_bin} sort -@4 -m 4G \${sample_basename}.bam > \${sample_basename}.sorted.bam
+    ${params.samtools_bin} index -@4 \${sample_basename}.sorted.bam
 
     conda activate ${params.conda_pbbioconda_env}
     pbindex \${sample_basename}.sorted.bam
@@ -215,6 +241,9 @@ process countZMWs {
     """
 }
 
+/*
+  splitBAM: Splits BAM files into approximately equal chunks per params.analysis_chunks.
+*/
 process splitBAM {
     cpus 2
     memory '32 GB'
@@ -223,10 +252,10 @@ process splitBAM {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
     publishDir "${splitBAMs_output_dir}", mode: 'copy', pattern: "*.chunk*.bam*"
 
@@ -254,6 +283,9 @@ process splitBAM {
     """
 }
 
+/*
+  extractVariantsChunk: Run extractVariants.R for an analysis chunk.
+*/
 process extractVariantsChunk {
     cpus 2
     memory '128 GB'
@@ -262,10 +294,10 @@ process extractVariantsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), val(barcodeID), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), val(barcodeID), path("${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
 
     publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.RDS"
 
@@ -283,34 +315,46 @@ process extractVariantsChunk {
 workflow processReads {
 
     main:
+    // create a channel of runs
+    runs_ch = Channel.fromList(params.runs)
+
     // Create channel for the input reads file.
-    reads_ch = Channel
-      .fromPath(params.reads_file)
-      .map{ f -> tuple(f, file("${f}.pbi")) }
+    reads_ch = runs_ch.map { run ->
+        def reads_file = file(run.reads_file)
+        def pbi_file = file("${run.reads_file}.pbi")
+        return tuple(run.run_id, reads_file, pbi_file)
+    }
     
-    // Make barcodes FASTA
-    def barcodeFastaContent = params.samples
-      .collect {
-          sample ->
-            def tokens = sample.barcode.tokenize(':')
-            return ">${tokens[0]}\n${tokens[1]}"
-      }
-      .join("\n")
+    // Create barcodes FASTA for each run
+    barcodes_ch = runs_ch.map { run ->
+        def barcodeFastaContent = run.samples
+            .collect { sample ->
+              return ">${sample.barcode_id}\n${sample.barcode}"
+            }
+            .join("\n")
+        return tuple(run.run_id, barcodeFastaContent)
+    }
     
-    makeBarcodesFasta( Channel.value(barcodeFastaContent) )
+    makeBarcodesFasta( Channel.value(barcodes_ch) )
       
     // Branch according to data type.
     if( params.reads_type == 'subreads' ) {
         // Run CCS in chunks.
         chunkIDs = Channel.of(1..params.ccs_chunks)
 
-        ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2]) } )
+        ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3]) } )
         
-        // Merge all CCS chunks.
-        mergeCCS( ccsChunk.out.bampbi_tuple.collect(flat: false).map{ it.transpose() } )
+        // Merge all CCS chunks per run
+        ccs_grouped_ch = ccsChunk.out.bampbi_tuple
+            .groupTuple(by: 0) // Group by run_id
+            .map { run_id, bamFiles, pbiFiles ->
+              return tuple(run_id, bamFiles, pbiFiles)
+            }
+
+        mergeCCSchunks(ccs_grouped_ch)
         
         // Filter for reads with adapters on both ends.
-        filterAdapter( mergeCCS.out )
+        filterAdapter( mergeCCSchunks.out )
     }
     else if( params.reads_type == 'ccs' ) {
         // Filter for reads with adapters on both ends.
@@ -320,8 +364,15 @@ workflow processReads {
         error "Unsupported reads_type '${params.reads_type}'."
     }
 
+    // Join filterAdapter and makeBarcodesFasta outputs by run_id
+    limaDemux_input_ch = filterAdapter.out
+        .join( makeBarcodesFasta.out, by:0 )
+        .map { r_id, bampbi, barcodesfasta ->
+          tuple(r_id, bampbi[1], bampbi[2], barcodesfasta[1])
+        }
+
     // Demultiplex with lima.
-    limaDemux( filterAdapter.out, makeBarcodesFasta.out )
+    limaDemux( limaDemux_input_ch )
     
     // Create channels for each demultiplexed sample.
     // Here, for each sample the input BAM is assumed to have the name:
@@ -341,34 +392,40 @@ workflow processReads {
         return result
       }
 
-    samples_to_align_ch = Channel.fromList(params.samples)
-    .combine(demuxMap_ch)
-    .map{ sample, demuxMap ->
-          def sample_id = sample.sample_id
-          def barcodeID = sample.barcode.tokenize(':')[0]
-          def demux_bam = demuxMap[barcodeID]
-          return tuple(sample_id, barcodeID, demux_bam)
-      }
+    // Create samples to align channel by matching run samples with demux BAMs
+    samples_to_align_ch = Channel.fromList(params.runs)
+        .flatMap { run ->
+            run.samples.collect { sample ->
+                return tuple(run.run_id, sample.sample_id, sample.barcode_id)
+            }
+        }
+        .combine(demuxMap_ch, by: 0) // Combine by run_id
+        .filter { run_id, sample_id, barcode_id, demux_run_id, demux_barcode_id, demux_bam ->
+            return barcode_id == demux_barcode_id
+        }
+        .map { run_id, sample_id, barcode_id, demux_run_id, demux_barcode_id, demux_bam ->
+            return tuple(run_id, sample_id, barcode_id, demux_bam)
+        }
 
     // Run pbmm2 alignment for each sample.
     pbmm2Align( samples_to_align_ch )
 
     // Create channels for counting ZMWs of BAMs created during processing
     if( params.reads_type == 'subreads' ) {
-      countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
-        .concat(mergeCCS.out.map { f -> tuple(f[0], f[1], "zmwcount.txt") })
+      countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
+        .concat(mergeCCSchunks.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") })
         .collect(flat: false)
     }
     else if( params.reads_type == 'ccs' ) {
-      countZMWs_ch = reads_ch.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
+      countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
         .collect(flat: false)
     }
 
     countZMWs_ch = countZMWs_ch +
           (
-          filterAdapter.out.map { f -> tuple(f[0], f[1], "zmwcount.txt") }
+          filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
             .concat(
-              samples_to_align_ch.map { f -> tuple(f[2], file("${f[2]}.pbi"), "${f[0]}.limaDemux.zmwcount.txt") },
+              samples_to_align_ch.map { f -> tuple(f[3], file("${f[3]}.pbi"), "${f[0]}.${f[1]}.limaDemux.zmwcount.txt") },
               pbmm2Align.out.collect(flat: false).flatMap().map { f -> tuple(f[2], f[3], "zmwcount.txt") }
             )
             .collect(flat: false)
@@ -376,8 +433,18 @@ workflow processReads {
 
     countZMWs( countZMWs_ch.flatMap() )
 
+    // Group pbmm2Align outputs by sample_id for merging
+    pbmm2_grouped_ch = pbmm2Align.out
+      .map { run_id, sample_id, barcode_id, bamFile, pbiFile, baiFile ->
+          return tuple(sample_id, bamFile, pbiFile)
+      }
+      .groupTuple(by: 0) // Group by sample_id
+
+    // Merge BAM files by sample_id across runs
+    mergeAlignedSampleBAMs(pbmm2_grouped_ch)
+
     emit:
-    pbmm2Align.out
+    mergeAlignedSampleBAMs.out
 
 }
 
@@ -390,7 +457,7 @@ workflow splitBAMs {
     main:
     chunkIDs = Channel.of(1..params.analysis_chunks)
 
-    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4], it[5]) } )
+    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4]) } )
 
     emit:
     splitBAM.out
@@ -454,11 +521,10 @@ workflow {
     alignedSamples_ch = Channel.fromList(params.samples)
           .map { sample ->
               def sample_id = sample.sample_id
-              def barcodeID = sample.barcode.tokenize(':')[0]
-              def bamFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${processReads_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
-              return tuple(sample_id, barcodeID, bamFile, pbiFile, baiFile)
+              def bamFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+              return tuple(sample_id, bamFile, pbiFile, baiFile)
           }
     splitBAMs( alignedSamples_ch )
   }
@@ -472,11 +538,10 @@ workflow {
           .combine(Channel.of(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
-              def barcodeID = sample.barcode.tokenize(':')[0]
-              def bamFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
-              def pbiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
-              def baiFile = file("${splitBAMs_output_dir}/${params.run_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
-              return tuple(sample_id, barcodeID, bamFile, pbiFile, baiFile, chunkID)
+              def bamFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
+              def pbiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
+              def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
+              return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
     extractVariants( splitBAMs_ch )
   }

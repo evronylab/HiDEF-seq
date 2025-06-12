@@ -130,8 +130,7 @@ process limaDemux {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(run_id), path(bamFile), path(pbiFile)
-      path(barcodesFasta)
+      tuple val(run_id), path(bamFile), path(pbiFile), path(barcodesFasta)
 
     output:
       tuple val(run_id), path("${run_id}.ccs.filtered.demux.*.bam"), emit: bam

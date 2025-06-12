@@ -13,7 +13,7 @@ process makeBarcodesFasta {
     container "${params.hidefseq_container}"
 
     input:
-      tuple val val(run_id), content
+      tuple val(run_id), val(content)
     
     output:
       tuple val(run_id), path "barcodes.fasta"
@@ -131,7 +131,7 @@ process limaDemux {
     
     input:
       tuple val(run_id), path(bamFile), path(pbiFile)
-      path barcodesFasta
+      path(barcodesFasta)
 
     output:
       tuple val(run_id), path "${run_id}.ccs.filtered.demux.*.bam", emit: bam
@@ -335,7 +335,7 @@ workflow processReads {
         return tuple(run.run_id, barcodeFastaContent)
     }
     
-    makeBarcodesFasta( Channel.value(barcodes_ch) )
+    makeBarcodesFasta( barcodes_ch )
       
     // Branch according to data type.
     if( params.reads_type == 'subreads' ) {
@@ -378,18 +378,13 @@ workflow processReads {
     // Here, for each sample the input BAM is assumed to have the name:
     // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
     demuxMap_ch = limaDemux.out.bam
-    .collect()
-    .map {
-      files ->
-        def result = [:]
-        files.each
-        { file ->
-            def m = file.name =~ /${params.run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
-            if (m) {
-              result[m[0][1]] = file
-            }
+    .transpose()
+    .map { run_id, bamFile ->
+        def m = bamFile.name =~ /${run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
+        if (!m) {
+            error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
         }
-        return result
+        return tuple(run_id, m[0][1], bamFile)
       }
 
     // Create samples to align channel by matching run samples with demux BAMs
@@ -400,11 +395,11 @@ workflow processReads {
             }
         }
         .combine(demuxMap_ch, by: 0) // Combine by run_id
-        .filter { run_id, sample_id, barcode_id, demux_run_id, demux_barcode_id, demux_bam ->
+        .filter { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
             return barcode_id == demux_barcode_id
         }
-        .map { run_id, sample_id, barcode_id, demux_run_id, demux_barcode_id, demux_bam ->
-            return tuple(run_id, sample_id, barcode_id, demux_bam)
+        .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
+            return tuple(run_id, sample_id, demux_bam)
         }
 
     // Run pbmm2 alignment for each sample.

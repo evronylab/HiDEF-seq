@@ -16,7 +16,7 @@ process makeBarcodesFasta {
       tuple val(run_id), val(content)
     
     output:
-      tuple val(run_id), path "barcodes.fasta"
+      tuple val(run_id), path("barcodes.fasta")
     
     script:
       """
@@ -134,7 +134,7 @@ process limaDemux {
       path(barcodesFasta)
 
     output:
-      tuple val(run_id), path "${run_id}.ccs.filtered.demux.*.bam", emit: bam
+      tuple val(run_id), path("${run_id}.ccs.filtered.demux.*.bam"), emit: bam
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
     

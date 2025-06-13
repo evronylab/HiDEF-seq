@@ -366,8 +366,8 @@ workflow processReads {
     // Join filterAdapter and makeBarcodesFasta outputs by run_id
     limaDemux_input_ch = filterAdapter.out
         .join( makeBarcodesFasta.out, by:0 )
-        .map { r_id, bampbi, barcodesfasta ->
-          tuple(r_id, bampbi[1], bampbi[2], barcodesfasta[1])
+        .map { r_id, bamFile, pbiFile, barcodesFasta ->
+          tuple(r_id, bamFile, pbiFile, barcodesFasta)
         }
 
     // Demultiplex with lima.

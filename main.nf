@@ -183,7 +183,7 @@ process pbmm2Align {
 */
 process mergeAlignedSampleBAMs {
     cpus 4
-    memory '8 GB'
+    memory '64 GB'
     time '6h'
     tag { "Merge aligned sample BAMs: ${sample_id}" }
     container "${params.hidefseq_container}"

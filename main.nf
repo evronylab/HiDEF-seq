@@ -295,9 +295,9 @@ process extractVariantsChunk {
       tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.RDS"), val(chunkID)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.qs2"), val(chunkID)
 
-    publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.RDS"
+    publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.qs2"
 
     script:
     """

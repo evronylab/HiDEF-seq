@@ -53,43 +53,38 @@ cat("DONE\n")
 ######################
 cat("#### Loading BAM file:",bamFile,"...")
 
-#Get run metadata: movie, read group (rg), and run IDs from BAM file and config file
-movie_ids <- bamFile %>%
-	scanBamHeader %>%
-	pluck(1,"text") %>%
-	keep(names(.)=="@RG") %>%
-	map(str_subset,"^PU:") %>%
-	str_remove("^PU:")
-
-rg_ids <- bamFile %>%
-	scanBamHeader %>%
-	pluck(1,"text") %>%
-	keep(names(.)=="@RG") %>%
-	map(str_subset,"^ID:") %>%
-	str_remove("^ID:")
-
-run_ids <- movie_ids %>%
-	map_chr(
-		function(x){
-			map_lgl(yaml.config$runs, function(y){
-				y$reads_file %>% str_detect(x)
-			}) %>%
-				keep(yaml.config$runs,.) %>%
-				pluck(1,"run_id")
-		}
-	)
-
-if(length(movie_ids) != length (run_ids)){
-	stop("ERROR: Movie IDs in BAM file do not match yaml configuration file!")
-}
-
-run_metadata <- tibble(
-	movie_id = factor(movie_ids),
-	rg_id = factor(rg_ids),
-	run_id = factor(run_ids)
-)
-
-rm(movie_ids,rg_ids,run_ids)
+#Get run metadata from BAM file and join to run_id from config file
+run_metadata <- bamFile %>%
+  scanBamHeader %>%
+  pluck(1,"text") %>%
+  keep(names(.)=="@RG") %>%
+  map(
+    . %>%
+      as_tibble %>%
+      separate_wider_delim(value,delim=":",names=c("name","value"),too_many="merge") %>%
+      pivot_wider
+    ) %>%
+  bind_rows %>%
+  separate_rows(DS,sep=";") %>%
+  separate_wider_delim(DS,delim="=",names=c("name","value"),too_many="merge") %>%
+  pivot_wider %>%
+  rename(
+    movie_id = PU,
+    rg_id = ID
+    ) %>%
+  mutate(
+    run_id = movie_id %>%
+      map_chr(
+        function(x){
+          yamlruns <- yaml.config$runs %>%
+            map_df(~ tibble(run_id = .x$run_id, reads_file = .x$reads_file))
+          
+          yamlruns %>%
+            pluck("run_id") %>%
+            keep(yamlruns %>% pluck("reads_file") %>% str_detect(x))
+        }
+      )
+  )
 
 #Load BAM file reads
 bam <- bamFile %>%

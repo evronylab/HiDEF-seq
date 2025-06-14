@@ -167,9 +167,7 @@ process pbmm2Align {
       tuple val(run_id), val(sample_id), path(bamFile)
     
     output:
-      tuple val(run_id), val(sample_id), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.pbi"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.bai")
-    
-    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${run_id}.${sample_id}.ccs.filtered.aligned.bam*"
+      tuple val(run_id), val(sample_id), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
     
     script:
     """
@@ -430,7 +428,7 @@ workflow processReads {
 
     // Group pbmm2Align outputs by sample_id for merging
     pbmm2_grouped_ch = pbmm2Align.out
-      .map { run_id, sample_id, barcode_id, bamFile, pbiFile, baiFile ->
+      .map { run_id, sample_id, bamFile, pbiFile ->
           return tuple(sample_id, bamFile, pbiFile)
       }
       .groupTuple(by: 0) // Group by sample_id

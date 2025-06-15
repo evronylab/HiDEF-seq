@@ -2,7 +2,7 @@
 
 #extractVariants.R:
 # Loads and formats aligned ccs bamFile in HiDEF-seq format RDS file that includes all required alignment and variant information for analysis.  
-# Usage: extractVariants.R [bamFile] [configuration.yaml]
+# Usage: extractVariants.R -c [configuration.yaml] -b [bamFile]
 
 cat("#### Running extractVariants ####\n")
 
@@ -19,20 +19,33 @@ suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
+suppressPackageStartupMessages(library(optparse))
 
 ######################
 ### Load configuration
 ######################
-cat("#### Loading configuration...")
+cat("## Loading configuration...")
 
 #General options
 options(datatable.showProgress = FALSE)
 strand_levels <- c("+","-")
 
 #Command line arguments
-args <- commandArgs(trailingOnly = TRUE)
-bamFile <- args[1]
-yaml.config <- suppressWarnings(read.config(args[2]))
+option_list = list(
+  make_option(c("-c", "--config"), type = "character", default=NULL,
+              help="path to YAML configuration file"),
+  make_option(c("-b", "--bam"), type = "character", default=NULL,
+              help="path to BAM file")
+)
+
+opt <- parse_args(OptionParser(option_list=option_list))
+
+if(is.na(opt$config) | is.na(opt$bam)){
+  stop("Missing input parameter(s)!")
+}
+
+yaml.config <- suppressWarnings(read.config(opt$config))
+bamFile <- opt$bam
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$prepareFilters_cache_dir))
@@ -51,7 +64,7 @@ cat("DONE\n")
 ######################
 ### Load BAM file
 ######################
-cat("#### Loading BAM file:",bamFile,"...")
+cat("## Loading BAM file:",bamFile,"...")
 
 #Get run metadata from BAM file and join to run_id from config file
 run_metadata <- bamFile %>%
@@ -84,7 +97,9 @@ run_metadata <- bamFile %>%
             keep(yamlruns %>% pluck("reads_file") %>% str_detect(x))
         }
       )
-  )
+  ) %>%
+  type_convert %>%
+  suppressMessages
 
 #Load BAM file reads
 bam <- bamFile %>%
@@ -147,7 +162,7 @@ cat("DONE\n")
 ######################
 ### Initial molecule filtering
 ######################
-cat("#### Initial molecule filtering...")
+cat("## Initial molecule filtering...")
 
 # Keep only molecules with 1 forward and 1 reverse primary alignment on the same chromosome (flags = 0 and 16 are plus and minus strand primary alignments, respectively; flags =  2048 and 2064 are plus and minus strand supplementary alignments, respectively).
 zmwstokeep <- bam.gr %>%
@@ -699,7 +714,7 @@ cat("DONE\n")
 ######################
 ### Save output
 ######################
-cat("#### Saving output...")
+cat("## Saving output...")
 
 #Collapse bam.gr back to a single GRanges object and remove seq and qual data that is no longer needed
 bam.gr <- bam.gr %>% unlist(use.names=F)

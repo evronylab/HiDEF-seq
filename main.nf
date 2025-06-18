@@ -194,7 +194,7 @@ process mergeAlignedSampleBAMs {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    publishDir "${processReads_output_dir}", mode: 'copy', pattern: "${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam*"
+    storeDir "${processReads_output_dir}"
 
     script:
     """
@@ -255,7 +255,7 @@ process splitBAM {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
-    publishDir "${splitBAMs_output_dir}", mode: 'copy', pattern: "*.chunk*.bam*"
+    storeDir "${splitBAMs_output_dir}"
 
     script:
     """
@@ -282,7 +282,26 @@ process splitBAM {
 }
 
 /*
-  extractVariantsChunk: Run extractVariants.R for an analysis chunk.
+  prepareFiltersProcess: Run prepareFilters.R
+*/
+process prepareFiltersProcess {
+    cpus 2
+    memory '64 GB'
+    time '12h'
+    tag { "Prepare filters" }
+    container "${params.hidefseq_container}"
+      
+    output:
+      val(true)
+
+    script:
+    """
+    prepareFilters.R -c ${params.paramsFileName}
+    """
+}
+
+/*
+  extractVariantsChunk: Run extractVariants.R for an analysis chunk
 */
 process extractVariantsChunk {
     cpus 2
@@ -297,7 +316,7 @@ process extractVariantsChunk {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.qs2"), val(chunkID)
 
-    publishDir "${extractVariants_output_dir}", mode: 'copy', pattern: "*.qs2"
+    storeDir "${extractVariants_output_dir}"
 
     script:
     """
@@ -457,10 +476,23 @@ workflow splitBAMs {
 
 }
 
+
+workflow prepareFilters {
+    
+    main:
+    prepareFiltersProcess()
+
+    emit:
+    prepareFiltersProcess.out
+
+}
+
+
 workflow extractVariants {
 
     take:
     splitBAMs_ch
+    val prepareFilters_done // Creates dependency on prepareFilters
     
     main:
     extractVariantsChunk( splitBAMs_ch )
@@ -502,12 +534,12 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Run processReads workflow
-  if( params.workflow=="all" || params.workflow == "processReads" ){
+  if( params.workflow == "all" || params.workflow == "processReads" ){
     processReads()
   }
 
   // Run splitBAMs workflow
-  if( params.workflow=="all" ){
+  if( params.workflow == "all" ){
     splitBAMs( processReads.out )
   }
   else if ( params.workflow == "splitBAMs" ){
@@ -522,9 +554,14 @@ workflow {
     splitBAMs( alignedSamples_ch )
   }
 
-  // Run extractVariants workflow
+  // Run prepareFilters workflow
+  if( params.workflow == "all" || params.workflow == "prepareFilters"){
+    prepareFilters()
+  }
+
+  // Run extractVariants workflow, with dependency on prepareFilters
   if( params.workflow=="all" ){
-    extractVariants( splitBAMs.out )
+    extractVariants( splitBAMs.out, prepareFilters.out )
   }
   else if ( params.workflow == "extractVariants" ){
     splitBAMs_ch = Channel.fromList(params.samples)
@@ -536,7 +573,7 @@ workflow {
               def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
               return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
-    extractVariants( splitBAMs_ch )
+    extractVariants( splitBAMs_ch, true ) // 'true' parameters assumes prepareFilters was already run
   }
 
 }

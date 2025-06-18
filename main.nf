@@ -492,7 +492,7 @@ workflow extractVariants {
 
     take:
     splitBAMs_ch
-    val prepareFilters_done // Creates dependency on prepareFilters
+    prepareFilters_done // Creates dependency on prepareFilters
     
     main:
     extractVariantsChunk( splitBAMs_ch )

@@ -9,17 +9,16 @@ cat("#### Running extractVariants ####\n")
 ######################
 ### Load required libraries
 ######################
+suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(Rsamtools))
 suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(BSgenome))
-suppressPackageStartupMessages(library(vcfR))
 suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
-suppressPackageStartupMessages(library(optparse))
 
 ######################
 ### Load configuration

@@ -287,7 +287,7 @@ process splitBAM {
 process prepareFiltersProcess {
     cpus 2
     memory '64 GB'
-    time '12h'
+    time '36h'
     tag { "Prepare filters" }
     container "${params.hidefseq_container}"
       

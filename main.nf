@@ -355,7 +355,7 @@ process processGermlineBAMs {
     
     set -euo pipefail
 
-    If [[ ${germline_bam_type} == Illumina ]]; then
+    if [[ ${germline_bam_type} == Illumina ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
     elif [[ ${germline_bam_type} == PacBio ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
@@ -393,7 +393,7 @@ process prepareRegionFilters {
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
     cut -f 1,2 ${params.genome_fai} | awk '{print \$1 "\t0\t" \$2}' | sort -k1,1 -k2,2n > chromsizes.bed
 
-    If [[ ${binsize} -eq 1 ]]; then
+    if [[ ${binsize} -eq 1 ]]; then
       scale_command=""
     else
       scale_command=\$(awk "BEGIN { printf \"scale %.6f bin %d\", 1/\$binsize, \$binsize }")
@@ -628,7 +628,7 @@ workflow prepareFilters {
     prepareRegionFilters( region_filters_ch )
 
     emit:
-    tuple processGermlineVCFs.out, installBSgenome.out, processGermlineBAM.out, prepareRegionFilters.out.collect()
+    tuple processGermlineVCFs.out, installBSgenome.out, processGermlineBAMs.out, prepareRegionFilters.out.collect()
 
 }
 

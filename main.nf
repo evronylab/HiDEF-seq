@@ -282,13 +282,13 @@ process splitBAM {
 }
 
 /*
-  prepareFiltersProcess: Run prepareFilters.R
+  installBSgenome: Run installBSgenome.R
 */
-process prepareFiltersProcess {
-    cpus 2
-    memory '64 GB'
-    time '36h'
-    tag { "Prepare filters" }
+process installBSgenome {
+    cpus 1
+    memory '16 GB'
+    time '1h'
+    tag { "Install BSgenome reference" }
     container "${params.hidefseq_container}"
       
     output:
@@ -296,7 +296,118 @@ process prepareFiltersProcess {
 
     script:
     """
-    prepareFilters.R -c ${params.paramsFileName}
+    installBSgenome.R -c ${params.paramsFileName}
+    """
+}
+
+/*
+  processGermlineVCFs: Run processGermlineVCFs.R
+*/
+process processGermlineVCFs {
+    cpus 1
+    memory '16 GB'
+    time '4h'
+    tag { "Process Germline VCFs" }
+    container "${params.hidefseq_container}"
+      
+    output:
+      val(true)
+
+    storeDir "${params.cache_dir}"
+
+    script:
+    """
+    processGermlineVCFs.R -c ${params.paramsFileName}
+    """
+}
+
+/*
+  processGermlineBAMs: Run processGermlineBAMs.R
+*/
+process processGermlineBAMs {
+    cpus 1
+    memory '16 GB'
+    time '24h'
+    tag { "Process Germline BAMs" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple path(germline_bam_file), val(germline_bam_type)
+
+    output:
+      path("${germline_bam_file}.bw")
+
+    storeDir "${params.cache_dir}"
+
+    script:
+    """
+    #Output per-base coverage using samtools mpileup with the similar filters as used by bcftools mpileup in later call
+    #filtering. This ensures this coverage data for calculating the fraction of the genome that was filtered
+    #maintains correct calculation of the mutation rate.
+
+    #Note using samtools mpileup here instead of bcftools mpileup that is later used in call filtering, because here we
+    #need an output that can be re-formatted into bedgraph. Whereas in the later call filtering, we use bcftools mpileup
+    #to check for low mosaicism at call positions, and the output of that is in VCF format that is easier to parse. The
+    #difference between samtools mpileup and bcftools mpileup should not be significant.
+
+    #Slightly different parameters are used for Illumina vs PacBio germline BAM to match how bcftools mpileup is run later
+    #in the call filtering analysis.
+    
+    set -euo pipefail
+
+    If [[ ${germline_bam_type} == Illumina ]]; then
+      ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+    elif [[ ${germline_bam_type} == PacBio ]]; then
+      ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+    else
+      echo "ERROR: Unknown germline_bam_type: ${germline_bam_type}"
+      exit 1
+    fi
+
+    sort -k1,1 -k2,2n mpileup.bg > mpileup.sorted.bg
+
+    ${params.bedGraphToBigWig_bin} mpileup.sorted.bg <(cut -f 1,2 ${params.genome_fai}) ${germline_bam_file}.bw
+    """
+}
+
+/*
+  processGermlineBAMs: Run processGermlineBAMs.R
+*/
+process prepareRegionFilters {
+    cpus 2
+    memory '64 GB'
+    time '24h'
+    tag { "Prepare region filters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple path(region_filter_file), val(binsize), val(threshold)
+
+    output:
+      path("${region_filter_file}.bin${binsize}.${threshold}.bw")
+
+    storeDir "${params.cache_dir}"
+
+    script:
+    """
+    #Make genome BED file to use to fill in zero values for regions not in bigwig.
+    cut -f 1,2 ${params.genome_fai} | awk '{print \$1 "\t0\t" \$2}' | sort -k1,1 -k2,2n > chromsizes.bed
+
+    If [[ ${binsize} -eq 1 ]]; then
+      scale_command=""
+    else
+      scale_command=\$(awk "BEGIN { printf \"scale %.6f bin %d\", 1/\$binsize, \$binsize }")
+    fi
+
+    if [[ ${threshold} == gte* || ${threshold} == lt* ]]; then
+      threshold_command=\$(echo ${threshold} | sed -E 's/^(gte|lt)([0-9.]+)/\1 \2/')
+    else
+      echo "ERROR: Unknown threshold type: ${threshold}"
+      exit 1
+    fi
+    
+    ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
+      | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
     """
 }
 
@@ -480,10 +591,44 @@ workflow splitBAMs {
 workflow prepareFilters {
     
     main:
-    prepareFiltersProcess()
+    // Run installBSgenome
+    installBSgenome()
+
+    // Run processGermlineVCFs
+    processGermlineVCFs()
+
+    // Create channel for the germline BAMs
+    germlinebams_ch = Channel.fromList(params.individuals)
+      .map { run ->
+        def germline_bam_file = file(run.germline_bam_file)
+        def germline_bam_type = file(run.germline_bam_type)
+        return tuple(run.germline_bam_file, germline_bam_type)
+      }
+
+    // Run processGermlineBAMs
+    processGermlineBAMs( germlinebams_ch )
+
+    // Create channel for the region filters
+    region_filters_ch = Channel.fromList(params.region_filters)
+        .flatMap { region_filter ->
+          def filters=[]
+
+          region_filter.read_filters?.each { filter ->
+            filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
+          }
+
+          region_filter.bin_filters?.each { filter ->
+            filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
+          }
+
+          return filters
+        }
+
+    // Run prepareRegionFilters
+    prepareRegionFilters( region_filters_ch )
 
     emit:
-    prepareFiltersProcess.out
+    tuple processGermlineVCFs.out, installBSgenome.out, processGermlineBAM.out, prepareRegionFilters.out.collect()
 
 }
 
@@ -505,6 +650,7 @@ workflow extractVariants {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
+// --workflow options: all, processReads, splitBAMs, prepareFilters, extractVariants
 
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.DumperOptions

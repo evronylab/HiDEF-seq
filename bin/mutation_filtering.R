@@ -96,6 +96,14 @@ for(i in names(yaml.config$thresholds)){
   }
 }
 
+
+###### *** NEW CODE for loading VCF filtering config ***###
+#Load germline VCF filter parameters
+vcf_config <- yaml.config$germline_vcf_filtergroups %>%
+  bind_rows %>%
+  group_by(across(-c(vcf_SNV_FILTERS,vcf_INDEL_FILTERS))) %>%
+  summarize(vcf_SNV_FILTERS=list(vcf_SNV_FILTERS),vcf_INDEL_FILTERS=list(vcf_INDEL_FILTERS), .groups="drop")
+
  ################
  ## vcffilters ##
 vcffilters <- list()
@@ -1120,9 +1128,9 @@ for(i in names(bamfilezmw_all)){
 	      #Run bcftools mpileup. For Illumina germline reference, use option -A to include orphan reads, -B to disable BAQ because this excludes some false positive alignments which we actually want in filtering, lower base quality threshold to 11 (from default of 13), and exclude PCR duplicates. For PacBio germline reference, use presets for pacbio-ccs recommended by bcftools mpileup except exclude supplementary alignments, without -D, and add -B to disable base quality (it leads to missed variants for some reason).
 	      pileuptempfile <- tempfile()
 	      if(bamfilters[[k]][[i]]$bamreftype=="Illumina"){
-	      	system(paste("/bin/bash -c",shQuote(paste(bcftools_bin,"mpileup -I -A -B -Q 11 --ff 1024 -d 10000 -a \"INFO/AD\" -f",referenceinfo$fastaref,"-R",finalmutations.regionsfile,bamfilters[[k]][[i]]$bamfile,"2>/dev/null | grep -v ^\\#",">",pileuptempfile))))
+	      	system(paste("/bin/bash -c",shQuote(paste(bcftools_bin,"mpileup -I -A -B -Q 11 --ns 3328 -d 999999 -a \"INFO/AD\" -f",referenceinfo$fastaref,"-R",finalmutations.regionsfile,bamfilters[[k]][[i]]$bamfile,"2>/dev/null | grep -v ^\\#",">",pileuptempfile))))
 	      }else if(bamfilters[[k]][[i]]$bamreftype=="PacBio"){
-	      	system(paste("/bin/bash -c",shQuote(paste(bcftools_bin,"mpileup -I -B -Q5 --ff 2048 --max-BQ 50 -F0.1 -o25 -e1 --delta-BQ 10 -M399999 -d 10000 -a \"INFO/AD\" -f",referenceinfo$fastaref,"-R",finalmutations.regionsfile,bamfilters[[k]][[i]]$bamfile,"2>/dev/null | grep -v ^\\#",">",pileuptempfile))))
+	      	system(paste("/bin/bash -c",shQuote(paste(bcftools_bin,"mpileup -I -B -Q 5 --ns 3328 -d 999999 --max-BQ 50 -F0.1 -o25 -e1 -a \"INFO/AD\" -f",referenceinfo$fastaref,"-R",finalmutations.regionsfile,bamfilters[[k]][[i]]$bamfile,"2>/dev/null | grep -v ^\\#",">",pileuptempfile))))
 	      }
 	      finalmutations.pileupvcf <- read.table(pileuptempfile)
 	      file.remove(finalmutations.regionsfile,pileuptempfile)

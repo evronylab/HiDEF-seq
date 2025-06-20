@@ -51,7 +51,7 @@ dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 #Check if BSgenome_name is already installed or available to be installed in Bioconductor, and if not, install the genome from BSgenome_file
 if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
 	if(yaml.config$BSgenome$BSgenome_name %in% available.genomes() %>% suppressMessages){
-		BiocManager::install(yaml.config$BSgenome$BSgenome_name, lib=cache_dir)
+		BiocManager::install(yaml.config$BSgenome$BSgenome_name, lib = cache_dir)
 	}else if(!is.null(yaml.config$BSgenome$BSgenome_file)){
 		install.packages(yaml.config$BSgenome$BSgenome_file, repos = NULL, lib = cache_dir)
 	}else{

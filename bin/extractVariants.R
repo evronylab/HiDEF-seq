@@ -47,7 +47,7 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$prepareFilters_cache_dir))
+suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Comma-separated chromosomes to analyze across all chromgroups
 chroms_to_analyze <- yaml.config$chromgroups %>%

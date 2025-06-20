@@ -637,14 +637,14 @@ workflow prepareFilters {
     prepareRegionFilters( region_filters_ch )
 
     // Create a completion signal by collecting all outputs
-    done_ch = Channel.mix(
-            installBSgenome.out,
-            processGermlineVCFs.out,
-            processGermlineBAMs.out,
-            prepareRegionFilters.out
-          )
-        .collect()
-        .map { true }
+    done_ch = installBSgenome.out
+      .mix(
+        processGermlineVCFs.out,
+        processGermlineBAMs.out,
+        prepareRegionFilters.out
+      )
+      .collect()
+      .map { true }
 
     emit:
     done_ch

@@ -290,6 +290,7 @@ process installBSgenome {
     time '1h'
     tag { "Install BSgenome reference" }
     container "${params.hidefseq_container}"
+    cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
       
     output:
       val(true)

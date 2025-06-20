@@ -34,17 +34,20 @@ option_list = list(
   make_option(c("-c", "--config"), type = "character", default=NULL,
               help="path to YAML configuration file"),
   make_option(c("-b", "--bam"), type = "character", default=NULL,
-              help="path to BAM file")
+              help="path to BAM file"),
+  make_option(c("-o", "--output"), type = "character", default=NULL,
+  						help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$bam)){
+if(is.na(opt$config) | is.na(opt$bam) | is.na(opt$output)){
   stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
+outputFile <- opt$output
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -728,7 +731,7 @@ qs_save(
   	indels.df = indels.df %>% bind_rows(.id="run_id") %>% mutate(run_id=factor(run_id)),
   	stats = stats
   	),
-  bamFile %>% basename %>% str_replace(".bam$",".qs2")
+  outputFile
   )
 
 cat("DONE\n")

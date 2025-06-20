@@ -332,7 +332,7 @@ process processGermlineBAMs {
     cpus 1
     memory '16 GB'
     time '24h'
-    tag { "Process Germline BAMs" }
+    tag { "Process Germline BAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -360,9 +360,9 @@ process processGermlineBAMs {
     set -euo pipefail
 
     if [[ ${germline_bam_type} == Illumina ]]; then
-      ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+      ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
     elif [[ ${germline_bam_type} == PacBio ]]; then
-      ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} [BAM file] 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+      ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
     else
       echo "ERROR: Unknown germline_bam_type: ${germline_bam_type}"
       exit 1
@@ -400,8 +400,10 @@ process prepareRegionFilters {
     if [[ ${binsize} -eq 1 ]]; then
       scale_command=""
     else
-      scale_command=\$(awk "BEGIN { printf \"scale %.6f bin %d\", 1/\$binsize, \$binsize }")
+      scale_command=\$(awk "BEGIN { printf \\"scale %.6f bin %d\\", 1/\$binsize, \$binsize }")
     fi
+
+    echo "scale command: \$scale_command"
 
     if [[ ${threshold} == gte* || ${threshold} == lt* ]]; then
       threshold_command=\$(echo ${threshold} | sed -E 's/^(gte|lt)([0-9.]+)/\\1 \\2/')
@@ -409,6 +411,8 @@ process prepareRegionFilters {
       echo "ERROR: Unknown threshold type: ${threshold}"
       exit 1
     fi
+
+    echo "threshold command: \$threshold_command"
     
     ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
       | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
@@ -420,7 +424,7 @@ process prepareRegionFilters {
 */
 process extractVariantsChunk {
     cpus 2
-    memory '128 GB'
+    memory '64 GB'
     time '4h'
     tag { "Extract Variants: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
@@ -429,16 +433,39 @@ process extractVariantsChunk {
       tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.qs2"), val(chunkID)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractVariants.chunk${chunkID}.qs2"), val(chunkID)
 
     storeDir "${extractVariants_output_dir}"
 
     script:
     """
-    extractVariants.R -c ${params.paramsFileName} -b ${bamFile}
+    extractVariants.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractVariants.chunk${chunkID}.qs2
     """
 }
 
+/*
+  filterVariantsChunk: Run filterVariants.R for an analysis chunk
+*/
+process filterVariantsChunk {
+    cpus 2
+    memory '64 GB'
+    time '4h'
+    tag { "Filter Variants: ${sample_id} -> chunk ${chunkID}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_id), path(extractVariantsFile), val(chunkID)
+    
+    output:
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2"), val(chunkID)
+
+    storeDir "${filterVariants_output_dir}"
+
+    script:
+    """
+    filterVariants.R -c ${params.paramsFileName} -f ${extractVariantsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2
+    """
+}
 
 /*****************************************************************
  * Individual Workflow Definitions
@@ -609,9 +636,7 @@ workflow prepareFilters {
     // Create channel for germline BAMs
     germlinebams_ch = Channel.fromList(params.individuals)
       .map { run ->
-        def germline_bam_file = file(run.germline_bam_file)
-        def germline_bam_type = file(run.germline_bam_type)
-        return tuple(run.germline_bam_file, germline_bam_type)
+        return tuple( file(run.germline_bam_file), run.germline_bam_type )
       }
 
     // Run processGermlineBAMs
@@ -671,6 +696,21 @@ workflow extractVariants {
 
 }
 
+
+workflow filterVariants {
+
+    take:
+    extractVariants_ch
+
+    main:
+
+    filterVariantsChunk( extractVariants_ch )
+
+    emit:
+    filterVariantsChunk.out
+
+}
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
@@ -684,6 +724,7 @@ logs_output_dir="${params.analysis_output_dir}/logs"
 processReads_output_dir="${params.analysis_output_dir}/processReads"
 splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
 extractVariants_output_dir="${params.analysis_output_dir}/extractVariants"
+filterVariants_output_dir="${params.analysis_output_dir}/filterVariants"
 
 workflow {
 
@@ -744,6 +785,21 @@ workflow {
               return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
     extractVariants( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
+  }
+
+  // Run filterVariants workflow
+  if( params.workflow=="all" ){
+    filterVariants( extractVariants.out )
+  }
+  else if ( params.workflow == "filterVariants" ){
+    extractVariants_ch = Channel.fromList(params.samples)
+          .combine(Channel.of(1..params.analysis_chunks))
+          .map { sample, chunkID ->
+              def sample_id = sample.sample_id
+              def extractVariantsFile = file("${extractVariants_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractVariants.chunk${chunkID}.qs2")
+              return tuple(sample_id, extractVariantsFile, chunkID)
+          }
+    filterVariants( extractVariants_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
   }
 
 }

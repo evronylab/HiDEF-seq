@@ -636,17 +636,18 @@ workflow prepareFilters {
     // Run prepareRegionFilters
     prepareRegionFilters( region_filters_ch )
 
-    emit:
     // Create a completion signal by collecting all outputs
-    done = Channel.empty()
-        .mix(
+    done_ch = Channel.merge(
             installBSgenome.out,
-            processGermlineVCFs.out.collect(),
-            processGermlineBAMs.out.collect(),
-            prepareRegionFilters.out.collect()
-        )
+            processGermlineVCFs.out,
+            processGermlineBAMs.out,
+            prepareRegionFilters.out
+          )
         .collect()
         .map { true }
+
+    emit:
+    done_ch
 
 }
 
@@ -655,9 +656,14 @@ workflow extractVariants {
 
     take:
     splitBAMs_ch
-    prepareFilters_done // Creates dependency on prepareFilters
+    prepareFilters_done
     
     main:
+    // Create dependency on prepareFilters_done and then remove it from the input (-2 is the second to last index)
+    splitBAMs_ch = splitBAMs_ch
+        .combine(prepareFilters_done.first())
+        .map { it[0..-2] }
+
     extractVariantsChunk( splitBAMs_ch )
 
     emit:
@@ -725,7 +731,7 @@ workflow {
 
   // Run extractVariants workflow, with dependency on prepareFilters
   if( params.workflow=="all" ){
-    extractVariants( splitBAMs.out, prepareFilters.out.done )
+    extractVariants( splitBAMs.out, prepareFilters.out )
   }
   else if ( params.workflow == "extractVariants" ){
     splitBAMs_ch = Channel.fromList(params.samples)

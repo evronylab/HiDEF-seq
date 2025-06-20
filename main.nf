@@ -400,7 +400,7 @@ process prepareRegionFilters {
     if [[ ${binsize} -eq 1 ]]; then
       scale_command=""
     else
-      scale_command=\$(awk "BEGIN { printf \\"scale %.6f bin %d\\", 1/\$binsize, \$binsize }")
+      scale_command=\$(awk "BEGIN { printf \\"scale %.6f bin %d\\", 1/${binsize}, ${binsize} }")
     fi
 
     echo "scale command: \$scale_command"

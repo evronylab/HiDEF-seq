@@ -310,14 +310,17 @@ process processGermlineVCFs {
     tag { "Process Germline VCFs" }
     container "${params.hidefseq_container}"
       
+    input:
+      val(individual_id)
+
     output:
-      val(true)
+      path "${individual_id}.germline_vcf_variants.qs2"
 
     storeDir "${params.cache_dir}"
 
     script:
     """
-    processGermlineVCFs.R -c ${params.paramsFileName}
+    processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id}
     """
 }
 
@@ -594,10 +597,15 @@ workflow prepareFilters {
     // Run installBSgenome
     installBSgenome()
 
-    // Run processGermlineVCFs
-    processGermlineVCFs()
+    // Create channel for individual_ids for processGermlineVCFs
+    individual_ids_ch = Channel
+      .from(params.individuals)
+      .map { individual -> individual.individual_id }
 
-    // Create channel for the germline BAMs
+    // Run processGermlineVCFs
+    processGermlineVCFs( individual_ids_ch )
+
+    // Create channel for germline BAMs
     germlinebams_ch = Channel.fromList(params.individuals)
       .map { run ->
         def germline_bam_file = file(run.germline_bam_file)

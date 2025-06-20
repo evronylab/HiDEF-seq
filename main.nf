@@ -636,7 +636,16 @@ workflow prepareFilters {
     prepareRegionFilters( region_filters_ch )
 
     emit:
-    tuple processGermlineVCFs.out, installBSgenome.out, processGermlineBAMs.out, prepareRegionFilters.out.collect()
+    // Create a completion signal by collecting all outputs
+    done = Channel.empty()
+        .mix(
+            installBSgenome.out,
+            processGermlineVCFs.out.collect(),
+            processGermlineBAMs.out.collect(),
+            prepareRegionFilters.out.collect()
+        )
+        .collect()
+        .map { true }
 
 }
 
@@ -715,7 +724,7 @@ workflow {
 
   // Run extractVariants workflow, with dependency on prepareFilters
   if( params.workflow=="all" ){
-    extractVariants( splitBAMs.out, prepareFilters.out )
+    extractVariants( splitBAMs.out, prepareFilters.out.done )
   }
   else if ( params.workflow == "extractVariants" ){
     splitBAMs_ch = Channel.fromList(params.samples)
@@ -727,7 +736,7 @@ workflow {
               def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
               return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
-    extractVariants( splitBAMs_ch, true ) // 'true' parameters assumes prepareFilters was already run
+    extractVariants( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
   }
 
 }

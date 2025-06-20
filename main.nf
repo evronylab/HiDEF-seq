@@ -637,7 +637,7 @@ workflow prepareFilters {
     prepareRegionFilters( region_filters_ch )
 
     // Create a completion signal by collecting all outputs
-    done_ch = Channel.merge(
+    done_ch = Channel.mix(
             installBSgenome.out,
             processGermlineVCFs.out,
             processGermlineBAMs.out,
@@ -659,7 +659,7 @@ workflow extractVariants {
     prepareFilters_done
     
     main:
-    // Create dependency on prepareFilters_done and then remove it from the input (-2 is the second to last index)
+    // Create dependency on prepareFilters_done and then remove it from the input
     splitBAMs_ch = splitBAMs_ch
         .combine(prepareFilters_done)
         .map { splitBAMs_tuple, _ -> splitBAMs_tuple }

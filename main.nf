@@ -403,7 +403,7 @@ process prepareRegionFilters {
     fi
 
     if [[ ${threshold} == gte* || ${threshold} == lt* ]]; then
-      threshold_command=\$(echo ${threshold} | sed -E 's/^(gte|lt)([0-9.]+)/\1 \2/')
+      threshold_command=\$(echo ${threshold} | sed -E 's/^(gte|lt)([0-9.]+)/\\1 \\2/')
     else
       echo "ERROR: Unknown threshold type: ${threshold}"
       exit 1

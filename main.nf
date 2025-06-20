@@ -661,8 +661,8 @@ workflow extractVariants {
     main:
     // Create dependency on prepareFilters_done and then remove it from the input (-2 is the second to last index)
     splitBAMs_ch = splitBAMs_ch
-        .combine(prepareFilters_done.first())
-        .map { it[0..-2] }
+        .combine(prepareFilters_done)
+        .map { splitBAMs_tuple, _ -> splitBAMs_tuple }
 
     extractVariantsChunk( splitBAMs_ch )
 

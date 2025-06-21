@@ -97,13 +97,6 @@ for(i in names(yaml.config$thresholds)){
 }
 
 
-###### *** NEW CODE for loading VCF filtering config ***###
-#Load germline VCF filter parameters
-vcf_config <- yaml.config$germline_vcf_filtergroups %>%
-  bind_rows %>%
-  group_by(across(-c(vcf_SNV_FILTERS,vcf_INDEL_FILTERS))) %>%
-  summarize(vcf_SNV_FILTERS=list(vcf_SNV_FILTERS),vcf_INDEL_FILTERS=list(vcf_INDEL_FILTERS), .groups="drop")
-
  ################
  ## vcffilters ##
 vcffilters <- list()

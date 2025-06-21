@@ -329,7 +329,7 @@ process processGermlineVCFs {
   processGermlineBAMs: Run processGermlineBAMs.R
 */
 process processGermlineBAMs {
-    cpus 1
+    cpus 2
     memory '16 GB'
     time '24h'
     tag { "Process Germline BAMs: ${germline_bam_file}" }
@@ -368,7 +368,7 @@ process processGermlineBAMs {
       exit 1
     fi
 
-    sort -k1,1 -k2,2n mpileup.bg > mpileup.sorted.bg
+    sort --parallel=2 -k1,1 -k2,2n mpileup.bg > mpileup.sorted.bg
 
     ${params.bedGraphToBigWig_bin} mpileup.sorted.bg <(cut -f 1,2 ${params.genome_fai}) ${germline_bam_file}.bw
     """
@@ -463,9 +463,10 @@ process filterVariantsChunk {
 
     script:
     """
-    filterVariants.R -c ${params.paramsFileName} -f ${extractVariantsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2
+    filterVariants.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractVariantsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2
     """
 }
+
 
 /*****************************************************************
  * Individual Workflow Definitions
@@ -684,10 +685,10 @@ workflow extractVariants {
     prepareFilters_done
     
     main:
-    // Create dependency on prepareFilters_done and then remove it from the input
+    // Create dependency on prepareFilters_done and then remove it from the input (-2 is the second to last index)
     splitBAMs_ch = splitBAMs_ch
         .combine(prepareFilters_done)
-        .map { splitBAMs_tuple, _ -> splitBAMs_tuple }
+        .map { it.dropRight(1) }
 
     extractVariantsChunk( splitBAMs_ch )
 

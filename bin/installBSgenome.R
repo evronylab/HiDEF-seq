@@ -1,8 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #installBSgenome.R:
-# Install required BSgenome.
-# Usage: installBSgenome.R -c [configuration.yaml]
+# Installs required BSgenome.
 
 cat("#### Running installBSgenome ####\n")
 

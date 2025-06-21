@@ -1,8 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #extractVariants.R:
-# Loads and formats aligned ccs bamFile in HiDEF-seq format RDS file that includes all required alignment and variant information for analysis.  
-# Usage: extractVariants.R -c [configuration.yaml] -b [bamFile]
+# Perform initial molecule filtering and extract variants, including all variant information required for analysis.  
 
 cat("#### Running extractVariants ####\n")
 
@@ -16,9 +15,9 @@ suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(plyr))
-suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
+suppressPackageStartupMessages(library(tidyverse))
 
 ######################
 ### Load configuration
@@ -27,6 +26,7 @@ cat("## Loading configuration...")
 
 #General options
 options(datatable.showProgress = FALSE)
+options(warn=2) #Stop script for any warnings
 strand_levels <- c("+","-")
 
 #Command line arguments

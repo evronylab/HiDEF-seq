@@ -658,6 +658,7 @@ workflow prepareFilters {
 
           return filters
         }
+        .unique() // Avoid preparing the same region filter/binsize/threshold configuration twice
 
     // Run prepareRegionFilters
     prepareRegionFilters( region_filters_ch )

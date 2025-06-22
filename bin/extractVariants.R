@@ -15,6 +15,7 @@ suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(plyr))
+suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
@@ -49,14 +50,15 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 outputFile <- opt$output
 
+#Load list of MDB BAM score tags
+variant_bam_scoretags <- yaml.config$variant_types %>%
+  enframe(name=NULL) %>%
+  unnest_wider(value) %>%
+  filter(!is.na(variant_bam_scoretag)) %>%
+  pull(variant_bam_scoretag)
+
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
-
-#Comma-separated chromosomes to analyze across all chromgroups
-chroms_to_analyze <- yaml.config$chromgroups %>%
-  map_vec("chroms") %>%
-  map(str_split_1,",") %>%
-  unlist
 
 #Output stats
 stats <- list()
@@ -108,7 +110,7 @@ bam <- bamFile %>%
   scanBam(
     param=ScanBamParam(
       what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
-      tag=c("ec","np","rq","zm","sa","sm","sx","RG")
+      tag=c("ec","np","rq","zm","sa","sm","sx","RG",variant_bam_scoretags)
     )
   ) %>%
   pluck(1)
@@ -131,6 +133,9 @@ bam.df$ccs_strand <- bam.df$qname %>% str_extract("(fwd|rev)$")
 for(i in c("flag","RG","movie_id","run_id","ccs_strand")){
 	bam.df[,i] <- factor(bam.df[,i])
 }
+
+#Recalculate isize, since pbmm2 has a bug that miscalculates it
+bam.df$isize <- cigarWidthAlongReferenceSpace(bam.df$cigar)
 
 #Convert to GRanges
 bam.df$end <- bam.df$pos + bam.df$isize - 1
@@ -166,7 +171,7 @@ cat("DONE\n")
 ######################
 cat("## Initial molecule filtering...")
 
-# Keep only molecules with 1 forward and 1 reverse primary alignment on the same chromosome (flags = 0 and 16 are plus and minus strand primary alignments, respectively; flags =  2048 and 2064 are plus and minus strand supplementary alignments, respectively).
+# Keep only molecules with 1 forward and 1 reverse ccs strand reads that are primary alignments to different strands on the same chromosome (flags = 0 and 16 are plus and minus strand primary alignments, respectively; flags =  2048 and 2064 are plus and minus strand supplementary alignments, respectively).
 zmwstokeep <- bam.gr %>%
   as_tibble %>%
   select(run_id,zm,ccs_strand,strand,flag,seqnames) %>%
@@ -198,36 +203,11 @@ stats <- stats %>%
 		by = join_by(run_id,movie_id)
 )
 
-# Keep only molecules aligned to analyzed chromosomes
-bam.gr <- bam.gr[seqnames(bam.gr) %in% chroms_to_analyze]
-
-# Count number of molecules per run
-stats <- stats %>%
-	left_join(
-		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
-			as_tibble %>%
-			group_by(run_id,movie_id) %>%
-			summarize(
-				num_molecules_postanalyzedchroms = n_distinct(zm),
-				.groups="drop"
-			),
-		by = join_by(run_id,movie_id)
-	)
-
 # Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal or both plus and minus strand alignments)
 
- # Create simplified GRanges to reduce memory use
-bam.gr.onlyranges <- GRanges(
-  seqnames = seqnames(bam.gr),
-  ranges = ranges(bam.gr),
-  strand = strand(bam.gr),
-  zm = bam.gr$zm,
-  run_id=bam.gr$run_id
-  )
-
  # Extract plus and minus strand reads separately. Due to prior sorting by ZMW id and strand, these are guaranteed to have the same ZMW id order.
-bam.gr.onlyranges.plus <- bam.gr.onlyranges[strand(bam.gr.onlyranges) == "+"]
-bam.gr.onlyranges.minus <- bam.gr.onlyranges[strand(bam.gr.onlyranges) == "-"]
+bam.gr.onlyranges.plus <- bam.gr[strand(bam.gr) == "+", c("zm","run_id")]
+bam.gr.onlyranges.minus <- bam.gr[strand(bam.gr) == "-", c("zm","run_id")]
 
  # Confirm run id and ZMW id order is the same for plus and minus strand reads
 if(! identical(bam.gr.onlyranges.plus$zm, bam.gr.onlyranges.minus$zm) | ! identical(bam.gr.onlyranges.plus$run_id, bam.gr.onlyranges.minus$run_id) ){
@@ -251,7 +231,7 @@ zmwstokeep <- bam.gr.onlyranges.overlap %>%
 bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokeep$zm,]
 
  # Remove intermediate objects
-rm(bam.gr.onlyranges, bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
+rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
 
 # Count number of molecules per run
 stats <- stats %>%
@@ -336,7 +316,7 @@ cigar_query_sbs <- cigar_query_sbs %>%
 #Check if no single base substitutions
 if(cigar_query_sbs %>% as.data.frame %>% nrow == 0){
   cat("  No single base substitutions in selected chromosomes!\n")
-  sbs.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),start_refspace=integer(),ref=character(),alt=character(),qual=integer(),sa=integer(),sm=integer(),sx=integer(),variant_type=factor())
+  sbs.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),start_refspace=integer(),ref=character(),alt=character(),qual=integer(),sa=integer(),sm=integer(),sx=integer())
   
 }else{
 	
@@ -493,22 +473,6 @@ if(cigar_query_sbs %>% as.data.frame %>% nrow == 0){
   
   rm(sbs_queryspace,sbs_queryspace.list,sbs_alt,sbs_qual,sbs_refspace,sbs_sa,sbs_sm,sbs_sx)
   
-  #Annotate each SBS as a change from the reference in reference space in only one strand ("SBS_mismatch-ss"), non-complementary changes from the reference in both strands ("SBS_mismatch-ds"), or complementary changes from the reference in both strands ("SBS_mutation").
-  sbs.df[[i]] <- sbs.df[[i]] %>%
-    group_by(zm,start_refspace) %>%
-    mutate(
-      count = n(),
-      count_distinct_alt = n_distinct(alt),
-      variant_type = case_when(
-        count == 1 ~ "SBS_mismatch-ss",
-        count == 2 & count_distinct_alt == 1 ~ "SBS_mutation",
-        count == 2 & count_distinct_alt == 2 ~ "SBS_mismatch-ds"
-      ) %>%
-        factor
-    ) %>%
-    select(-count,-count_distinct_alt) %>%
-    ungroup %>%
-    arrange(zm,start_refspace,strand)
 }
 
 cat("DONE\n")
@@ -528,7 +492,7 @@ cigar_query_indels <- cigar_query_indels %>%
 #Check if no indels
 if(cigar_query_indels %>% as.data.frame %>% nrow == 0){
 	cat("  No indels in selected chromosomes!\n")
-	indels.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),end_queryspace=integer(),start_refspace=integer(),end_refspace=integer(),indel_type=factor(),ref=character(),alt=character(),indel_width=integer(),qual=list(),sa=list(),sm=list(),sx=list(),variant_type=factor())
+	indels.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),end_queryspace=integer(),start_refspace=integer(),end_refspace=integer(),indel_type=factor(),ref=character(),alt=character(),indel_width=integer(),qual=list(),sa=list(),sm=list(),sx=list())
 	
 }else{
 	
@@ -691,22 +655,6 @@ if(cigar_query_indels %>% as.data.frame %>% nrow == 0){
 	
 	rm(indels_queryspace,indels_refspace,insertions_queryspace_alt,indels_qual,indels_query_pos)
 	
-	#Annotate each indel as a change from the reference in reference space in only one strand ("indel_mismatch-ss"), non-complementary changes from the reference in both strands ("indel_mismatch-ds"; only possible for insertions with different sequences), or complementary changes from the reference in both strands ("indel_mutation").
-	indels.df[[i]] <- indels.df[[i]] %>%
-		group_by(zm,start_refspace,end_refspace) %>%
-		mutate(
-			count = n(),
-			count_distinct_alt = n_distinct(alt),
-			variant_type = case_when(
-				count == 1 ~ "indel_mismatch-ss",
-				count == 2 & count_distinct_alt == 1 ~ "indel_mutation",
-				count == 2 & count_distinct_alt == 2 ~ "indel_mismatch-ds"
-			) %>%
-				factor
-		) %>%
-		select(-count,-count_distinct_alt) %>%
-		ungroup %>%
-	  arrange(zm,start_refspace,end_refspace,strand)
 }
 
 cat("DONE\n")
@@ -714,21 +662,152 @@ cat("DONE\n")
 } #End loop over each run
 
 ######################
-### Save output
+### Format and save output
 ######################
-cat("## Saving output...")
+cat("## Formatting and saving output...")
 
 #Collapse bam.gr back to a single GRanges object and remove seq and qual data that is no longer needed
 bam.gr <- bam.gr %>% unlist(use.names=F)
 bam.gr$seq <- NULL
 bam.gr$qual <- NULL
 
+#Combine variant calls of all runs
+ #SBS
+sbs.df <- sbs.df %>%
+  bind_rows(.id="run_id") %>%
+  mutate(run_id=factor(run_id))
+
+ #indels
+indels.df <- indels.df %>%
+  bind_rows(.id="run_id") %>%
+  mutate(run_id=factor(run_id))
+
+#Annotate for each call if it has duplex coverage
+ #SBS
+sbs.df <- sbs.df %>% left_join(
+  sbs.df %>%
+  #Convert to GRanges
+  makeGRangesFromDataFrame(
+    seqnames.field="seqnames",
+    start.field="start_refspace",
+    end.field="start_refspace",
+    strand.field="strand",
+    keep.extra.columns=TRUE,
+    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+  ) %>%
+
+  #Count for each SBS how many bam.gr reads it overlaps (possibilities are 1, 2, or 4)
+  join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
+  filter(
+    run_id == run_id.bam.gr,
+    zm == zm.bam.gr
+  ) %>%
+  as_tibble %>%
+  rename(start_refspace = start) %>%
+  group_by(run_id,zm,start_refspace) %>%
+  summarize(
+    duplex_coverage = if_else(n() > 1, TRUE, FALSE),
+    .groups="drop"
+    ),
+  by = join_by(run_id,zm,start_refspace)
+)
+
+ #indels
+indels.df <- indels.df %>% left_join(
+  indels.df %>%
+    #Convert to GRanges
+    makeGRangesFromDataFrame(
+      seqnames.field="seqnames",
+      start.field="start_refspace",
+      end.field="end_refspace",
+      strand.field="strand",
+      keep.extra.columns=TRUE,
+      seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+    ) %>%
+    
+    #Count for each SBS how many bam.gr reads it overlaps (possibilities are 1, 2, or 4)
+    join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
+    filter(
+      run_id == run_id.bam.gr,
+      zm == zm.bam.gr
+    ) %>%
+    as_tibble %>%
+    rename(start_refspace = start, end_refspace = end) %>%
+    group_by(run_id,zm,start_refspace,end_refspace) %>%
+    summarize(
+      duplex_coverage = if_else(n() > 1, TRUE, FALSE),
+      .groups="drop"
+    ),
+  by = join_by(run_id,zm,start_refspace,end_refspace)
+)
+  
+#Annotate for each variant its type: no duplex coverage ("*_nonduplex"), or duplex coverage with a change from the reference in reference space in only one strand ("*_mismatch-ss"), non-complementary changes from the reference in both strands ("*_mismatch-ds"; for indels, only possible for insertions with different sequences), or complementary changes from the reference in both strands ("*_mutation").
+ #SBS
+sbs.df <- sbs.df %>%
+  group_by(run_id,zm,start_refspace) %>%
+  mutate(
+    count = n(),
+    count_distinct_alt = n_distinct(alt),
+    variant_type = case_when(
+      duplex_coverage == FALSE ~ "SBS_nonduplex",
+      count == 1 ~ "SBS_mismatch-ss",
+      count == 2 & count_distinct_alt == 1 ~ "SBS_mutation",
+      count == 2 & count_distinct_alt == 2 ~ "SBS_mismatch-ds"
+    ) %>%
+      factor
+  ) %>%
+  select(-count,-count_distinct_alt) %>%
+  ungroup %>%
+  arrange(run_id,zm,start_refspace,strand)
+
+ #indels
+indels.df <- indels.df %>%
+  group_by(run_id,zm,start_refspace,end_refspace) %>%
+  mutate(
+    count = n(),
+    count_distinct_alt = n_distinct(alt),
+    variant_type = case_when(
+      duplex_coverage == FALSE ~ "indel_nonduplex",
+      count == 1 ~ "indel_mismatch-ss",
+      count == 2 & count_distinct_alt == 1 ~ "indel_mutation",
+      count == 2 & count_distinct_alt == 2 ~ "indel_mismatch-ds"
+    ) %>%
+      factor
+  ) %>%
+  select(-count,-count_distinct_alt) %>%
+  ungroup %>%
+  arrange(run_id,zm,start_refspace,end_refspace,strand)
+
+#Convert calls to GRanges
+ #SBS
+sbs.df <- sbs.df %>%
+  makeGRangesFromDataFrame(
+    seqnames.field="seqnames",
+    start.field="start_refspace",
+    end.field="start_refspace",
+    strand.field="strand",
+    keep.extra.columns=TRUE,
+    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+  )
+  
+ #indels
+indels.df <- indels.df %>%
+  makeGRangesFromDataFrame(
+    seqnames.field="seqnames",
+    start.field="start_refspace",
+    end.field="end_refspace",
+    strand.field="strand",
+    keep.extra.columns=TRUE,
+    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+  )
+
+#Save output
 qs_save(
   list(
   	run_metadata = run_metadata,
   	bam.gr = bam.gr,
-  	sbs.df = sbs.df %>% bind_rows(.id="run_id") %>% mutate(run_id=factor(run_id)),
-  	indels.df = indels.df %>% bind_rows(.id="run_id") %>% mutate(run_id=factor(run_id)),
+  	sbs.df = sbs.df,
+  	indels.df = indels.df,
   	stats = stats
   	),
   outputFile

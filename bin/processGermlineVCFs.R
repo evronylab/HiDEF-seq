@@ -20,6 +20,9 @@ suppressPackageStartupMessages(library(qs2))
 ######################
 cat("## Loading configuration...")
 
+#General options
+options(warn=2) #Stop script for any warnings
+
 #Command line arguments
 option_list = list(
   make_option(c("-c", "--config"), type = "character", default=NULL,

@@ -50,12 +50,15 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 outputFile <- opt$output
 
-#Load list of MDB BAM score tags
-variant_bam_scoretags <- yaml.config$variant_types %>%
+#Load variant types, and filter to make a table only for MDB variant types
+variant_types <- yaml.config$variant_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  filter(!is.na(variant_bam_scoretag)) %>%
-  pull(variant_bam_scoretag)
+  unnest_longer(call_types) %>%
+  unnest_wider(call_types)
+
+variant_types_MDB <- variant_types %>%
+  filter(variant_class == "MDB")
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -110,7 +113,10 @@ bam <- bamFile %>%
   scanBam(
     param=ScanBamParam(
       what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
-      tag=c("ec","np","rq","zm","sa","sm","sx","RG",variant_bam_scoretags)
+      tag=c(
+        "ec","np","rq","zm","sa","sm","sx","RG",
+        variant_types_MDB %>% pull(variant_bam_scoretag)
+        )
     )
   ) %>%
   pluck(1)
@@ -248,6 +254,365 @@ stats <- stats %>%
 
 cat("DONE\n")
 
+######################
+### Define function to extract variants
+######################
+extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant_class.input, variant_type.input, cigar.ops.input = NULL, variant_bam_scoretag.input = NULL, variant_bam_scoretag_min.input = NULL){
+  #cigar.ops.input for the variant_class: "X" for SBS; c("I","D") for indel; NULL for MDB
+  #variant_bam_scoretag.input TAG in the MDB containing the MDB score data
+  #variant_bam_scoretag_min.input: minimum score of MDBs to extract
+  
+  #Initialize empty variants tibble
+  variants.out <- tibble(
+    zm=integer(),
+    seqnames=factor(),
+    strand=factor(),
+    start_queryspace=integer(),
+    end_queryspace=integer(),
+    start_refspace=integer(),
+    end_refspace=integer(),
+    ref=character(),
+    alt=character(),
+    qual=list(),
+    sa=list(),
+    sm=list(),
+    sx=list(),
+    variant_class=factor(),
+    variant_type=factor(),
+    indel_type=factor(),
+    indel_width=integer()
+    )
+  
+  #Extract variant positions
+  if(variant_class.input %in% c("SBS","indel")){
+    
+    #Extract variant positions in query space, and name variants with the position to retain this in the final data frame
+    cigar.queryspace.var <- cigarRangesAlongQuerySpace(bam.gr.input$cigar,ops=cigar.ops.input)
+    cigar.queryspace.var <- cigar.queryspace.var %>%
+      unlist(use.names=FALSE) %>%
+      setNames(str_c(start(.),end(.),sep="_")) %>%
+      relist(.,cigar.queryspace.var)
+    
+    #Extract variant positions in reference space
+    cigar.refspace.var <- cigarRangesAlongReferenceSpace(bam.gr.input$cigar,ops=cigar.ops.input,pos=start(bam.gr.input))
+    
+  }else if(variant_class.input == "MDB"){
+    
+  }
+  
+  #Check if no variants
+  if(cigar.queryspace.var %>% as.data.frame %>% nrow == 0){
+    cat("  No variants of type",vartype_label,"in selected chromosomes!\n")
+    return(variants.out)
+  }
+  
+  #Variant positions in query space
+  # Note for indels: in query space, deletion width = 0.
+  var_queryspace <- cigar.queryspace.var %>%
+    setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
+    as.data.frame %>%
+    separate(group_name,sep="_",into=c("zm","strand")) %>%
+    mutate(
+      zm = as.integer(zm),
+      strand = factor(strand,levels=strand_levels)
+    ) %>%
+    rename(
+      start_queryspace = start,
+      end_queryspace = end
+      )
+  
+  if(variant_class.input %in% c("SBS","MDB")){
+    var_queryspace <- var_queryspace %>%
+      uncount(weights=width) %>%
+      select(zm,strand,start_queryspace) %>%
+      group_by(zm,strand,start_queryspace) %>%
+      mutate(
+        start_queryspace = start_queryspace + row_number() - 1L,
+        end_queryspace = start_queryspace
+      ) %>%
+      ungroup
+  }else if(variant_class.input == "indel"){
+    var_queryspace <- var_queryspace %>%
+      rename(insertion_width = width) %>%
+      mutate(insertion_width = insertion_width %>% na_if(0)) %>%
+      select(-group,-names) %>%
+      as_tibble
+  }
+  
+  #Variant positions in reference space, annotated with positions in query space for later joining
+  # Note for indels: in reference space, insertion width = 0.
+  var_refspace <- cigar.refspace.var %>%
+    unlist(use.names=FALSE) %>%
+    setNames(
+      str_c(
+        cigar.queryspace.var %>% unlist(use.names=FALSE) %>% start,
+        cigar.queryspace.var %>% unlist(use.names=FALSE) %>% end,
+        sep="_"
+        )
+      ) %>%
+    relist(.,cigar.refspace.var) %>%
+    setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
+    as.data.frame %>%
+    separate(group_name,sep="_",into=c("zm","strand")) %>%
+    separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    rename(
+      start_refspace = start,
+      end_refspace = end
+    ) %>%
+    mutate(
+      zm=as.integer(zm),
+      strand = factor(strand,levels=strand_levels),
+      start_queryspace = as.integer(start_queryspace),
+      end_queryspace = as.integer(end_queryspace)
+    ) %>%
+    left_join(
+      data.frame(seqnames=seqnames(bam.gr.input), zm=bam.gr.input$zm) %>% distinct,
+      by = join_by(zm)
+    )
+  
+  if(variant_class.input %in% c("SBS","MDB")){
+    var_refspace <- var_refspace %>%
+      uncount(weights=width) %>%
+      select(zm,strand,start_refspace,start_queryspace,seqnames) %>%
+      group_by(zm,strand,start_refspace,start_queryspace,seqnames) %>%
+      mutate(
+        start_refspace = start_refspace + row_number() - 1L,
+        end_refspace = start_refspace,
+        start_queryspace = start_queryspace + row_number() - 1L,
+        end_queryspace = start_queryspace
+      ) %>%
+      ungroup
+  }else if(variant_class.input == "indel"){
+    var_refspace <- var_refspace %>%
+      rename(deletion_width = width) %>%
+      mutate(deletion_width = deletion_width %>% na_if(0)) %>%
+      select(-group) %>%
+      as_tibble
+  }
+  
+  rm(cigar.refspace.var)
+  
+  #Variant REF base sequences, relative to reference plus strand
+  var_refspace$ref <- var_refspace %>%
+    mutate(strand="+") %>%
+    makeGRangesFromDataFrame(
+      seqnames.field="seqnames",
+      start.field="start_refspace",
+      end.field="end_refspace",
+      strand.field="strand"
+    ) %>%
+    getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+    as.character
+  
+  #Variant ALT base sequences, relative to reference plus strand
+  var_alt <- extractAt(bam.gr.input$seq,cigar.queryspace.var) %>%
+    as("CharacterList") %>%
+    setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
+    as.list %>%
+    enframe %>%
+    unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt") %>%
+    separate(name,sep="_",into=c("zm","strand")) %>%
+    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    mutate(
+      zm = as.integer(zm),
+      strand = factor(strand,levels=strand_levels),
+      start_queryspace = as.integer(start_queryspace),
+      end_queryspace = as.integer(end_queryspace)
+    )
+  
+  if(variant_class.input %in% c("SBS","MDB")){
+    var_alt <- var_alt %>%
+      separate_longer_position(alt,width=1) %>%
+      group_by(zm,strand,start_queryspace) %>%
+      mutate(
+        start_queryspace = start_queryspace + row_number() - 1L,
+        end_queryspace = start_queryspace
+      ) %>%
+      ungroup
+  }
+  
+  #Variant base qualities
+  if(variant_class.input %in% c("SBS","MDB")){
+    cigar.queryspace.var.forqualdata <- cigar.queryspace.var
+  }else if(variant_class.input == "indel"){
+    #Indel base qualities. For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
+    cigar.queryspace.var.forqualdata <- cigar.queryspace.var %>% unlist
+    deletionidx <- start(cigar.queryspace.var.forqualdata) > end(cigar.queryspace.var.forqualdata)
+    newstart <- end(cigar.queryspace.var.forqualdata)
+    newend <- start(cigar.queryspace.var.forqualdata)
+    start(cigar.queryspace.var.forqualdata[deletionidx]) <- newstart[deletionidx]
+    end(cigar.queryspace.var.forqualdata[deletionidx]) <- newend[deletionidx]
+    cigar.queryspace.var.forqualdata <- cigar.queryspace.var.forqualdata %>% relist(.,cigar.queryspace.var)
+    
+    rm(deletionidx,newstart,newend)
+  }
+  
+  var_qual <- extractAt(bam.gr.input$qual,cigar.queryspace.var.forqualdata) %>%
+    as("CharacterList") %>%
+    setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
+    as.list %>%
+    enframe %>%
+    unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual") %>%
+    separate(name,sep="_",into=c("zm","strand")) %>%
+    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    mutate(
+      zm = as.integer(zm),
+      strand = factor(strand,levels=strand_levels),
+      start_queryspace = as.integer(start_queryspace),
+      end_queryspace = as.integer(end_queryspace)
+    )
+  
+  if(variant_class.input %in% c("SBS","MDB")){
+    var_qual <- var_qual %>%
+      separate_longer_position(qual,width=1) %>%
+      group_by(zm,strand,start_queryspace) %>%
+      mutate(
+        start_queryspace = start_queryspace + row_number() - 1L,
+        end_queryspace = start_queryspace
+      ) %>%
+      ungroup
+  }
+  
+  var_qual <- var_qual %>%
+    mutate(
+      qual = qual %>% PhredQuality %>% as("IntegerList") %>% as.list %>% set_names(NULL)
+    )
+  
+  rm(cigar.queryspace.var)
+  
+  #Extract sa/sm/sx tags
+  # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
+  
+  if(variant_class.input %in% c("SBS","MDB")){
+    #Convert variant positions in query space to list for faster retrieval below of sa, sm, sx tags
+    var_queryspace.list <- var_queryspace %>%
+      mutate(zm_strand = str_c(zm,strand,sep="_")) %>%
+      select(zm_strand,start_queryspace) %>%
+      as.data.table %>%
+      split(by="zm_strand",keep.by=F) %>%
+      lapply(unlist,use.names=F)
+    
+    #sa
+    var_sa <- map2(sa.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
+      enframe %>%
+      separate(name,sep="_",into=c("zm","strand")) %>%
+      unnest_longer(col=value, values_to="sa", indices_to="start_queryspace") %>%
+      mutate(
+        zm = as.integer(zm),
+        strand = factor(strand,levels=strand_levels),
+        start_queryspace = as.integer(start_queryspace),
+        end_queryspace = start_queryspace,
+        sa = sa %>% as.list %>% set_names(NULL)
+      )
+    
+    #sm
+    var_sm <- map2(sm.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
+      enframe %>%
+      separate(name,sep="_",into=c("zm","strand")) %>%
+      unnest_longer(col=value, values_to="sm", indices_to="start_queryspace") %>%
+      mutate(
+        zm = as.integer(zm),
+        strand = factor(strand,levels=strand_levels),
+        start_queryspace = as.integer(start_queryspace),
+        end_queryspace = start_queryspace,
+        sm = sm %>% as.list %>% set_names(NULL)
+      )
+    
+    #sx
+    var_sx <- map2(sx.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
+      enframe %>%
+      separate(name,sep="_",into=c("zm","strand")) %>%
+      unnest_longer(col=value, values_to="sx", indices_to="start_queryspace") %>%
+      mutate(
+        zm = as.integer(zm),
+        strand = factor(strand,levels=strand_levels),
+        start_queryspace = as.integer(start_queryspace),
+        end_queryspace = start_queryspace,
+        sx = sx %>% as.list %>% set_names(NULL)
+      )
+    
+  }else if(variant_class.input == "indel"){
+    #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
+    # Flatten indel ranges, annotate with start_end_queryspace, then expand the ranges into the needed query_pos, preserving start_end_queryspace.
+    indels_queryspace_pos <- cigar.queryspace.var.forqualdata %>%
+      setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
+      as.data.frame %>%
+      rename(
+        zm_strand = group_name,
+        start_queryspace = start,
+        end_queryspace = end,
+        start_end_queryspace = names
+      ) %>%
+      select(zm_strand,start_queryspace,end_queryspace,start_end_queryspace,width) %>%
+      group_by(zm_strand) %>%
+      uncount(width) %>%
+      group_by(zm_strand,start_end_queryspace) %>%
+      mutate(pos_queryspace = start_queryspace + row_number() - 1) %>%
+      select(zm_strand,start_end_queryspace,pos_queryspace) %>%
+      as.data.table
+    
+    setkey(indels_queryspace_pos, zm_strand, start_end_queryspace)
+    
+    #Extract data
+    indels_queryspace_pos[, sa_val := sa.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    
+    rm(cigar.queryspace.var.forqualdata)
+    
+    #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
+    indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
+      as_tibble %>%
+      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
+      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      mutate(
+        zm = as.integer(zm),
+        strand = factor(strand,levels=strand_levels),
+        start_queryspace = as.integer(start_queryspace),
+        end_queryspace = as.integer(end_queryspace)
+      )
+  }
+  
+  #Combine variant info with prior empty initialized tibble and return result
+  if(variant_class.input %in% c("SBS","MDB")){
+    variants.out <- variants.out %>%
+      bind_rows(
+        var_queryspace %>%
+          left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_alt, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sa, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sm, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sx, by=join_by(zm,strand,start_queryspace,end_queryspace))
+      )
+  }else if(variant_class.input == "indel"){
+    variants.out <- variants.out %>%
+      bind_rows(
+        var_queryspace %>%
+          left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_alt, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(indels_queryspace_pos, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          mutate(
+            indel_type = if_else(start_queryspace > end_queryspace, "deletion", "insertion") %>% factor,
+            indel_width = if_else(is.na(insertion_width), deletion_width, insertion_width)
+          ) %>%
+          select(-deletion_width,-insertion_width)
+      )
+  }
+  
+  #Set variant_class and variant_type
+  variants.out <- variants.out %>%
+    mutate(
+      variant_class = !!variant_class.input %>% factor,
+      variant_type = !!variant_type.input %>% factor
+      )
+  
+  return(variants.out)
+
+}
+
+
 #########################################
 ### Loop to extract variants from each run_id/movie_id separately
 #########################################
@@ -255,411 +620,111 @@ cat("DONE\n")
 #Split bam.gr by run_id
 bam.gr <- bam.gr %>% split(bam.gr$run_id)
 
-#Create output lists
-sbs.df <- list()
-indels.df <- list()
+#Create output list
+variants.df <- list()
 
 for(i in bam.gr %>% names){
 
-cat("> Processing run:",i,"\n")
-
-######################
-### Extract subread alignment tags
-######################
-cat(" ## Extracting subread alignment tags...")
-
-#sa: the number of subread alignments that span each CCS read position
-# sa is run-length encoded (rle) in the BAM file as length,value pairs. We inverse the rle encoding back to standard per-position values
-# sa needs to be reversed for reads aligned to genome minus strand
-
-#Extract all sa values and inverse rle.
-sa.lengths <- lapply(bam.gr[[i]]$sa,function(x){x[c(TRUE, FALSE)]})
-sa.values <- lapply(bam.gr[[i]]$sa,function(x){x[c(FALSE, TRUE)]})
-sa <- mapply(
-	function(x,y){inverse.rle(list(lengths=x,values=y))},
-	x=sa.lengths,
-	y=sa.values,
-	USE.NAMES=FALSE
-) %>%
-	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-rm(sa.lengths,sa.values)
-
-#Reverse order for reads aligned to genome minus strand
-sa[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sa[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-
-#sm: the number of subreads that align as a match to each CCS read position
-# sm needs to be reversed for reads aligned to genome minus strand
-sm <- bam.gr[[i]]$sm %>%
-	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-sm[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sm[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-
-#sx: the number of subreads that align as a sbs to each CCS read position
-# sx needs to be reversed for reads aligned to genome minus strand
-sx <- bam.gr[[i]]$sx %>%
-	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-sx[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sx[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-
-cat("DONE\n")
-
-######################
-### Extract single base substitutions
-######################
-cat(" ## Extracting single base substitutions...")
-
-#Extract substitution positions in query space, and name them with the position to retain this in the final data frame
-cigar_query_sbs <- cigarRangesAlongQuerySpace(bam.gr[[i]]$cigar,ops="X")
-cigar_query_sbs <- cigar_query_sbs %>%
-  unlist(use.names=FALSE) %>%
-  setNames(start(.)) %>%
-  relist(.,cigar_query_sbs)
-
-#Check if no single base substitutions
-if(cigar_query_sbs %>% as.data.frame %>% nrow == 0){
-  cat("  No single base substitutions in selected chromosomes!\n")
-  sbs.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),start_refspace=integer(),ref=character(),alt=character(),qual=integer(),sa=integer(),sm=integer(),sx=integer())
+  cat("> Processing run:",i,"\n")
   
-}else{
-	
-  #Single base substitution positions in query space
-  sbs_queryspace <- cigar_query_sbs %>%
-    setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-    as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels)
-    ) %>%
-    rename(start_queryspace = start) %>%
-    uncount(weights=width) %>%
-    select(zm,strand,start_queryspace) %>%
-    group_by(zm,strand,start_queryspace) %>%
-    mutate(start_queryspace = start_queryspace + row_number() - 1L) %>%
-    ungroup
+  ######################
+  ### Extract subread alignment tags
+  ######################
+  cat(" ## Extracting subread alignment tags...")
   
-  #Single base substitution positions in reference space, annotated with positions in query space for later joining
-  sbs_refspace <- cigarRangesAlongReferenceSpace(bam.gr[[i]]$cigar,ops="X",pos=start(bam.gr[[i]]))
-  sbs_refspace <- sbs_refspace %>%
-    unlist(use.names=FALSE) %>%
-    setNames(cigar_query_sbs %>% unlist(use.names=FALSE) %>% start) %>%
-    relist(.,sbs_refspace) %>%
-    setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-    as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
-    mutate(
-      zm=as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      names = as.integer(names)
-    ) %>%
-    rename(
-      start_refspace = start,
-      start_queryspace = names
-    ) %>%
-    uncount(weights=width) %>%
-    select(zm,strand,start_refspace,start_queryspace) %>%
-    group_by(zm,strand,start_refspace,start_queryspace) %>%
-    mutate(
-      start_refspace = start_refspace + row_number() - 1L,
-      start_queryspace = start_queryspace + row_number() - 1L
-    ) %>%
-    ungroup %>%
-    left_join(
-      data.frame(seqnames=seqnames(bam.gr[[i]]), zm=bam.gr[[i]]$zm) %>% distinct,
-      by = join_by(zm)
+  #sa: the number of subread alignments that span each CCS read position
+  # sa is run-length encoded (rle) in the BAM file as length,value pairs. We inverse the rle encoding back to standard per-position values
+  # sa needs to be reversed for reads aligned to genome minus strand
+  
+  #Extract all sa values and inverse rle.
+  sa.lengths <- lapply(bam.gr[[i]]$sa,function(x){x[c(TRUE, FALSE)]})
+  sa.values <- lapply(bam.gr[[i]]$sa,function(x){x[c(FALSE, TRUE)]})
+  sa <- mapply(
+  	function(x,y){inverse.rle(list(lengths=x,values=y))},
+  	x=sa.lengths,
+  	y=sa.values,
+  	USE.NAMES=FALSE
+  ) %>%
+  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
+  rm(sa.lengths,sa.values)
+  
+  #Reverse order for reads aligned to genome minus strand
+  sa[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sa[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
+  
+  #sm: the number of subreads that align as a match to each CCS read position
+  # sm needs to be reversed for reads aligned to genome minus strand
+  sm <- bam.gr[[i]]$sm %>%
+  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
+  sm[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sm[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
+  
+  #sx: the number of subreads that align as a sbs to each CCS read position
+  # sx needs to be reversed for reads aligned to genome minus strand
+  sx <- bam.gr[[i]]$sx %>%
+  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
+  sx[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sx[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
+  
+  cat("DONE\n")
+  
+  ######################
+  ### Extract variants
+  ######################
+  cat(" ## Extracting single base substitutions...")
+  
+  #SBS
+  variants.df[[i]] <- extract_variants(
+    bam.gr.input = bam.gr[[i]],
+    sa.input = sa,
+    sm.input = sm,
+    sx.input = sx,
+    variant_class.input = "SBS",
+    variant_type.input = "SBS",
+    cigar.ops.input = "X"
     )
   
-  #Single base substitution REF base sequences, relative to reference plus strand
-  sbs_refspace$ref <- sbs_refspace %>%
-    mutate(strand="+") %>%
-    makeGRangesFromDataFrame(
-      seqnames.field="seqnames",
-      start.field="start_refspace",
-      end.field="start_refspace",
-      strand.field="strand"
-    ) %>%
-    getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
-    as.character
-
-  #Single base substitution ALT base sequences, relative to reference plus strand
-  sbs_alt <- extractAt(bam.gr[[i]]$seq,cigar_query_sbs) %>%
-    as("CharacterList") %>%
-    setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-    as.list %>%
-    enframe %>%
-    unnest_longer(col=value,indices_to="start_queryspace",values_to="alt") %>%
-    separate_longer_position(alt,width=1) %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      start_queryspace = as.integer(start_queryspace)
-      ) %>%
-    group_by(zm,strand,start_queryspace) %>%
-    mutate(start_queryspace = start_queryspace + row_number() - 1L) %>%
-    ungroup
+  cat("DONE\n")
   
-  #Single base substitution base qualities
-  sbs_qual <- extractAt(bam.gr[[i]]$qual,cigar_query_sbs) %>%
-    as("CharacterList") %>%
-    setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-    as.list %>%
-    enframe %>%
-    unnest_longer(col=value,indices_to="start_queryspace",values_to="qual") %>%
-    separate_longer_position(qual,width=1) %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      start_queryspace = as.integer(start_queryspace),
-      qual = qual %>% PhredQuality %>% as("IntegerList") %>% unlist
-    ) %>%
-    group_by(zm,strand,start_queryspace) %>%
-    mutate(start_queryspace = start_queryspace + row_number() - 1L) %>%
-    ungroup
+  #Indels
+  cat(" ## Extracting indels...")
   
-  rm(cigar_query_sbs)
-
-  #Extract sa/sm/sx tags
-
-   #Convert sbs positions in query space to list for faster retrieval below of sa, sm, sx tags
-  sbs_queryspace.list <- sbs_queryspace %>%
-    mutate(zm_strand = str_c(zm,strand,sep="_")) %>%
-    select(zm_strand,start_queryspace) %>%
-    as.data.table %>%
-    split(by="zm_strand",keep.by=F) %>%
-    lapply(unlist,use.names=F)
-  
-   #sa
-  sbs_sa <- map2(sa[sbs_queryspace.list %>% names], sbs_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-    enframe %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    unnest_longer(col=value, values_to="sa", indices_to="start_queryspace") %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      start_queryspace = as.integer(start_queryspace)
+  variants.df[[i]] <- variants.df[[i]] %>%
+    bind_rows(
+      extract_variants(
+        bam.gr.input = bam.gr[[i]],
+        sa.input = sa,
+        sm.input = sm,
+        sx.input = sx,
+        variant_class.input = "indel",
+        variant_type.input = "indel",
+        cigar.ops.input = c("I","D")
+      )
     )
+
+  cat("DONE\n")
   
-   #sm
-  sbs_sm <- map2(sm[sbs_queryspace.list %>% names], sbs_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-    enframe %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    unnest_longer(col=value, values_to="sm", indices_to="start_queryspace") %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      start_queryspace = as.integer(start_queryspace)
-    )
   
-   #sx
-  sbs_sx <- map2(sx[sbs_queryspace.list %>% names], sbs_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-    enframe %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    unnest_longer(col=value, values_to="sx", indices_to="start_queryspace") %>%
-    mutate(
-      zm = as.integer(zm),
-      strand = factor(strand,levels=strand_levels),
-      start_queryspace = as.integer(start_queryspace)
-    )
-  
-  #Combine sbs info
-  sbs.df[[i]] <- sbs_queryspace %>%
-    left_join(sbs_alt, by=join_by(zm,strand,start_queryspace)) %>%
-    left_join(sbs_qual, by=join_by(zm,strand,start_queryspace)) %>%
-    left_join(sbs_refspace, by=join_by(zm,strand,start_queryspace)) %>%
-    left_join(sbs_sa, by=join_by(zm,strand,start_queryspace)) %>%
-    left_join(sbs_sm, by=join_by(zm,strand,start_queryspace)) %>%
-    left_join(sbs_sx, by=join_by(zm,strand,start_queryspace)) %>%
-    select(zm,seqnames,strand,start_queryspace,start_refspace,ref,alt,qual,sa,sm,sx)
-  
-  rm(sbs_queryspace,sbs_queryspace.list,sbs_alt,sbs_qual,sbs_refspace,sbs_sa,sbs_sm,sbs_sx)
+  #MDBs
+  for(j in 1:nrow(variant_types_MDB)){
+    
+    cat(" ## Extracting",variant_types_MDB %>% pluck("variant_type",j),"...")
+    
+    variants.df[[i]] <- variants.df[[i]] %>%
+      bind_rows(
+        extract_variants(
+          bam.gr.input = bam.gr[[i]],
+          sa.input = sa,
+          sm.input = sm,
+          sx.input = sx,
+          variant_class.input = "MDB",
+          variant_type.input = variant_types_MDB %>% pluck("variant_type",j),
+          variant_bam_scoretag.input = variant_types_MDB %>% pluck("variant_bam_scoretag",j),
+          variant_bam_scoretag_min.input = variant_types_MDB %>% pluck("variant_bam_scoretag_min",j)
+        )
+      )
+    
+    cat("DONE\n")
+  }
   
 }
-
-cat("DONE\n")
-
-######################
-### Extract indels
-######################
-cat(" ## Extracting indels...")
-
-#Extract indel positions in query space, and name them with the position to retain this in the final data frame.
-cigar_query_indels <- cigarRangesAlongQuerySpace(bam.gr[[i]]$cigar,ops=c("I","D"))
-cigar_query_indels <- cigar_query_indels %>%
-	unlist(use.names=FALSE) %>%
-	setNames(str_c(start(.),end(.),sep="_")) %>%
-	relist(.,cigar_query_indels)
-
-#Check if no indels
-if(cigar_query_indels %>% as.data.frame %>% nrow == 0){
-	cat("  No indels in selected chromosomes!\n")
-	indels.df[[i]] <- tibble(zm=integer(),seqnames=factor(),strand=factor(),start_queryspace=integer(),end_queryspace=integer(),start_refspace=integer(),end_refspace=integer(),indel_type=factor(),ref=character(),alt=character(),indel_width=integer(),qual=list(),sa=list(),sm=list(),sx=list())
-	
-}else{
-	
-	#Indel positions in query space. Note, in query space, deletion width = 0.
-	indels_queryspace <- cigar_query_indels %>%
-		setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-		as.data.frame %>%
-		separate(group_name,sep="_",into=c("zm","strand")) %>%
-		mutate(
-			zm = as.integer(zm),
-			strand = factor(strand,levels=strand_levels)
-		) %>%
-		rename(
-			start_queryspace = start,
-			end_queryspace = end,
-			insertion_width = width
-		) %>%
-		mutate(insertion_width = insertion_width %>% na_if(0)) %>%
-		select(-group,-names) %>%
-	  as_tibble
-	
-	#Indel positions in reference space, annotated with positions in query space for later joining. Note, in reference space, insertion width = 0.
-	indels_refspace <- cigarRangesAlongReferenceSpace(bam.gr[[i]]$cigar,ops=c("I","D"),pos=start(bam.gr[[i]]))
-	indels_refspace <- indels_refspace %>%
-		unlist(use.names=FALSE) %>%
-		setNames(str_c(cigar_query_indels %>% unlist(use.names=FALSE) %>% start,cigar_query_indels %>% unlist(use.names=FALSE) %>% end,sep="_")) %>%
-		relist(.,indels_refspace) %>%
-		setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-		as.data.frame %>%
-		separate(group_name,sep="_",into=c("zm","strand")) %>%
-		separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
-		rename(
-			start_refspace = start,
-			end_refspace = end
-		) %>%
-		mutate(
-			zm=as.integer(zm),
-			strand = factor(strand,levels=strand_levels),
-			start_queryspace = as.integer(start_queryspace),
-			end_queryspace = as.integer(end_queryspace),
-			deletion_width = width
-		) %>%
-		mutate(deletion_width = deletion_width %>% na_if(0)) %>%
-		left_join(
-			data.frame(seqnames=seqnames(bam.gr[[i]]), zm=bam.gr[[i]]$zm) %>% distinct,
-			by = join_by(zm)
-		) %>%
-		select(-group) %>%
-	  as_tibble
-	
-	#Deletion base sequences from reference space, relative to reference plus strand
-	indels_refspace$ref <- indels_refspace %>%
-		mutate(strand="+") %>%
-		makeGRangesFromDataFrame(
-			seqnames.field="seqnames",
-			start.field="start_refspace",
-			end.field="end_refspace",
-			strand.field="strand"
-		) %>%
-		getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
-		as.character
-	
-	#Insertion base sequences from query space, relative to reference plus strand
-	insertions_queryspace_alt <- extractAt(bam.gr[[i]]$seq,cigar_query_indels) %>%
-		as("CharacterList") %>%
-		setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-		as.list %>%
-		enframe %>%
-		unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt") %>%
-		separate(name,sep="_",into=c("zm","strand")) %>%
-		separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
-		mutate(
-			zm = as.integer(zm),
-			strand = factor(strand,levels=strand_levels),
-			start_queryspace = as.integer(start_queryspace),
-			end_queryspace = as.integer(end_queryspace)
-		)
-	
-	#Indel base qualities. For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
-	cigar_query_indels_forqualdata <- cigar_query_indels %>% unlist
-	deletionidx <- start(cigar_query_indels_forqualdata) > end(cigar_query_indels_forqualdata)
-	newstart <- end(cigar_query_indels_forqualdata)
-	newend <- start(cigar_query_indels_forqualdata)
-	start(cigar_query_indels_forqualdata[deletionidx]) <- newstart[deletionidx]
-	end(cigar_query_indels_forqualdata[deletionidx]) <- newend[deletionidx]
-	cigar_query_indels_forqualdata <- cigar_query_indels_forqualdata %>% relist(.,cigar_query_indels)
-	
-	rm(cigar_query_indels,deletionidx,newstart,newend)
-	
-	indels_qual <- extractAt(bam.gr[[i]]$qual,cigar_query_indels_forqualdata) %>%
-		as("CharacterList") %>%
-		setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-		as.list %>%
-		enframe %>%
-		unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual") %>%
-		separate(name,sep="_",into=c("zm","strand")) %>%
-		separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
-		mutate(
-			zm = as.integer(zm),
-			strand = factor(strand,levels=strand_levels),
-			start_queryspace = as.integer(start_queryspace),
-			end_queryspace = as.integer(end_queryspace),
-			qual = qual %>% PhredQuality %>% as("IntegerList") %>% as.list %>% set_names(NULL)
-		)
-	
-	#Extract sa/sm/sx tags
-	
-	 #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
-	 # Flatten indel ranges, annotate with start_end_queryspace, then expand the ranges into the needed query_pos, preserving start_end_queryspace.
-	indels_query_pos <- cigar_query_indels_forqualdata %>%
-		setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_")) %>%
-		as.data.frame %>%
-		rename(
-			zm_strand = group_name,
-			start_queryspace = start,
-			end_queryspace = end,
-			start_end_queryspace = names
-		) %>%
-		select(zm_strand,start_queryspace,end_queryspace,start_end_queryspace) %>%
-		group_by(zm_strand) %>%
-		mutate(width=end_queryspace - start_queryspace + 1) %>%
-		uncount(width) %>%
-		group_by(zm_strand,start_end_queryspace) %>%
-		mutate(pos_queryspace = start_queryspace + row_number() - 1) %>%
-		select(zm_strand,start_end_queryspace,pos_queryspace) %>%
-		as.data.table
-	
-	setkey(indels_query_pos, zm_strand, start_end_queryspace)
-	
-	 #Extract data
-	indels_query_pos[, sa_val := sa[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-	indels_query_pos[, sm_val := sm[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-	indels_query_pos[, sx_val := sx[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-	
-	rm(sa,sm,sx,cigar_query_indels_forqualdata)
-	
-	 #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
-	indels_query_pos <- indels_query_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
-	  as_tibble %>%
-  	separate(zm_strand,sep="_",into=c("zm","strand")) %>%
-	  separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
-  	  mutate(
-  	    zm = as.integer(zm),
-  	    strand = factor(strand,levels=strand_levels),
-  	    start_queryspace = as.integer(start_queryspace),
-  	    end_queryspace = as.integer(end_queryspace)
-  	  )
-	
-	#Combine indel info
-	indels.df[[i]] <- indels_queryspace %>%
-		left_join(indels_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
-		left_join(insertions_queryspace_alt, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
-		left_join(indels_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
-		left_join(indels_query_pos, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
-		mutate(
-			indel_type = if_else(start_queryspace > end_queryspace, "deletion", "insertion") %>% factor,
-			indel_width = if_else(is.na(insertion_width), deletion_width, insertion_width)
-		) %>%
-		select(zm,seqnames,strand,start_queryspace,end_queryspace,start_refspace,end_refspace,indel_type,ref,alt,indel_width,qual,sa,sm,sx)
-	
-	rm(indels_queryspace,indels_refspace,insertions_queryspace_alt,indels_qual,indels_query_pos)
-	
-}
-
-cat("DONE\n")
-
-} #End loop over each run
 
 ######################
 ### Format and save output
@@ -672,105 +737,63 @@ bam.gr$seq <- NULL
 bam.gr$qual <- NULL
 
 #Combine variant calls of all runs
- #SBS
-sbs.df <- sbs.df %>%
+variants.df <- variants.df %>%
   bind_rows(.id="run_id") %>%
   mutate(run_id=factor(run_id))
 
- #indels
-indels.df <- indels.df %>%
-  bind_rows(.id="run_id") %>%
-  mutate(run_id=factor(run_id))
-
-#Annotate for each call if it has duplex coverage
- #SBS
-sbs.df <- sbs.df %>% left_join(
-  sbs.df %>%
+#Annotate for each variant position if it has duplex coverage
+variants.df <- variants.df %>% left_join(
+  variants.df %>%
   #Convert to GRanges
+  select(run_id,zm,seqnames,start_refspace,end_refspace) %>%
   makeGRangesFromDataFrame(
     seqnames.field="seqnames",
     start.field="start_refspace",
-    end.field="start_refspace",
-    strand.field="strand",
+    end.field="end_refspace",
     keep.extra.columns=TRUE,
     seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
   ) %>%
+  unique %>% #In case there is an SBS and MDB at the same location, only want to join one row for the position to bam.gr
 
-  #Count for each SBS how many bam.gr reads it overlaps (possibilities are 1, 2, or 4)
+  #Count for each variant position how many bam.gr reads from its zmw it overlaps (1 or 2)
   join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
   filter(
     run_id == run_id.bam.gr,
     zm == zm.bam.gr
   ) %>%
   as_tibble %>%
-  rename(start_refspace = start) %>%
-  group_by(run_id,zm,start_refspace) %>%
+  rename(
+    start_refspace = start,
+    end_refspace = end
+    ) %>%
+  group_by(run_id,zm,start_refspace,end_refspace) %>%
   summarize(
-    duplex_coverage = if_else(n() > 1, TRUE, FALSE),
+    duplex_coverage = if_else(n() == 2, TRUE, FALSE),
     .groups="drop"
-    ),
-  by = join_by(run_id,zm,start_refspace)
-)
-
- #indels
-indels.df <- indels.df %>% left_join(
-  indels.df %>%
-    #Convert to GRanges
-    makeGRangesFromDataFrame(
-      seqnames.field="seqnames",
-      start.field="start_refspace",
-      end.field="end_refspace",
-      strand.field="strand",
-      keep.extra.columns=TRUE,
-      seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
-    ) %>%
-    
-    #Count for each SBS how many bam.gr reads it overlaps (possibilities are 1, 2, or 4)
-    join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
-    filter(
-      run_id == run_id.bam.gr,
-      zm == zm.bam.gr
-    ) %>%
-    as_tibble %>%
-    rename(start_refspace = start, end_refspace = end) %>%
-    group_by(run_id,zm,start_refspace,end_refspace) %>%
-    summarize(
-      duplex_coverage = if_else(n() > 1, TRUE, FALSE),
-      .groups="drop"
     ),
   by = join_by(run_id,zm,start_refspace,end_refspace)
 )
   
-#Annotate for each variant its type: no duplex coverage ("*_nonduplex"), or duplex coverage with a change from the reference in reference space in only one strand ("*_mismatch-ss"), non-complementary changes from the reference in both strands ("*_mismatch-ds"; for indels, only possible for insertions with different sequences), or complementary changes from the reference in both strands ("*_mutation").
- #SBS
-sbs.df <- sbs.df %>%
-  group_by(run_id,zm,start_refspace) %>%
-  mutate(
-    count = n(),
-    count_distinct_alt = n_distinct(alt),
-    variant_type = case_when(
-      duplex_coverage == FALSE ~ "SBS_nonduplex",
-      count == 1 ~ "SBS_mismatch-ss",
-      count == 2 & count_distinct_alt == 1 ~ "SBS_mutation",
-      count == 2 & count_distinct_alt == 2 ~ "SBS_mismatch-ds"
-    ) %>%
-      factor
-  ) %>%
-  select(-count,-count_distinct_alt) %>%
-  ungroup %>%
-  arrange(run_id,zm,start_refspace,strand)
-
- #indels
-indels.df <- indels.df %>%
+#Annotate for each variant its call type:
+ #No duplex coverage ("nonduplex")
+ #Duplex coverage:
+  #Change from the reference in reference space only in the strand with the variant ("mismatch-ss")
+  #Non-complementary changes from the reference in both strands ("mismatch-ds"; for indels, only possible for insertions with different sequences)
+  #Complementary changes from the reference in both strands ("mutation").
+  #No changes from the reference in reference space in either of the strands ("match"; MDB only)
+  #Change from the reference in reference space only in the opposite strand of the strand with the variant ("mismatch-os"; MDB only)
+variants.df <- variants.df %>%
   group_by(run_id,zm,start_refspace,end_refspace) %>%
   mutate(
-    count = n(),
+    count_SBS_indel = sum(variant_class %in% c("SBS","indel")),
     count_distinct_alt = n_distinct(alt),
-    variant_type = case_when(
-      duplex_coverage == FALSE ~ "indel_nonduplex",
-      count == 1 ~ "indel_mismatch-ss",
-      count == 2 & count_distinct_alt == 1 ~ "indel_mutation",
-      count == 2 & count_distinct_alt == 2 ~ "indel_mismatch-ds"
+    call_type = case_when(
+      duplex_coverage == FALSE ~ "nonduplex",
+      count_SBS_indel == 0 ~ "match",
+      count_SBS_indel == 1 & ref != alt ~ "mismatch-ss",
+      count_SBS_indel == 1 & ref == alt ~ "mismatch-os",
+      count_SBS_indel == 2 & count_distinct_alt == 1 ~ "mutation",
+      count_SBS_indel == 2 & count_distinct_alt == 2 ~ "mismatch-ds"
     ) %>%
       factor
   ) %>%
@@ -778,20 +801,8 @@ indels.df <- indels.df %>%
   ungroup %>%
   arrange(run_id,zm,start_refspace,end_refspace,strand)
 
-#Convert calls to GRanges
- #SBS
-sbs.df <- sbs.df %>%
-  makeGRangesFromDataFrame(
-    seqnames.field="seqnames",
-    start.field="start_refspace",
-    end.field="start_refspace",
-    strand.field="strand",
-    keep.extra.columns=TRUE,
-    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
-  )
-  
- #indels
-indels.df <- indels.df %>%
+#Convert variants to GRanges
+variants.gr <- variants.df %>%
   makeGRangesFromDataFrame(
     seqnames.field="seqnames",
     start.field="start_refspace",
@@ -801,14 +812,15 @@ indels.df <- indels.df %>%
     seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
   )
 
+rm(variants.df)
+
 #Save output
 qs_save(
   list(
   	run_metadata = run_metadata,
+  	stats = stats,
   	bam.gr = bam.gr,
-  	sbs.df = sbs.df,
-  	indels.df = indels.df,
-  	stats = stats
+  	variants.gr = variants.gr
   	),
   outputFile
   )

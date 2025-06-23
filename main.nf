@@ -444,7 +444,7 @@ process extractVariantsChunk {
 }
 
 /*
-  filterVariantsChunk: Run filterVariants.R for an analysis chunk
+  filterVariantsChunk: Run filterVariants.R for each analysis chunk, chromgroup, variant_filtergroup combination
 */
 process filterVariantsChunk {
     cpus 2
@@ -454,16 +454,16 @@ process filterVariantsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(extractVariantsFile), val(chunkID)
+      tuple val(sample_id), path(extractVariantsFile), val(chunkID), val(chromgroup), val(variant_filtergroup)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2"), val(chunkID)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${variant_filtergroup}.qs2"), val(chunkID), val(chromgroup), val(variant_filtergroup)
 
     storeDir "${filterVariants_output_dir}"
 
     script:
     """
-    filterVariants.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractVariantsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.qs2
+    filterVariants.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractVariantsFile} -g ${chromgroup} -v ${variant_filtergroup} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${variant_filtergroup}.qs2
     """
 }
 
@@ -716,7 +716,8 @@ workflow filterVariants {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, processReads, splitBAMs, prepareFilters, extractVariants
+// --workflow options: all, processReads, splitBAMs, prepareFilters, extractVariants, filterVariants
+// Note: the pipeline analyzes all genomic regions up to and including extractVariants. Then it restricts analysis and output files to chromgroups.
 
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.DumperOptions
@@ -789,9 +790,27 @@ workflow {
     extractVariants( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
   }
 
+  //Prepare channel with all variant_types.variant_filtergroup and variant_types.analyzein_chromgroups configurations
+  chromgroups_filtergroups_ch = Channel.fromList(params.variant_types)
+          .flatMap { variant_type ->
+            variant_type.call_types.flatMap { call_type ->
+                def chromgroup_names
+                if (call_type.analyzein_chromgroups == 'all') {
+                  chromgroup_names = params.chromgroups.map { it.chromgroup }
+                } else {
+                  chromgroup_names = call_type.analyzein_chromgroups.split(',')
+                }
+                
+                chromgroup_names.map { chromgroup_name ->
+                  return tuple(chromgroup_name, call_type.variant_filtergroup)
+                }
+            }
+          }
+          .unique()
+
   // Run filterVariants workflow
   if( params.workflow=="all" ){
-    filterVariants( extractVariants.out )
+    filterVariants( extractVariants.out.combine(chromgroups_filtergroups_ch) )
   }
   else if ( params.workflow == "filterVariants" ){
     extractVariants_ch = Channel.fromList(params.samples)
@@ -801,7 +820,7 @@ workflow {
               def extractVariantsFile = file("${extractVariants_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractVariants.chunk${chunkID}.qs2")
               return tuple(sample_id, extractVariantsFile, chunkID)
           }
-    filterVariants( extractVariants_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
+    filterVariants( extractVariants_ch.combine(chromgroups_filtergroups_ch) ) 
   }
 
 }

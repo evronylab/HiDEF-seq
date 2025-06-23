@@ -14,6 +14,7 @@ suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(plyr))
+suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(qs2))
@@ -22,7 +23,7 @@ suppressPackageStartupMessages(library(tidyverse))
 ######################
 ### Load configuration
 ######################
-cat("## Loading configuration...")
+cat("## Loading configuration...\n")
 
 #General options
 options(datatable.showProgress = FALSE)
@@ -32,23 +33,29 @@ options(warn=2) #Stop script for any warnings
 option_list = list(
 	make_option(c("-c", "--config"), type = "character", default=NULL,
 							help="path to YAML configuration file"),
-	make_option(c("-s", "--sample_id"), type = "character", default=NULL,
-	            help="sample_id to analyze"),
 	make_option(c("-f", "--file"), type = "character", default=NULL,
 							help="path to extractVariants qs2 file"),
+	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
+							help="sample_id to analyze"),
+	make_option(c("-g", "--chromgroup_toanalyze"), type = "character", default=NULL,
+	            help="chromgroup to analyze"),
+	make_option(c("-v", "--variant_filtergroup_toanalyze"), type = "character", default=NULL,
+	            help="variant_filtergroup to analyze"),
 	make_option(c("-o", "--output"), type = "character", default=NULL,
 							help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$file) | is.na(opt$output) ){
+if(is.na(opt$config) | is.na(opt$file) | is.na(opt$sample_id_toanalyze) | is.na(opt$chromgroup_toanalyze) | is.na(opt$variant_filtergroup_toanalyze) | is.na(opt$output) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
-sample_id <- opt$sample_id
 extractVariantsFile <- opt$file
+sample_id_toanalyze <- opt$sample_id_toanalyze
+chromgroup_toanalyze <- opt$chromgroup_toanalyze
+variant_filtergroup_toanalyze <- opt$variant_filtergroup_toanalyze
 outputFile <- opt$output
 
 #Load the BSgenome reference
@@ -56,9 +63,9 @@ suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,charac
 
 #Load miscellaneous configuration parameters
  #individual_id of this sample_id
-individual_id <- yaml.config$samples %>%
+individual_id_toanalyze <- yaml.config$samples %>%
   bind_rows %>%
-  filter(sample_id == !!sample_id) %>%
+  filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
 
  #cache_dir
@@ -69,44 +76,70 @@ germline_vcf_filters_config <- yaml.config$germline_vcf_filtergroups %>%
   enframe(name=NULL) %>%
   unnest_wider(value,transform=list(vcf_SNV_FILTERS=list, vcf_INDEL_FILTERS=list))
 
- #variant types
-variant_types <- yaml.config$variant_types %>%
+ #variant types (restrict to selected chromgroup_toanalyze and variant_filtergroup_toanalyze)
+variant_types_toanalyze <- yaml.config$variant_types %>%
   enframe(name=NULL) %>%
-  unnest_wider(value)
+  unnest_wider(value) %>%
+  unnest_longer(call_types) %>%
+  unnest_wider(call_types) %>%
+	filter(
+		analyzein_chromgroups == chromgroup_toanalyze | analyzein_chromgroups == "all",
+		variant_filtergroup == variant_filtergroup_toanalyze
+		)
   
- #variant filter group parameters
-variant_filtergroups_config <- yaml.config$variant_filtergroups %>%
+ #variant filter group parameters (restrict to selected variant_filtergroup_toanalyze)
+variant_filtergroups_toanalyze_config <- yaml.config$variant_filtergroups %>%
   enframe(name=NULL) %>%
-  unnest_wider(value)
+  unnest_wider(value) %>%
+	filter(variant_filtergroup == variant_filtergroup_toanalyze)
   
- #region filter parameters
-region_filters_config <- list()
-region_filters_config[["read_filters"]] <- yaml.config$region_filters %>%
+ #region filter parameters (restrict to selected chromgroup_toanalyze and variant_filtergroup_toanalyze)
+region_read_filters_config <- yaml.config$region_filters %>%
   map("read_filters") %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"))
+  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+	filter(
+		applyto_chromgroups == chromgroup_toanalyze | applyto_chromgroups == "all",
+		applyto_variant_filtergroups == variant_filtergroup_toanalyze | applyto_variant_filtergroups == "all"
+	)
 
-region_filters_config[["bin_filters"]] <- yaml.config$region_filters %>%
+region_bin_filters_config <- yaml.config$region_filters %>%
   map("bin_filters") %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"))
+  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+	filter(
+		applyto_chromgroups == chromgroup_toanalyze | applyto_chromgroups == "all",
+		applyto_variant_filtergroups == variant_filtergroup_toanalyze | applyto_variant_filtergroups == "all"
+	)
 
 #Output data lists
 read_region_filters <- list()
 genome_region_filters <- list()
-stats <- list() 
+stats <- list()
+
+#Display basic configuration parameters
+cat("> Processing:\n")
+cat("    extractVariants File:",extractVariantsFile,"\n")
+cat("    individual_id:",individual_id_toanalyze,"\n")
+cat("    sample_id:",sample_id_toanalyze,"\n")
+cat("    chromgroup:",chromgroup_toanalyze,"\n")
+cat("    variant_filtergroup:",variant_filtergroup_toanalyze,"\n")
+
 cat("DONE\n")
 
 ######################
 ### Load extracted variants
 ######################
-cat("## Loading extracted variants:",sample_id,"->",extractVariantsFile,"...")
+cat("## Loading extracted variants...")
 
 extractedVariants <- qs_read(extractVariantsFile)
+
+#For each variant_type, filter to keep only variants in the configured analyzein_chromgroups
+#**
 
 cat("DONE\n")
 

@@ -63,9 +63,6 @@ variant_types_MDB <- variant_types %>%
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
-#Output stats
-stats <- list()
-
 cat("DONE\n")
 
 ######################
@@ -746,6 +743,7 @@ variants.df <- variants.df %>% left_join(
   variants.df %>%
   #Convert to GRanges
   select(run_id,zm,seqnames,start_refspace,end_refspace) %>%
+  distinct %>% #In case there is an SBS and MDB at the same location, only want to join one row for the position to bam.gr
   makeGRangesFromDataFrame(
     seqnames.field="seqnames",
     start.field="start_refspace",
@@ -753,7 +751,6 @@ variants.df <- variants.df %>% left_join(
     keep.extra.columns=TRUE,
     seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
   ) %>%
-  unique %>% #In case there is an SBS and MDB at the same location, only want to join one row for the position to bam.gr
 
   #Count for each variant position how many bam.gr reads from its zmw it overlaps (1 or 2)
   join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
@@ -774,7 +771,7 @@ variants.df <- variants.df %>% left_join(
   by = join_by(run_id,zm,start_refspace,end_refspace)
 )
   
-#Annotate for each variant its call type:
+#Annotate for each variant its 'call type':
  #No duplex coverage ("nonduplex")
  #Duplex coverage:
   #Change from the reference in reference space only in the strand with the variant ("mismatch-ss")
@@ -785,21 +782,22 @@ variants.df <- variants.df %>% left_join(
 variants.df <- variants.df %>%
   group_by(run_id,zm,start_refspace,end_refspace) %>%
   mutate(
-    count_SBS_indel = sum(variant_class %in% c("SBS","indel")),
+    count_SBS = sum(variant_class == "SBS"),
+    count_indel = sum(variant_class == "indel"),
     count_distinct_alt = n_distinct(alt),
     call_type = case_when(
       duplex_coverage == FALSE ~ "nonduplex",
-      count_SBS_indel == 0 ~ "match",
-      count_SBS_indel == 1 & ref != alt ~ "mismatch-ss",
-      count_SBS_indel == 1 & ref == alt ~ "mismatch-os",
+      count_SBS + count_indel == 0 ~ "match",
+      ((count_SBS == 1 & variant_type == "SBS") | (count_indel == 1 & variant_type == "indel")) & ref != alt ~ "mismatch-ss",
+      ((count_SBS == 1 & variant_type == "SBS") | (count_indel == 1 & variant_type == "indel")) & ref == alt ~ "mismatch-os",
       count_SBS_indel == 2 & count_distinct_alt == 1 ~ "mutation",
       count_SBS_indel == 2 & count_distinct_alt == 2 ~ "mismatch-ds"
     ) %>%
       factor
   ) %>%
-  select(-count,-count_distinct_alt) %>%
+  select(-count_SBS,-count_indel,-count_distinct_alt) %>%
   ungroup %>%
-  arrange(run_id,zm,start_refspace,end_refspace,strand)
+  arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand)
 
 #Convert variants to GRanges
 variants.gr <- variants.df %>%

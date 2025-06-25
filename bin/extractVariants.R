@@ -788,7 +788,7 @@ variants.df <- variants.df %>% left_join(
   by = join_by(run_id,zm,start_refspace,end_refspace)
 )
 
-#Annotate for each variants its trinucleotide context when variant_class = SBS or MDB. Set to NA for indels.
+#Annotate for each variants its trinucleotide context when variant_class = SBS or MDB. For indels, this is set to NA.
 variants.df <- variants.df %>%
 	left_join(
 		variants.df %>%

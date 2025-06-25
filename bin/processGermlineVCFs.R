@@ -69,7 +69,7 @@ vcf_files_individual <- vcf_files %>% filter(individual_id == individual_id_topr
 for(i in 1:nrow(vcf_files_individual)){
 	
 	germline_vcf_file <- vcf_files_individual %>% pluck("germline_vcf_file",i)
-	germline_vcf_filtergroup <- vcf_files_individual %>% pluck("germline_vcf_filtergroup",i)
+	germline_vcf_type <- vcf_files_individual %>% pluck("germline_vcf_type",i)
 
   cat(">> Processing VCF file:",germline_vcf_file,"...")
 
@@ -80,7 +80,7 @@ for(i in 1:nrow(vcf_files_individual)){
   #Load vcf file
 	 #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry)
 	 #Annotate with Depth (sum of AD) and VAF (AD of variant / sum of Depth).
-	 #Annotate SNVs vs indels
+	 #Annotate SNVs vs insertions vs deletions
 	 #For deletions, change ranges to reflect position of deletion. For insertions: width=-1, and the insertion is immediately to the right of the first REF base.
 	 #Keep only columns CHROM, POS, REF, ALT, QUAL, FILTER, GT, GQ.
 	
@@ -101,21 +101,17 @@ for(i in 1:nrow(vcf_files_individual)){
   	mutate(
   		variant_type = case_when(
   			nchar(REF)==1 & nchar(ALT)==1 ~ "SBS_mutation",
-  			nchar(REF) != nchar(ALT) ~ "indel_mutation"
+  			nchar(REF) - nchar(ALT) < 0 ~ "insertion_mutation",
+  			nchar(REF) - nchar(ALT) > 0 ~ "deletion_mutation"
   			) %>%
-  			factor,
-  		indel_type = case_when(
-  			nchar(REF) - nchar(ALT) > 0 ~ "deletion",
-  			nchar(REF) - nchar(ALT) < 0 ~ "insertion"
-  		) %>%
   			factor,
   		CHROM = factor(CHROM),
   		POS = as.numeric(POS),
-  		end_refspace = if_else(indel_type == "deletion", POS + nchar(REF) - nchar(ALT), POS),
-  		start_refspace = if_else(variant_type == "indel_mutation", POS + 1, POS),
+  		start_refspace = if_else(variant_type %in% c("deletion_mutation","insertion_mutation"), POS + 1, POS),
+  		end_refspace = if_else(variant_type == "deletion_mutation", POS + nchar(REF) - nchar(ALT), POS),
   		QUAL = as.numeric(QUAL),
   		germline_vcf_file = factor(!!germline_vcf_file),
-  		germline_vcf_filtergroup = factor(!!germline_vcf_filtergroup)
+  		germline_vcf_type = factor(!!germline_vcf_type)
   	) %>%
   	select(-c(POS,ID,INFO,AD1,AD2)) %>%
   	rename(

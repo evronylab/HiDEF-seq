@@ -444,7 +444,7 @@ process extractVariantsChunk {
 }
 
 /*
-  filterVariantsChunk: Run filterVariants.R for each analysis chunk, chromgroup, variant_filtergroup combination
+  filterVariantsChunk: Run filterVariants.R for each analysis chunk, chromgroup, filtergroup combination
 */
 process filterVariantsChunk {
     cpus 2
@@ -454,16 +454,16 @@ process filterVariantsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(extractVariantsFile), val(chunkID), val(chromgroup), val(variant_filtergroup)
+      tuple val(sample_id), path(extractVariantsFile), val(chunkID), val(chromgroup), val(filtergroup)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${variant_filtergroup}.qs2"), val(chunkID), val(chromgroup), val(variant_filtergroup)
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2"), val(chunkID), val(chromgroup), val(filtergroup)
 
     storeDir "${filterVariants_output_dir}"
 
     script:
     """
-    filterVariants.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractVariantsFile} -g ${chromgroup} -v ${variant_filtergroup} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${variant_filtergroup}.qs2
+    filterVariants.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractVariantsFile} -g ${chromgroup} -v ${filtergroup} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterVariants.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2
     """
 }
 
@@ -790,20 +790,20 @@ workflow {
     extractVariants( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
   }
 
-  //Prepare channel with all variant_types.variant_filtergroup and variant_types.analyzein_chromgroups configurations
+  //Prepare channel with all variant_types.analyzein_chromgroups and variant_types.call_types.filtergroup configured pairs
   chromgroups_filtergroups_ch = Channel.fromList(params.variant_types)
           .flatMap { variant_type ->
-            variant_type.call_types.flatMap { call_type ->
-                def chromgroup_names
-                if (call_type.analyzein_chromgroups == 'all') {
-                  chromgroup_names = params.chromgroups.map { it.chromgroup }
-                } else {
-                  chromgroup_names = call_type.analyzein_chromgroups.split(',')
-                }
-                
-                chromgroup_names.map { chromgroup_name ->
-                  return tuple(chromgroup_name, call_type.variant_filtergroup)
-                }
+            def chromgroup_names
+            if (variant_type.analyzein_chromgroups == 'all') {
+              chromgroup_names = params.chromgroups.map { it.chromgroup }
+            } else {
+              chromgroup_names = variant_type.analyzein_chromgroups.split(',')
+            }
+
+            variant_type.call_types.flatMap{ call_type ->
+              chromgroup_names.collect{ chromgroup ->
+                return tuple(chromgroup.trim(), call_type.filtergroup)
+              }
             }
           }
           .unique()

@@ -39,15 +39,15 @@ option_list = list(
 							help="sample_id to analyze"),
 	make_option(c("-g", "--chromgroup_toanalyze"), type = "character", default=NULL,
 	            help="chromgroup to analyze"),
-	make_option(c("-v", "--variant_filtergroup_toanalyze"), type = "character", default=NULL,
-	            help="variant_filtergroup to analyze"),
+	make_option(c("-v", "--filtergroup_toanalyze"), type = "character", default=NULL,
+	            help="filtergroup to analyze"),
 	make_option(c("-o", "--output"), type = "character", default=NULL,
 							help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$file) | is.na(opt$sample_id_toanalyze) | is.na(opt$chromgroup_toanalyze) | is.na(opt$variant_filtergroup_toanalyze) | is.na(opt$output) ){
+if(is.na(opt$config) | is.na(opt$file) | is.na(opt$sample_id_toanalyze) | is.na(opt$chromgroup_toanalyze) | is.na(opt$filtergroup_toanalyze) | is.na(opt$output) ){
 	stop("Missing input parameter(s)!")
 }
 
@@ -55,7 +55,7 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 extractVariantsFile <- opt$file
 sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
-variant_filtergroup_toanalyze <- opt$variant_filtergroup_toanalyze
+filtergroup_toanalyze <- opt$filtergroup_toanalyze
 outputFile <- opt$output
 
 #Load the BSgenome reference
@@ -72,11 +72,11 @@ individual_id_toanalyze <- yaml.config$samples %>%
 cache_dir <- yaml.config$cache_dir
 
  #germline vcf filter parameters
-germline_vcf_filters_config <- yaml.config$germline_vcf_filtergroups %>%
+germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value,transform=list(vcf_SNV_FILTERS=list, vcf_INDEL_FILTERS=list))
 
- #variant types (restrict to selected chromgroup_toanalyze and variant_filtergroup_toanalyze)
+ #variant types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
 variant_types_toanalyze <- yaml.config$variant_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
@@ -84,16 +84,16 @@ variant_types_toanalyze <- yaml.config$variant_types %>%
   unnest_wider(call_types) %>%
 	filter(
 		analyzein_chromgroups == chromgroup_toanalyze | analyzein_chromgroups == "all",
-		variant_filtergroup == variant_filtergroup_toanalyze
+		filtergroup == filtergroup_toanalyze
 		)
   
- #variant filter group parameters (restrict to selected variant_filtergroup_toanalyze)
-variant_filtergroups_toanalyze_config <- yaml.config$variant_filtergroups %>%
+ #filter group parameters (restrict to selected filtergroup_toanalyze)
+filtergroups_toanalyze_config <- yaml.config$filtergroups %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-	filter(variant_filtergroup == variant_filtergroup_toanalyze)
+	filter(filtergroup == filtergroup_toanalyze)
   
- #region filter parameters (restrict to selected chromgroup_toanalyze and variant_filtergroup_toanalyze)
+ #region filter parameters (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
 region_read_filters_config <- yaml.config$region_filters %>%
   map("read_filters") %>%
   flatten %>%
@@ -101,8 +101,8 @@ region_read_filters_config <- yaml.config$region_filters %>%
   unnest_wider(value) %>%
   mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
-		applyto_chromgroups == chromgroup_toanalyze | applyto_chromgroups == "all",
-		applyto_variant_filtergroups == variant_filtergroup_toanalyze | applyto_variant_filtergroups == "all"
+	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ chromgroup_toanalyze %in% .x)),
+	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ filtergroup_toanalyze %in% .x))
 	)
 
 region_bin_filters_config <- yaml.config$region_filters %>%
@@ -112,8 +112,8 @@ region_bin_filters_config <- yaml.config$region_filters %>%
   unnest_wider(value) %>%
   mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
-		applyto_chromgroups == chromgroup_toanalyze | applyto_chromgroups == "all",
-		applyto_variant_filtergroups == variant_filtergroup_toanalyze | applyto_variant_filtergroups == "all"
+	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ chromgroup_toanalyze %in% .x)),
+	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ filtergroup_toanalyze %in% .x))
 	)
 
 #Output data lists
@@ -127,7 +127,7 @@ cat("    extractVariants File:",extractVariantsFile,"\n")
 cat("    individual_id:",individual_id_toanalyze,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 cat("    chromgroup:",chromgroup_toanalyze,"\n")
-cat("    variant_filtergroup:",variant_filtergroup_toanalyze,"\n")
+cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
 
@@ -150,6 +150,9 @@ cat("## Applying initial whole-molecule filters...")
 
 
 cat("DONE\n")
+
+
+######KEY PRINCIPLE: Whenever filtering a variant on one strand, filter its reverse complement on the other strand
 
 ######################
 ### Germline VCF variant filters

@@ -112,7 +112,7 @@ bam <- bamFile %>%
       what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
       tag=c(
         "ec","np","rq","zm","sa","sm","sx","RG",
-        variant_types_MDB %>% pull(variant_bam_scoretag)
+        variant_types_MDB %>% pluck("variant_bam_scoretag")
         )
     )
   ) %>%
@@ -255,7 +255,7 @@ cat("DONE\n")
 ### Define function to extract variants
 ######################
 extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant_class.input, variant_type.input, cigar.ops.input = NULL, variant_bam_scoretag.input = NULL, variant_bam_scoretag_min.input = NULL){
-  #cigar.ops.input for the variant_class: "X" for SBS; c("I","D") for indel; NULL for MDB
+  #cigar.ops.input for the variant_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
   #variant_bam_scoretag.input TAG in the MDB containing the MDB score data
   #variant_bam_scoretag_min.input: minimum score of MDBs to extract
   
@@ -268,15 +268,14 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     end_queryspace=integer(),
     start_refspace=integer(),
     end_refspace=integer(),
-    ref=character(),
-    alt=character(),
+    ref_plus_strand=character(),
+    alt_plus_strand=character(),
     qual=list(),
     sa=list(),
     sm=list(),
     sx=list(),
     variant_class=factor(),
     variant_type=factor(),
-    indel_type=factor(),
     indel_width=integer()
     )
   
@@ -390,13 +389,14 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   rm(cigar.refspace.var)
   
   #Variant REF base sequences, relative to reference plus strand
-  var_refspace$ref <- var_refspace %>%
+  var_refspace$ref_plus_strand <- var_refspace %>%
     mutate(strand="+") %>%
     makeGRangesFromDataFrame(
       seqnames.field="seqnames",
       start.field="start_refspace",
       end.field="end_refspace",
-      strand.field="strand"
+      strand.field="strand",
+      seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
     ) %>%
     getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
     as.character
@@ -407,7 +407,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
     as.list %>%
     enframe %>%
-    unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt") %>%
+    unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt_plus_strand") %>%
     separate(name,sep="_",into=c("zm","strand")) %>%
     separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
     mutate(
@@ -419,7 +419,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   if(variant_class.input %in% c("SBS","MDB")){
     var_alt <- var_alt %>%
-      separate_longer_position(alt,width=1) %>%
+      separate_longer_position(alt_plus_strand,width=1) %>%
       group_by(zm,strand,start_queryspace) %>%
       mutate(
         start_queryspace = start_queryspace + row_number() - 1L,
@@ -591,7 +591,6 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(indels_queryspace_pos, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           mutate(
-            indel_type = if_else(start_queryspace > end_queryspace, "deletion", "insertion") %>% factor,
             indel_width = if_else(is.na(insertion_width), deletion_width, insertion_width)
           ) %>%
           select(-deletion_width,-insertion_width)
@@ -680,8 +679,8 @@ for(i in bam.gr %>% names){
   
   cat("DONE\n")
   
-  #Indels
-  cat(" ## Extracting indels...")
+  #Insertions
+  cat(" ## Extracting insertions...")
   
   variants.df[[i]] <- variants.df[[i]] %>%
     bind_rows(
@@ -691,16 +690,34 @@ for(i in bam.gr %>% names){
         sm.input = sm,
         sx.input = sx,
         variant_class.input = "indel",
-        variant_type.input = "indel",
-        cigar.ops.input = c("I","D")
+        variant_type.input = "insertion",
+        cigar.ops.input = c("I")
       )
     )
 
   cat("DONE\n")
   
+  #Deletions
+  cat(" ## Extracting deletions...")
+  
+  variants.df[[i]] <- variants.df[[i]] %>%
+    bind_rows(
+      extract_variants(
+        bam.gr.input = bam.gr[[i]],
+        sa.input = sa,
+        sm.input = sm,
+        sx.input = sx,
+        variant_class.input = "indel",
+        variant_type.input = "deletion",
+        cigar.ops.input = c("D")
+      )
+    )
+  
+  cat("DONE\n")
+  
   
   #MDBs
-  for(j in 1:nrow(variant_types_MDB)){
+  for(j in seq_len(nrow(variant_types_MDB)){
     
     cat(" ## Extracting",variant_types_MDB %>% pluck("variant_type",j),"...")
     
@@ -770,6 +787,112 @@ variants.df <- variants.df %>% left_join(
     ),
   by = join_by(run_id,zm,start_refspace,end_refspace)
 )
+
+#Annotate for each variants its trinucleotide context when variant_class = SBS or MDB. Set to NA for indels.
+variants.df <- variants.df %>%
+	left_join(
+		variants.df %>%
+			filter(variant_class %in% c("SBS","MDB")) %>%
+			select(seqnames,start_refspace,end_refspace,variant_class) %>%
+			distinct %>%
+
+			#Make GRanges of trinculeotide positions
+			makeGRangesFromDataFrame(
+				seqnames.field="seqnames",
+				start.field="start_refspace",
+				end.field="end_refspace",
+				keep.extra.columns=TRUE,
+				seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+			) %>%
+			resize(width=3,fix="center") %>%
+			
+			#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
+			trim %>%
+			filter(width == 3) %>%
+			
+			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns.
+			mutate(
+				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+				  as.character,
+				reftnc_minus_strand = reftnc_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character
+			) %>%
+			
+			#Resize back to original start/end, and make tibble
+			resize(width=1,fix="center") %>%
+			as_tibble %>%
+			rename(
+				start_refspace = start,
+				end_refspace = end
+			) %>%
+			select(-width,-strand)
+		,
+		by = join_by(seqnames,start_refspace,end_refspace,variant_class)
+	)
+
+#Annotate for each variants its ref, alt, and trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
+variants.df <- variants.df %>%
+	mutate(
+		ref_minus_strand = ref_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
+		ref_synthesized_strand = if_else(strand=="+",ref_plus_strand,ref_minus_strand),
+		ref_template_strand = if_else(strand=="+",ref_minus_strand,ref_plus_strand),
+		
+		alt_minus_strand = alt_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
+		alt_synthesized_strand = if_else(strand=="+",alt_plus_strand,alt_minus_strand),
+		alt_template_strand = if_else(strand=="+",alt_minus_strand,alt_plus_strand),
+		
+		reftnc_synthesized_strand = if_else(strand=="+",reftnc_plus_strand,reftnc_minus_strand),
+		reftnc_template_strand = if_else(strand=="+",reftnc_minus_strand,reftnc_plus_strand)
+	) %>%
+	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand))
+
+#Annotate for each variant (for all variant classes) the base sequence on the opposite strand, taking into account if there was an SBS or indel called on the opposite strand, and ignoring if there was an MDB called on the opposite strand. If there is a deletion on the opposite strand, specify its coordinates match the coordinates of the analyzed variant. If a deletion on the opposite strand partially overlaps an analyzed deletion, annotate it as a deletion on the opposite strand. Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterVariants step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of variants on the opposite strand, so it doesn't matter if we annotate here opposite strand variants before filtering.
+
+ #GRanges of variants
+variants.gr <- variants.df %>%
+  mutate(
+    start = start_refspace,
+    end = end_refspace,
+    strand_copy = strand
+    ) %>%
+  makeGRangesFromDataFrame(
+    seqnames.field="seqnames",
+    start.field="start",
+    end.field="end",
+    strand.field="strand",
+    keep.extra.columns=TRUE,
+    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+  )
+
+ #Annotate variants with opposite strand bases
+variants.opposite_strand.gr <- variants.gr %>%
+  join_overlap_left(
+    variants.gr %>% filter(variant_class %in% c("SBS","indel")),
+    suffix = c("",".opposite_strand")
+  ) %>%
+  filter(
+    run_id == run_id.opposite_strand,
+    zm = zm.opposite_strand,
+    strand_copy != strand_copy.opposite_strand,
+    (
+      !(variant_type=="deletion" & variant_type.opposite_strand=="deletion") &
+      start_refspace == start_refspace.opposite_strand &
+      end_refspace == end_refspace.opposite_strand
+    ) |
+    (
+      (variant_type=="deletion" & variant_type.opposite_strand=="deletion") &
+      start_refspace <= end_refspace.opposite_strand &
+      end_refspace >= start_refspace.opposite_strand
+    )
+  ) %>%
+  mutate(
+    deletion.opposite_strand.coordsmatch = if_else(
+      start_refspace == start_refspace.opposite_strand &
+        end_refspace == end_refspace.opposite_strand,
+      TRUE,
+      FALSE
+    )
+  )
+  
   
 #Annotate for each variant its 'call type':
  #No duplex coverage ("nonduplex")
@@ -780,35 +903,11 @@ variants.df <- variants.df %>% left_join(
   #No changes from the reference in reference space in either of the strands ("match"; MDB only)
   #Change from the reference in reference space only in the opposite strand of the strand with the variant ("mismatch-os"; MDB only)
 variants.df <- variants.df %>%
-  group_by(run_id,zm,start_refspace,end_refspace) %>%
-  mutate(
-    count_SBS = sum(variant_class == "SBS"),
-    count_indel = sum(variant_class == "indel"),
-    count_distinct_alt = n_distinct(alt),
-    call_type = case_when(
-      duplex_coverage == FALSE ~ "nonduplex",
-      count_SBS + count_indel == 0 ~ "match",
-      ((count_SBS == 1 & variant_type == "SBS") | (count_indel == 1 & variant_type == "indel")) & ref != alt ~ "mismatch-ss",
-      ((count_SBS == 1 & variant_type == "SBS") | (count_indel == 1 & variant_type == "indel")) & ref == alt ~ "mismatch-os",
-      count_SBS_indel == 2 & count_distinct_alt == 1 ~ "mutation",
-      count_SBS_indel == 2 & count_distinct_alt == 2 ~ "mismatch-ds"
-    ) %>%
-      factor
-  ) %>%
-  select(-count_SBS,-count_indel,-count_distinct_alt) %>%
+##
   ungroup %>%
   arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand)
 
-#Convert variants to GRanges
-variants.gr <- variants.df %>%
-  makeGRangesFromDataFrame(
-    seqnames.field="seqnames",
-    start.field="start_refspace",
-    end.field="end_refspace",
-    strand.field="strand",
-    keep.extra.columns=TRUE,
-    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
-  )
+
 
 rm(variants.df)
 

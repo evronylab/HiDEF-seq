@@ -80,8 +80,8 @@ germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
 variant_types_toanalyze <- yaml.config$variant_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  unnest_longer(call_types) %>%
-  unnest_wider(call_types) %>%
+  unnest_longer(SBSindel_call_types) %>%
+  unnest_wider(SBSindel_call_types) %>%
 	filter(
 		analyzein_chromgroups == chromgroup_toanalyze | analyzein_chromgroups == "all",
 		filtergroup == filtergroup_toanalyze

@@ -790,7 +790,7 @@ workflow {
     extractVariants( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
   }
 
-  //Prepare channel with all variant_types.analyzein_chromgroups and variant_types.call_types.filtergroup configured pairs
+  //Prepare channel with all variant_types.analyzein_chromgroups and variant_types.SBSindel_call_types.filtergroup configured pairs
   chromgroups_filtergroups_ch = Channel.fromList(params.variant_types)
           .flatMap { variant_type ->
             def chromgroup_names
@@ -800,9 +800,9 @@ workflow {
               chromgroup_names = variant_type.analyzein_chromgroups.split(',')
             }
 
-            variant_type.call_types.flatMap{ call_type ->
+            variant_type.SBSindel_call_types.flatMap{ SBSindel_call_type ->
               chromgroup_names.collect{ chromgroup ->
-                return tuple(chromgroup.trim(), call_type.filtergroup)
+                return tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
               }
             }
           }

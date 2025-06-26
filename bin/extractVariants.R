@@ -54,8 +54,8 @@ outputFile <- opt$output
 variant_types <- yaml.config$variant_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  unnest_longer(call_types) %>%
-  unnest_wider(call_types)
+  unnest_longer(SBSindel_call_types) %>%
+  unnest_wider(SBSindel_call_types)
 
 variant_types_MDB <- variant_types %>%
   filter(variant_class == "MDB")
@@ -845,13 +845,18 @@ variants.df <- variants.df %>%
 	) %>%
 	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand))
 
-#Annotate for each variant (for all variant classes) the base sequence on the opposite strand, taking into account if there was an SBS or indel called on the opposite strand, and ignoring if there was an MDB called on the opposite strand. If there is a deletion on the opposite strand, specify its coordinates match the coordinates of the analyzed variant. If a deletion on the opposite strand partially overlaps an analyzed deletion, annotate it as a deletion on the opposite strand. Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterVariants step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of variants on the opposite strand, so it doesn't matter if we annotate here opposite strand variants before filtering.
+#Annotate for each variant (for all variant classes: SBS, indel, MDB) the base sequence on the opposite strand, taking into account if there was an SBS or an indel called on the opposite strand, and ignoring if there was an MDB called on the opposite strand.
+# Possible overlaps are SBS-SBS, SBS-deletion, insertion-insertion, insertion-deletion, deletion-SBS, deletion-insertion, deletion-deletion.
+# If a deletion on the opposite strand only partially overlaps an analyzed deletion, annotate it as a deletion on the opposite strand.
+# For deletions called on both strands, annotate if the deletions have the same coordinates on both strands (deletion.bothstrands.startendmatch).
+# Note, for an analyzed deletion, it is possible for > 1 SBS, insertion or deletion to overlap it on the opposite strand.
+# Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterVariants step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of variants on the opposite strand, so it doesn't matter if we annotate here opposite strand SBS and indel variants before filtering.
 
- #GRanges of variants
+ #Make GRanges of variants. Swap start and end for insertions, since the subsequent join otherwise cannot join two insertions with the same coordinates (this won't affect later joining, since original start_refspace and end_refspace are used to filter the joins).
 variants.gr <- variants.df %>%
   mutate(
-    start = start_refspace,
-    end = end_refspace,
+    start = if_else(variant_type=="insertion",end_refspace,start_refspace),
+    end = if_else(variant_type=="insertion",start_refspace,end_refspace),
     strand_copy = strand
     ) %>%
   makeGRangesFromDataFrame(
@@ -863,51 +868,126 @@ variants.gr <- variants.df %>%
     seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
   )
 
- #Annotate variants with opposite strand bases
-variants.opposite_strand.gr <- variants.gr %>%
+ #Annotate variants GRanges with opposite strand variants
+variants.gr <- variants.gr %>%
   join_overlap_left(
     variants.gr %>% filter(variant_class %in% c("SBS","indel")),
     suffix = c("",".opposite_strand")
   ) %>%
   filter(
     run_id == run_id.opposite_strand,
-    zm = zm.opposite_strand,
+    zm == zm.opposite_strand,
     strand_copy != strand_copy.opposite_strand,
     (
-      !(variant_type=="deletion" & variant_type.opposite_strand=="deletion") &
+      variant_class %in% c("SBS","MDB") & variant_type.opposite_strand == "SBS" &
       start_refspace == start_refspace.opposite_strand &
       end_refspace == end_refspace.opposite_strand
     ) |
     (
-      (variant_type=="deletion" & variant_type.opposite_strand=="deletion") &
-      start_refspace <= end_refspace.opposite_strand &
-      end_refspace >= start_refspace.opposite_strand
+      variant_class %in% c("SBS","MDB") & variant_type.opposite_strand == "deletion" &
+        start_refspace >= start_refspace.opposite_strand &
+        end_refspace <= end_refspace.opposite_strand
+    ) |
+    (
+      variant_type == "insertion" & variant_type.opposite_strand == "insertion" &
+        start_refspace == start_refspace.opposite_strand &
+        end_refspace == end_refspace.opposite_strand
+    ) |
+    (
+      variant_type == "insertion" & variant_type.opposite_strand == "deletion" &
+        start_refspace <= end_refspace.opposite_strand &
+        end_refspace >= start_refspace.opposite_strand
+    ) |
+    (
+      variant_type == "deletion" & variant_type.opposite_strand == "SBS" &
+      start_refspace <= start_refspace.opposite_strand &
+      end_refspace >= end_refspace.opposite_strand
+    ) |
+    (
+      variant_type == "deletion" & variant_type.opposite_strand == "insertion" &
+        start_refspace <= end_refspace.opposite_strand &
+        end_refspace >= start_refspace.opposite_strand
+    ) |
+    (
+      variant_type == "deletion" & variant_type.opposite_strand == "deletion" &
+        start_refspace <= end_refspace.opposite_strand &
+        end_refspace >= start_refspace.opposite_strand
     )
   ) %>%
   mutate(
-    deletion.opposite_strand.coordsmatch = if_else(
-      start_refspace == start_refspace.opposite_strand &
-        end_refspace == end_refspace.opposite_strand,
-      TRUE,
-      FALSE
+    deletion.bothstrands.startendmatch = case_when(
+      variant_type != "deletion" | variant_type.opposite_strand != "deletion" ~ NA,
+    	start_refspace == start_refspace.opposite_strand & end_refspace == end_refspace.opposite_strand ~ TRUE,
+      start_refspace != start_refspace.opposite_strand | end_refspace != end_refspace.opposite_strand ~ FALSE
     )
   )
+
+ #Join to variants.df with opposite strand information, and fill in alt_plus_strand.opposite_strand = ref_plus_strand for variants with duplex coverage and no variant in the opposite strand.
+ # Note that for deletions with one partially overlapping deletion on the opposite strand, alt_plus_strand.opposite_strand will still equal "" even though part of the analyzed deletion's sequence is still present in the opposite strand. Likewise for deletions with > 1 overlapping SBS, insertion, or deletion on the opposite strand, alt_plus_strand.opposite_strand will contain the sequence of one random one of these. These two issues would be difficult to fix, and are not critical for downstream analysis.
+variants.df <- variants.df %>%
+	left_join(
+		variants.gr %>%
+			as_tibble %>%
+			select(
+				run_id,zm,start_refspace,end_refspace,strand,
+				variant_class.opposite_strand,
+				variant_type.opposite_strand,
+				alt_plus_strand.opposite_strand,
+				deletion.bothstrands.startendmatch
+			),
+		by=join_by(run_id,zm,start_refspace,end_refspace,strand),
+		multiple="any" # Required due to possibility of > 1 variant on the opposite strand overlapping an analyzed deletion
+	) %>%
+  mutate(
+    alt_plus_strand.opposite_strand = if_else(
+      duplex_coverage == TRUE & is.na(alt_plus_strand.opposite_strand),
+      ref_plus_strand,
+      alt_plus_strand.opposite_strand
+    )
+  )
+
+rm(variants.gr)
   
-  
-#Annotate for each variant its 'call type':
+#Annotate for each variant (for all variant classes: SBS, indel, MDB) its 'SBSindel_call_type' based on reference space coordinates.
  #No duplex coverage ("nonduplex")
  #Duplex coverage:
-  #Change from the reference in reference space only in the strand with the variant ("mismatch-ss")
-  #Non-complementary changes from the reference in both strands ("mismatch-ds"; for indels, only possible for insertions with different sequences)
-  #Complementary changes from the reference in both strands ("mutation").
-  #No changes from the reference in reference space in either of the strands ("match"; MDB only)
-  #Change from the reference in reference space only in the opposite strand of the strand with the variant ("mismatch-os"; MDB only)
+  #  Variant strand | Opposite strand (SBS, insertion, or deletion)
+  #       N         |       N                       => "match" (MDB only)
+  #       N         |       Y                       => "mismatch-os" (MDB only)
+  #       Y         |       N                       => "mismatch-ss"
+  #       Y         |       Y (non-complementary)   => "mismatch-ds"
+  #       Y         |       Y (complementary)       => "mutation"
+  #Note: "mismatch-ds" is not applicable to deletions, and occurs for insertions with different insertion sequences on each strand
+
 variants.df <- variants.df %>%
-##
+  
+  ## NEED TO HANDLE NA COMPARISONS PROPERLY!!!
+  #For match - variant_class = MDB & variant_class.opposite_strand == NA
+  #For mismatch-os: variant_class == MDB & variant_class.opposite_strand = SBS or indel
+  #For mismatch-ss: ref_plus_strand != alt_plus_strand & variant_class.opposite_strand == NA
+  #For mismatch-ds: ref_plus_strand != alt_plus_strand & (alt_plus_strand != alt_plus_strand.opposite_strand  | deletion.bothstrands.startendmatch == FALSE)
+  #For mutation:
+    # (variant_type == deletion & variant_type.opposite_strand == deletion) &
+    #   ref_plus_strand != alt_plus_strand &
+    #   deletion.bothstrands.startendmatch == TRUE
+    # OR
+    # variant_type != deletion | variant_type.opposite_strand != deletion &
+    #   ref_plus_strand != alt_plus_strand &
+    #   alt_plus_strand == alt_plus_strand.opposite_strand 
+
   ungroup %>%
   arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand)
 
-
+#Convert to GRanges
+variants.gr <- variants.df %>%
+	makeGRangesFromDataFrame(
+		seqnames.field="seqnames",
+		start.field="start_refspace",
+		end.field="end_refspace",
+		strand.field="strand",
+		keep.extra.columns=TRUE,
+		seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+	)
 
 rm(variants.df)
 

@@ -922,7 +922,7 @@ variants.gr <- variants.gr %>%
     )
   )
 
- #Join to variants.df with opposite strand information, and fill in alt_plus_strand.opposite_strand = ref_plus_strand for variants with duplex coverage and no variant in the opposite strand.
+ #Join to variants.df with opposite strand information.
  # Note that for deletions with one partially overlapping deletion on the opposite strand, alt_plus_strand.opposite_strand will still equal "" even though part of the analyzed deletion's sequence is still present in the opposite strand. Likewise for deletions with > 1 overlapping SBS, insertion, or deletion on the opposite strand, alt_plus_strand.opposite_strand will contain the sequence of one random one of these. These two issues would be difficult to fix, and are not critical for downstream analysis.
 variants.df <- variants.df %>%
 	left_join(
@@ -937,14 +937,7 @@ variants.df <- variants.df %>%
 			),
 		by=join_by(run_id,zm,start_refspace,end_refspace,strand),
 		multiple="any" # Required due to possibility of > 1 variant on the opposite strand overlapping an analyzed deletion
-	) %>%
-  mutate(
-    alt_plus_strand.opposite_strand = if_else(
-      duplex_coverage == TRUE & is.na(alt_plus_strand.opposite_strand),
-      ref_plus_strand,
-      alt_plus_strand.opposite_strand
-    )
-  )
+	)
 
 rm(variants.gr)
   
@@ -962,8 +955,8 @@ rm(variants.gr)
 variants.df <- variants.df %>%
   
   ## NEED TO HANDLE NA COMPARISONS PROPERLY!!!
-  #For match - variant_class = MDB & variant_class.opposite_strand == NA
-  #For mismatch-os: variant_class == MDB & variant_class.opposite_strand = SBS or indel
+  #For match - ref_plus_strand == alt_plus_strand & variant_class = MDB & variant_class.opposite_strand == NA
+  #For mismatch-os: ref_plus_strand == alt_plus_strand & variant_class == MDB & variant_class.opposite_strand = SBS or indel
   #For mismatch-ss: ref_plus_strand != alt_plus_strand & variant_class.opposite_strand == NA
   #For mismatch-ds: ref_plus_strand != alt_plus_strand & (alt_plus_strand != alt_plus_strand.opposite_strand  | deletion.bothstrands.startendmatch == FALSE)
   #For mutation:

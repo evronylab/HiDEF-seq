@@ -800,7 +800,7 @@ workflow {
               chromgroup_names = variant_type.analyzein_chromgroups.split(',')
             }
 
-            variant_type.SBSindel_call_types.flatMap{ SBSindel_call_type ->
+            variant_type.SBSindel_call_types.collectMany{ SBSindel_call_type ->
               chromgroup_names.collect{ chromgroup ->
                 return tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
               }

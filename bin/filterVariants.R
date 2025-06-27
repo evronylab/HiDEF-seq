@@ -138,7 +138,7 @@ cat("## Loading extracted variants...")
 
 extractedVariants <- qs_read(extractVariantsFile)
 
-#For each variant_type, filter to keep only variants in the configured analyzein_chromgroups
+#Filter to only keep variant_types that are analyzed with the selected chromgroup_toanalyze and filtergroup_toanalyze
 #**
 
 cat("DONE\n")

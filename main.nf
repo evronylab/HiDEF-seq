@@ -795,7 +795,7 @@ workflow {
           .flatMap { variant_type ->
             def chromgroup_names
             if (variant_type.analyzein_chromgroups == 'all') {
-              chromgroup_names = params.chromgroups.map { it.chromgroup }
+              chromgroup_names = params.chromgroups.collect { it.chromgroup }
             } else {
               chromgroup_names = variant_type.analyzein_chromgroups.split(',')
             }

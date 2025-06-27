@@ -717,7 +717,7 @@ for(i in bam.gr %>% names){
   
   
   #MDBs
-  for(j in seq_len(nrow(variant_types_MDB)){
+  for(j in seq_len(nrow(variant_types_MDB))){
     
     cat(" ## Extracting",variant_types_MDB %>% pluck("variant_type",j),"...")
     

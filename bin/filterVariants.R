@@ -2,6 +2,7 @@
 
 #filterVariants.R:
 # Filters variants
+# Note: for all newly created 'passfilter' columns, TRUE = read/variant successfully passed the filter and should be analyzed.
 
 cat("#### Running filterVariants ####\n")
 
@@ -62,6 +63,15 @@ outputFile <- opt$output
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
+ #chromosomes to analyze
+chroms_toanalyze <- yaml.config$chromgroups %>%
+	enframe %>%
+	unnest_wider(value) %>%
+	filter(chromgroup == !!chromgroup_toanalyze) %>%
+	pull(chroms) %>%
+	str_split_1(",") %>%
+	str_trim
+
  #individual_id of this sample_id
 individual_id_toanalyze <- yaml.config$samples %>%
   bind_rows %>%
@@ -83,12 +93,13 @@ variant_types_toanalyze <- yaml.config$variant_types %>%
   unnest_longer(SBSindel_call_types) %>%
   unnest_wider(SBSindel_call_types) %>%
 	filter(
-		analyzein_chromgroups == chromgroup_toanalyze | analyzein_chromgroups == "all",
+		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
-		)
+		) %>%
+	pull(variant_type)
   
  #filter group parameters (restrict to selected filtergroup_toanalyze)
-filtergroups_toanalyze_config <- yaml.config$filtergroups %>%
+filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
 	filter(filtergroup == filtergroup_toanalyze)
@@ -101,8 +112,8 @@ region_read_filters_config <- yaml.config$region_filters %>%
   unnest_wider(value) %>%
   mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
-	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ chromgroup_toanalyze %in% .x)),
-	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ filtergroup_toanalyze %in% .x))
+	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
+	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
 region_bin_filters_config <- yaml.config$region_filters %>%
@@ -112,14 +123,11 @@ region_bin_filters_config <- yaml.config$region_filters %>%
   unnest_wider(value) %>%
   mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
-	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ chromgroup_toanalyze %in% .x)),
-	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ filtergroup_toanalyze %in% .x))
+	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
+	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
 #Output data lists
-read_region_filters <- list()
-genome_region_filters <- list()
-stats <- list()
 
 #Display basic configuration parameters
 cat("> Processing:\n")
@@ -132,14 +140,38 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
-### Load extracted variants
+### Load read and extracted variant information
 ######################
-cat("## Loading extracted variants...")
+cat("## Loading reads and extracted variants...")
 
+#Load data
 extractedVariants <- qs_read(extractVariantsFile)
 
-#Filter to only keep variant_types that are analyzed with the selected chromgroup_toanalyze and filtergroup_toanalyze
-#**
+#Keep only reads in selected chroms_toanalyze
+bam.gr.filtered <- extractedVariants %>%
+	pluck("bam.gr") %>%
+	filter(
+		seqnames %in% chroms_toanalyze
+	)
+
+#Keep only variants with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) and that are in selected chroms_toanalyze
+variants.gr.filtered <- extractedVariants %>%
+	pluck("variants.gr") %>%
+	filter(
+		variant_type == !!variant_types_toanalyze,
+		seqnames %in% chroms_toanalyze
+		)
+
+#Create GRanges of selected chroms_toanalyze in the genome to track genome filtering
+genome_chromgroup.gr.filtered <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	seqinfo %>%
+	GRanges %>%
+	filter(seqnames %in% !!chroms_toanalyze)
+
+#Molecule stats
+molecule_stats <- extractedVariants %>%
+	pluck("molecule_stats")
 
 cat("DONE\n")
 
@@ -148,11 +180,221 @@ cat("DONE\n")
 ######################
 cat("## Applying initial whole-molecule filters...")
 
+#Convert to tibble since much faster than plyranges analysis for these filters
+bam.gr.filtered <- bam.gr.filtered %>%
+	as_tibble
+
+#Annotate reads for filters: rq, ec, mapq, num_softclipbases
+bam.gr.filtered <- bam.gr.filtered %>%
+	mutate(num_softclipbases = cigar %>% cigarOpTable %>% as_tibble %>% pull(S)) %>%
+	group_by(run_id,zm) %>%
+	mutate(
+		
+		#rq
+		min_rq_eachstrand.passfilter = if_else(
+			all(rq >= filtergroup_toanalyze_config$min_rq_eachstrand),
+			TRUE,
+			FALSE
+		),
+		min_rq_avgstrands.passfilter = if_else(
+			mean(rq) >= filtergroup_toanalyze_config$min_rq_avgstrands,
+			TRUE,
+			FALSE
+		),
+		
+		
+		#ec
+		min_ec_eachstrand.passfilter = if_else(
+			all(ec >= filtergroup_toanalyze_config$min_ec_eachstrand),
+			TRUE,
+			FALSE
+		),
+		min_ec_avgstrands.passfilter = if_else(
+			mean(ec) >= filtergroup_toanalyze_config$min_ec_avgstrands,
+			TRUE,
+			FALSE
+		),
+		
+		#mapq
+		min_mapq_eachstrand.passfilter = if_else(
+			all(mapq >= filtergroup_toanalyze_config$min_mapq_eachstrand),
+			TRUE,
+			FALSE
+		),
+		min_mapq_avgstrands.passfilter = if_else(
+			mean(mapq) >= filtergroup_toanalyze_config$min_mapq_avgstrands,
+			TRUE,
+			FALSE
+		),
+		
+		#num_softclipbases
+		max_num_softclipbases_eachstrand.passfilter = if_else(
+			all(num_softclipbases <= filtergroup_toanalyze_config$max_num_softclipbases_eachstrand),
+			TRUE,
+			FALSE
+		),
+		max_num_softclipbases_avgstrands.passfilter = if_else(
+			mean(num_softclipbases) <= filtergroup_toanalyze_config$max_num_softclipbases_avgstrands,
+			TRUE,
+			FALSE
+		)
+		
+	) %>%
+	select(-num_softclipbases) %>%
+	ungroup
+
+#Annotate reads for filters: max_num_SBScalls_eachstrand, max_num_SBScalls_stranddiff, max_num_indelcalls_eachstrand, max_num_indelcalls_stranddiff
+bam.gr.filtered <- bam.gr.filtered %>%
+	left_join(
+		
+		#Input all SBS and indel variants, not just variant_types being analyzed in this run, as the filters being calculated are used for general molecule filters that require info on both SBS and indels
+		extractedVariants %>%
+			pluck("variants.gr") %>%
+			as_tibble %>%
+			
+			#Count number of SBS and indel calls per strand
+			filter(
+			  seqnames %in% chroms_toanalyze,
+			  variant_class %in% c("SBS","indel")
+			  ) %>%
+		  
+		  #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{variant_class}calls are calculated correctly
+			mutate(
+			  strand = strand %>% factor(levels=c("+","-")),
+			  variant_class = variant_class %>% factor(levels=c("SBS","indel"))
+			  ) %>% 
+			count(run_id,zm,strand,variant_class) %>%
+		  complete(nesting(run_id,zm), strand, variant_class, fill = list(n=0)) %>%
+			pivot_wider(
+				names_from=variant_class,
+				values_from=n,
+				names_glue = "num_{variant_class}calls"
+				) %>%
+			
+			#Calculate filters for each molecule
+			group_by(run_id,zm) %>%
+			summarize(
+				#max_num_SBScalls_eachstrand.passfilter
+				max_num_SBScalls_eachstrand.passfilter = if_else(
+					all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_eachstrand),
+					TRUE,
+					FALSE
+				),
+				
+				#max_num_indelcalls_eachstrand.passfilter
+				max_num_indelcalls_eachstrand.passfilter = if_else(
+					all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_eachstrand),
+					TRUE,
+					FALSE
+				),
+				
+				#max_num_SBScalls_stranddiff.passfilter
+				max_num_SBScalls_stranddiff.passfilter = (num_SBScalls * if_else(strand == "+",  1L, -1L)) %>%
+					sum %>%
+					abs %>%
+					#Curly braces ensure the '.' refers to the immediately preceding result
+					{if_else(. <= filtergroup_toanalyze_config$max_num_SBScalls_stranddiff, TRUE, FALSE)},
+				
+				#max_num_indelcalls_stranddiff.passfilter
+				max_num_indelcalls_stranddiff.passfilter = (num_indelcalls * if_else(strand == "+",  1L, -1L)) %>%
+					sum %>%
+					abs %>%
+				  {if_else(. <= filtergroup_toanalyze_config$max_num_indelcalls_stranddiff, TRUE, FALSE)}
+				
+				,.groups = "drop"
+			)
+		,by = join_by(run_id,zm)
+	)
+				
+
+#Annotate reads for filters: max_num_SBSmutations, max_num_indelmutations
+bam.gr.filtered <- bam.gr.filtered %>%
+	left_join(
+		
+		#Input all variants, not just variant_types being analyzed, as this is used for general molecule filters that require info on SBS and indels
+		extractedVariants %>%
+			pluck("variants.gr") %>%
+			as_tibble %>%
+			
+			#Count number of SBS and indel mutations per molecule
+			filter(
+			  seqnames %in% chroms_toanalyze,
+				variant_class %in% c("SBS","indel"),
+				SBSindel_call_type == "mutation"
+				) %>%
+		  
+		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
+		  mutate(
+		    strand = strand %>% factor(levels=c("+","-")),
+		    variant_class = variant_class %>% factor(levels=c("SBS","indel")),
+		    SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
+		  ) %>% 
+		  count(run_id,zm,variant_class,SBSindel_call_type) %>%
+		  complete(nesting(run_id,zm), variant_class, SBSindel_call_type, fill = list(n=0)) %>%
+			pivot_wider(
+				names_from=variant_class,
+				values_from=n,
+				names_glue = "num_{variant_class}mutations"
+			) %>%
+			
+			#Calculate filters for each molecule
+			group_by(run_id,zm) %>%
+			summarize(
+				#max_num_SBSmutations
+				max_num_SBSmutations.passfilter = if_else(
+					num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations,
+					TRUE,
+					FALSE
+				),
+				
+				#max_num_indelmutations
+				max_num_indelmutations.passfilter = if_else(
+				  num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations,
+				  TRUE,
+				  FALSE
+				)
+				
+				,.groups = "drop"
+			)
+		,by = join_by(run_id,zm)
+	)
+
+
+#Replace NA with TRUE for filters, since some molecules had no SBS or indel variants called.
+bam.gr.filtered <- bam.gr.filtered %>%
+	mutate(
+		across(
+			contains("passfilter"),~ replace_na(.x, TRUE)
+			)
+	)
+
+#Annotate variants in filtered reads
+
+ #Convert to tibble since much faster than plyranges analysis for these filters
+variants.gr.filtered <- variants.gr.filtered %>%
+  as_tibble
+
+variants.gr.filtered <- variants.gr.filtered %>%
+  left_join(
+    bam.gr.filtered %>%
+      distinct(
+        run_id,
+        zm,
+        pick(contains("passfilter"))
+        )
+    ,by = join_by(run_id,zm)
+  )
+
+
+#Convert back to GRanges
+%>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns=TRUE,
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+	)
 
 cat("DONE\n")
 
-
-######KEY PRINCIPLE: Whenever filtering a variant on one strand, filter its reverse complement on the other strand
 
 ######################
 ### Germline VCF variant filters

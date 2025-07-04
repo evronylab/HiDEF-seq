@@ -2,6 +2,7 @@
 
 #extractVariants.R:
 # Perform initial molecule filtering and extract variants, including all variant information required for analysis.  
+# Note: extracts variants of all variant_types across all chromosomes, not just those in configured chromgroups. filterVariants then removes variants outside configured chromgroups.
 
 cat("#### Running extractVariants ####\n")
 
@@ -150,7 +151,7 @@ bam.gr <- bam.df %>%
     end.field="end",
     strand.field="strand",
     keep.extra.columns=TRUE,
-    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   )
 
 rm(bam.df)
@@ -159,7 +160,7 @@ rm(bam.df)
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 
 #Count number of molecules per run
-stats <- mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
+molecule_stats <- mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 	as_tibble %>%
 	group_by(run_id,movie_id) %>%
 	summarize(
@@ -194,7 +195,7 @@ bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokee
 rm(zmwstokeep)
 
 # Count number of molecules per run
-stats <- stats %>%
+molecule_stats <- molecule_stats %>%
 	left_join(
 		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 		as_tibble %>%
@@ -237,7 +238,7 @@ bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokee
 rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
 
 # Count number of molecules per run
-stats <- stats %>%
+molecule_stats <- molecule_stats %>%
 	left_join(
 		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 			as_tibble %>%
@@ -298,7 +299,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   #Check if no variants
   if(cigar.queryspace.var %>% as.data.frame %>% nrow == 0){
-    cat("  No variants of type",vartype_label,"in selected chromosomes!\n")
+    cat("  No variants extracted of type",vartype_label,"!\n")
     return(variants.out)
   }
   
@@ -396,7 +397,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       start.field="start_refspace",
       end.field="end_refspace",
       strand.field="strand",
-      seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
     ) %>%
     getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
     as.character
@@ -766,7 +767,7 @@ variants.df <- variants.df %>% left_join(
     start.field="start_refspace",
     end.field="end_refspace",
     keep.extra.columns=TRUE,
-    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   ) %>%
 
   #Count for each variant position how many bam.gr reads from its zmw it overlaps (1 or 2)
@@ -802,7 +803,7 @@ variants.df <- variants.df %>%
 				start.field="start_refspace",
 				end.field="end_refspace",
 				keep.extra.columns=TRUE,
-				seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+				seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 			) %>%
 			resize(width=3,fix="center") %>%
 			
@@ -865,7 +866,7 @@ variants.gr <- variants.df %>%
     end.field="end",
     strand.field="strand",
     keep.extra.columns=TRUE,
-    seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   )
 
  #Annotate variants GRanges with opposite strand variants
@@ -986,7 +987,7 @@ variants.gr <- variants.df %>%
 		end.field="end_refspace",
 		strand.field="strand",
 		keep.extra.columns=TRUE,
-		seqinfo=seqinfo(get(yaml.config$BSgenome$BSgenome_name))
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
 rm(variants.df)
@@ -995,7 +996,7 @@ rm(variants.df)
 qs_save(
   list(
   	run_metadata = run_metadata,
-  	stats = stats,
+  	molecule_stats = molecule_stats,
   	bam.gr = bam.gr,
   	variants.gr = variants.gr
   	),

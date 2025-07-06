@@ -11,6 +11,7 @@ cat("#### Running processGermlineVCF ####\n")
 ######################
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(vcfR))
+suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
@@ -41,6 +42,9 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 
 individual_id_toprocess <- opt$individual_id
 cache_dir <- yaml.config$cache_dir
+
+#Load the BSgenome reference
+suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 cat("DONE\n")
 
@@ -80,9 +84,10 @@ for(i in 1:nrow(vcf_files_individual)){
   #Load vcf file
 	 #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry)
 	 #Annotate with Depth (sum of AD) and VAF (AD of variant / sum of Depth).
-	 #Annotate SNVs vs insertions vs deletions
+	 #Annotate SBS vs insertions vs deletions
 	 #For deletions, change ranges to reflect position of deletion. For insertions: width=-1, and the insertion is immediately to the right of the first REF base.
 	 #Keep only columns CHROM, POS, REF, ALT, QUAL, FILTER, GT, GQ.
+	 #Convert to GRanges
 	
   vcf <- read.vcfR(tmpvcf,convertNA=FALSE,verbose=FALSE)
   file.remove(tmpvcf) %>% invisible
@@ -99,12 +104,14 @@ for(i in 1:nrow(vcf_files_individual)){
   	separate(AD,c("AD1","AD2"),",",convert=TRUE) %>%
   	mutate(Depth=AD1+AD2, VAF=AD2/Depth) %>%
   	mutate(
+  	  variant_class = if_else(nchar(REF)==1 & nchar(ALT)==1,"SBS","indel") %>% factor,
   		variant_type = case_when(
-  			nchar(REF)==1 & nchar(ALT)==1 ~ "SBS_mutation",
-  			nchar(REF) - nchar(ALT) < 0 ~ "insertion_mutation",
-  			nchar(REF) - nchar(ALT) > 0 ~ "deletion_mutation"
+  		  variant_class == "SBS" ~ "SBS",
+  		  variant_class == "indel" & (nchar(REF) - nchar(ALT) < 0) ~ "insertion",
+  		  variant_class == "indel" & (nchar(REF) - nchar(ALT) > 0) ~ "deletion"
   			) %>%
   			factor,
+  		SBSindel_call_type = "mutation" %>% factor,
   		CHROM = factor(CHROM),
   		POS = as.numeric(POS),
   		start_refspace = if_else(variant_type %in% c("deletion_mutation","insertion_mutation"), POS + 1, POS),
@@ -116,9 +123,16 @@ for(i in 1:nrow(vcf_files_individual)){
   	select(-c(POS,ID,INFO,AD1,AD2)) %>%
   	rename(
   		seqnames = CHROM,
-  		ref = REF,
-  		alt = ALT
-  	)
+  		ref_plus_strand = REF,
+  		alt_plus_strand = ALT
+  	) %>%
+    makeGRangesFromDataFrame(
+      seqnames.field="seqnames",
+      start.field="start_refspace",
+      end.field="end_refspace",
+      keep.extra.columns=TRUE,
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    )
   
   rm(vcf)
   cat("DONE\n")
@@ -126,7 +140,7 @@ for(i in 1:nrow(vcf_files_individual)){
 
 #Save variants to file
 qs_save(
-	germline_vcf_variants %>% bind_rows,
+	germline_vcf_variants %>% GRangesList %>% unlist,
   str_c(individual_id_toprocess,".germline_vcf_variants.qs2")
   )
 

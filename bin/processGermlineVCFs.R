@@ -85,7 +85,8 @@ for(i in 1:nrow(vcf_files_individual)){
 	 #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry)
 	 #Annotate with Depth (sum of AD) and VAF (AD of variant / sum of Depth).
 	 #Annotate SBS vs insertions vs deletions
-	 #For deletions, change ranges to reflect position of deletion. For insertions: width=-1, and the insertion is immediately to the right of the first REF base.
+	 #For deletions, change ranges to reflect position of deletion. For insertions: change start position to the base on the right of the insertion position and end to the base on the left of the insertion position.
+	 #For deletions, change to: REF = deleted bases and ALT = "". For insertions, change to: REF = "" and ALT = inserted bases
 	 #Keep only columns CHROM, POS, REF, ALT, QUAL, FILTER, GT, GQ.
 	 #Convert to GRanges
 	
@@ -114,8 +115,18 @@ for(i in 1:nrow(vcf_files_individual)){
   		SBSindel_call_type = "mutation" %>% factor,
   		CHROM = factor(CHROM),
   		POS = as.numeric(POS),
-  		start_refspace = if_else(variant_type %in% c("deletion_mutation","insertion_mutation"), POS + 1, POS),
-  		end_refspace = if_else(variant_type == "deletion_mutation", POS + nchar(REF) - nchar(ALT), POS),
+  		start_refspace = if_else(variant_type %in% c("deletion","insertion"), POS + 1, POS),
+  		end_refspace = if_else(variant_type == "deletion", POS + nchar(REF) - nchar(ALT), POS),
+  		REF = case_when(
+  		  variant_type == "insertion" ~ "",
+  		  variant_type == "deletion" ~ str_sub(REF,2),
+  		  .default = REF
+  		  ),
+  		ALT = case_when(
+  		  variant_type == "insertion" ~ str_sub(ALT,2),
+  		  variant_type == "deletion" ~ "",
+  		  .default = ALT
+  		),
   		QUAL = as.numeric(QUAL),
   		germline_vcf_file = factor(!!germline_vcf_file),
   		germline_vcf_type = factor(!!germline_vcf_type)

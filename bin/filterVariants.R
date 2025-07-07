@@ -84,7 +84,7 @@ cache_dir <- yaml.config$cache_dir
  #germline vcf filter parameters
 germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
   enframe(name=NULL) %>%
-  unnest_wider(value,transform=list(vcf_SNV_FILTERS=list, vcf_INDEL_FILTERS=list))
+  unnest_wider(value)
 
  #variant types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
 variant_types_toanalyze <- yaml.config$variant_types %>%
@@ -96,7 +96,8 @@ variant_types_toanalyze <- yaml.config$variant_types %>%
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
 		) %>%
-	pull(variant_type)
+	pull(variant_type) %>%
+  unique
   
  #filter group parameters (restrict to selected filtergroup_toanalyze)
 filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
@@ -154,13 +155,21 @@ bam.gr.filtered <- extractedVariants %>%
 		seqnames %in% chroms_toanalyze
 	)
 
-#Keep only variants with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) and that are in selected chroms_toanalyze
+#Keep only variants in selected chroms_toanalyze with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or variant_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark variants with variant_type in variant_types_toanalyze with a new column variant_type_toanalyze = TRUE.
 variants.gr.filtered <- extractedVariants %>%
 	pluck("variants.gr") %>%
+  mutate(variant_type_toanalyze = if_else(variant_type %in% !!variant_types_toanalyze, TRUE, FALSE)) %>%
 	filter(
-		variant_type == !!variant_types_toanalyze,
-		seqnames %in% chroms_toanalyze
-		)
+	  seqnames %in% chroms_toanalyze,
+	  variant_type_toanalyze == TRUE | variant_class %in% c("SBS","indel")
+		) 
+
+#Convert reads and variants to tibbles since much faster than plyranges analysis for initial filters
+bam.gr.filtered <- bam.gr.filtered %>%
+  as_tibble
+
+variants.gr.filtered <- variants.gr.filtered %>%
+  as_tibble
 
 #Create GRanges of selected chroms_toanalyze in the genome to track genome filtering
 genome_chromgroup.gr.filtered <- yaml.config$BSgenome$BSgenome_name %>%
@@ -176,13 +185,9 @@ molecule_stats <- extractedVariants %>%
 cat("DONE\n")
 
 ######################
-### Initial whole-molecule filters
+### Basic whole-molecule filters
 ######################
-cat("## Applying initial whole-molecule filters...")
-
-#Convert to tibble since much faster than plyranges analysis for these filters
-bam.gr.filtered <- bam.gr.filtered %>%
-	as_tibble
+cat("## Applying basic whole-molecule filters...")
 
 #Annotate reads for filters: rq, ec, mapq, num_softclipbases
 bam.gr.filtered <- bam.gr.filtered %>%
@@ -359,21 +364,15 @@ bam.gr.filtered <- bam.gr.filtered %>%
 		,by = join_by(run_id,zm)
 	)
 
-
-#Replace NA with TRUE for filters, since some molecules had no SBS or indel variants called.
+#Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
 bam.gr.filtered <- bam.gr.filtered %>%
-	mutate(
-		across(
-			contains("passfilter"),~ replace_na(.x, TRUE)
-			)
-	)
+  mutate(
+    across(
+      contains("passfilter"),~ replace_na(.x, TRUE)
+    )
+  )
 
-#Annotate variants in filtered reads
-
- #Convert to tibble since much faster than plyranges analysis for these filters
-variants.gr.filtered <- variants.gr.filtered %>%
-  as_tibble
-
+#Annotate variants with read filters
 variants.gr.filtered <- variants.gr.filtered %>%
   left_join(
     bam.gr.filtered %>%
@@ -381,28 +380,69 @@ variants.gr.filtered <- variants.gr.filtered %>%
         run_id,
         zm,
         pick(contains("passfilter"))
-        )
+      )
     ,by = join_by(run_id,zm)
   )
 
-
-#Convert back to GRanges
-%>%
-	makeGRangesFromDataFrame(
-		keep.extra.columns=TRUE,
-		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-	)
-
 cat("DONE\n")
-
 
 ######################
 ### Germline VCF variant filters
 ######################
 cat("## Applying germline VCF variant filters...")
 
-#Load germline VCF filter data
-germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id,".germline_vcf_variants.qs2"))
+#Load germline VCF filter data, and split by germline_vcf_type
+germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id_toanalyze,".germline_vcf_variants.qs2")) %>%
+  as_tibble %>%
+  group_by(germline_vcf_type) %>%
+  nest %>%
+  deframe
+  
+#Filter to keep germline VCF variants that pass configured germline VCF filters, and recombine all variants
+germline_vcf_variants <- germline_vcf_variants  %>%
+  imap(
+    function(x,idx){
+      filters <- germline_vcf_types_config %>% filter(germline_vcf_type == idx)
+      
+      x %>%
+        filter(
+          (
+            variant_class == "SBS" &
+              FILTER %in% (filters$SBS_FILTERS %>% unlist) &
+              Depth >= filters$SBS_min_Depth &
+              GQ >= filters$SBS_min_GQ &
+              VAF >= filters$SBS_min_VAF &
+              QUAL >= filters$SBS_min_QUAL
+          ) |
+          (
+            variant_class == "indel" &
+              FILTER %in% (filters$indel_FILTERS %>% unlist) &
+              Depth >= filters$indel_min_Depth &
+              GQ >= filters$indel_min_GQ &
+              VAF >= filters$indel_min_VAF &
+              QUAL >= filters$indel_min_QUAL
+          )
+        )
+    }
+  ) %>%
+  bind_rows(.id="germline_vcf_type")
+
+#Annotate calls matching germline VCF variants, and for MDB variants set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
+variants.gr.filtered <- variants.gr.filtered %>%
+  left_join(
+    germline_vcf_variants %>%
+      group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
+      summarize(
+        germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),
+        germline_vcf_files_detected = str_c(germline_vcf_file,collapse=","),
+        .groups="drop") %>%
+      mutate(germline_vcf.passfilter = FALSE),
+    by = join_by(seqnames,start,end,ref_plus_strand,alt_plus_strand)
+  ) %>%
+  mutate(
+    germline_vcf.passfilter = germline_vcf.passfilter %>% replace_na(TRUE),
+    germline_vcf.passfilter = if_else(variant_class == "MDB", TRUE, germline_vcf.passfilter)
+    )
 
 cat("DONE\n")
 
@@ -411,6 +451,54 @@ cat("DONE\n")
 ######################
 cat("## Applying post-germline VCF variant filtering whole-molecule filters...")
 
+#Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_SBSmutations_postVCF, max_num_indelcalls_postVCF_eachstrand, max_num_indelmutations_postVCF
+
+bam.gr.filtered <- bam.gr.filtered %>%
+  left_join(
+    
+    #Count number of SBS and indel mutations that pass all filters per molecule
+    variants.gr.filtered %>%
+      filter(
+        seqnames %in% chroms_toanalyze,
+        variant_class %in% c("SBS","indel"),
+        SBSindel_call_type == "mutation"
+      ) %>%
+      
+      #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
+      mutate(
+        strand = strand %>% factor(levels=c("+","-")),
+        variant_class = variant_class %>% factor(levels=c("SBS","indel")),
+        SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
+      ) %>% 
+      count(run_id,zm,variant_class,SBSindel_call_type) %>%
+      complete(nesting(run_id,zm), variant_class, SBSindel_call_type, fill = list(n=0)) %>%
+      pivot_wider(
+        names_from=variant_class,
+        values_from=n,
+        names_glue = "num_{variant_class}mutations"
+      ) %>%
+      
+      #Calculate filters for each molecule
+      group_by(run_id,zm) %>%
+      summarize(
+        #max_num_SBSmutations
+        max_num_SBSmutations.passfilter = if_else(
+          num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations,
+          TRUE,
+          FALSE
+        ),
+        
+        #max_num_indelmutations
+        max_num_indelmutations.passfilter = if_else(
+          num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations,
+          TRUE,
+          FALSE
+        )
+        
+        ,.groups = "drop"
+      )
+    ,by = join_by(run_id,zm)
+  )
 
 cat("DONE\n")
 
@@ -464,3 +552,10 @@ cat("DONE\n")
 cat("## Applying subread filters...")
 
 cat("DONE\n")
+
+#Convert back to GRanges
+%>%
+  makeGRangesFromDataFrame(
+    keep.extra.columns=TRUE,
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+  )

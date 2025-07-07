@@ -398,7 +398,7 @@ germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id_toanalyze,".g
   nest %>%
   deframe
   
-#Filter to keep germline VCF variants that pass configured germline VCF filters, combine back all variants, keep only columns necessary for downstream filtering
+#Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering
 germline_vcf_variants <- germline_vcf_variants  %>%
   imap(
     function(x,idx){
@@ -422,17 +422,17 @@ germline_vcf_variants <- germline_vcf_variants  %>%
               VAF >= filters$indel_min_VAF &
               QUAL >= filters$indel_min_QUAL
           )
-        )
+        ) %>%
+        select(seqnames,start,end,ref_plus_strand,alt_plus_strand,germline_vcf_type,germline_vcf_file) %>%
+        distinct #in case atomization/multi-allelic records created duplicate records
     }
-  ) %>%
-  bind_rows(.id="germline_vcf_type") %>%
-  select(seqnames,start,end,ref_plus_strand,alt_plus_strand,germline_vcf_type,germline_vcf_file) %>%
-  distinct #in case atomization/multi-allelic records created duplicate records
+  )
 
 #Annotate calls matching germline VCF variants, and for MDB variants set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
 variants.gr.filtered <- variants.gr.filtered %>%
   left_join(
     germline_vcf_variants %>%
+      bind_rows(.id="germline_vcf_type") %>%
       group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
       summarize(
         germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),

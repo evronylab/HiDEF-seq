@@ -81,8 +81,8 @@ for(i in 1:nrow(vcf_files_individual)){
 	tmpvcf <- tempfile(tmpdir=getwd(),pattern=".")
 	system(paste("/bin/bash -c",shQuote(paste(
 	  yaml.config$bcftools_bin,"view -i 'GT=\"alt\"'",germline_vcf_file,"|",
-	  yaml.config$bcftools_bin,"norm -a |",
-	  yaml.config$bcftools_bin,"norm -m -both",
+	  yaml.config$bcftools_bin,"norm -a -f",yaml.config$genome_fasta,"|",
+	  yaml.config$bcftools_bin,"norm -m -both -f",yaml.config$genome_fasta,
 	  "2>/dev/null >",tmpvcf
 	  )
 	 )))

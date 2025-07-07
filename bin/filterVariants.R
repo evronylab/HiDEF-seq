@@ -330,7 +330,6 @@ bam.gr.filtered <- bam.gr.filtered %>%
 		  
 		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
 		  mutate(
-		    strand = strand %>% factor(levels=c("+","-")),
 		    variant_class = variant_class %>% factor(levels=c("SBS","indel")),
 		    SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
 		  ) %>% 
@@ -423,7 +422,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
               QUAL >= filters$indel_min_QUAL
           )
         ) %>%
-        select(seqnames,start,end,ref_plus_strand,alt_plus_strand,germline_vcf_type,germline_vcf_file) %>%
+        select(seqnames,start,end,ref_plus_strand,alt_plus_strand,germline_vcf_file) %>%
         distinct #in case atomization/multi-allelic records created duplicate records
     }
   )
@@ -454,7 +453,6 @@ cat("DONE\n")
 cat("## Applying post-germline VCF variant filtering whole-molecule filters...")
 
 #Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_indelcalls_postVCF_eachstrand
-
 bam.gr.filtered <- bam.gr.filtered %>%
   left_join(
     
@@ -508,12 +506,12 @@ bam.gr.filtered <- bam.gr.filtered %>%
     variants.gr.filtered %>%
       filter(
         variant_class %in% c("SBS","indel"),
+        SBSindel_call_type == "mutation",
         if_all(contains("passfilter"), ~ .x == TRUE)
       ) %>%
       
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
       mutate(
-        strand = strand %>% factor(levels=c("+","-")),
         variant_class = variant_class %>% factor(levels=c("SBS","indel")),
         SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
       ) %>% 

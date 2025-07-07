@@ -398,7 +398,7 @@ germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id_toanalyze,".g
   nest %>%
   deframe
   
-#Filter to keep germline VCF variants that pass configured germline VCF filters, and recombine all variants
+#Filter to keep germline VCF variants that pass configured germline VCF filters, and combine back all variants
 germline_vcf_variants <- germline_vcf_variants  %>%
   imap(
     function(x,idx){
@@ -451,17 +451,62 @@ cat("DONE\n")
 ######################
 cat("## Applying post-germline VCF variant filtering whole-molecule filters...")
 
-#Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_SBSmutations_postVCF, max_num_indelcalls_postVCF_eachstrand, max_num_indelmutations_postVCF
+#Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_indelcalls_postVCF_eachstrand
 
 bam.gr.filtered <- bam.gr.filtered %>%
   left_join(
     
-    #Count number of SBS and indel mutations that pass all filters per molecule
+    #Filter to keep SBS and indel calls that pass all filters applied so far
     variants.gr.filtered %>%
       filter(
-        seqnames %in% chroms_toanalyze,
         variant_class %in% c("SBS","indel"),
-        SBSindel_call_type == "mutation"
+        if_all(contains("passfilter"), ~ .x == TRUE)
+      ) %>%
+      
+      #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{variant_class}calls are calculated correctly
+      mutate(
+        strand = strand %>% factor(levels=c("+","-")),
+        variant_class = variant_class %>% factor(levels=c("SBS","indel"))
+      ) %>% 
+      count(run_id,zm,strand,variant_class) %>%
+      complete(nesting(run_id,zm), strand, variant_class, fill = list(n=0)) %>%
+      pivot_wider(
+        names_from=variant_class,
+        values_from=n,
+        names_glue = "num_{variant_class}calls"
+      ) %>%
+      
+      #Calculate filters for each molecule
+      group_by(run_id,zm) %>%
+      summarize(
+        #max_num_SBScalls_postVCF_eachstrand
+        max_num_SBScalls_postVCF_eachstrand.passfilter = if_else(
+          all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_postVCF_eachstrand),
+          TRUE,
+          FALSE
+        ),
+        
+        #max_num_indelcalls_postVCF_eachstrand
+        max_num_indelcalls_postVCF_eachstrand.passfilter = if_else(
+          all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_postVCF_eachstrand),
+          TRUE,
+          FALSE
+        )
+        ,.groups = "drop"
+      )
+    ,by = join_by(run_id,zm)
+  )
+
+
+#Annotate reads for filters: max_num_SBSmutations_postVCF, max_num_indelmutations_postVCF
+bam.gr.filtered <- bam.gr.filtered %>%
+  left_join(
+    
+    #Filter to keep SBS and indel calls that pass all filters applied so far
+    variants.gr.filtered %>%
+      filter(
+        variant_class %in% c("SBS","indel"),
+        if_all(contains("passfilter"), ~ .x == TRUE)
       ) %>%
       
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
@@ -481,21 +526,41 @@ bam.gr.filtered <- bam.gr.filtered %>%
       #Calculate filters for each molecule
       group_by(run_id,zm) %>%
       summarize(
-        #max_num_SBSmutations
-        max_num_SBSmutations.passfilter = if_else(
-          num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations,
+        #max_num_SBSmutations_postVCF
+        max_num_SBSmutations_postVCF.passfilter = if_else(
+          num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations_postVCF,
           TRUE,
           FALSE
         ),
         
-        #max_num_indelmutations
-        max_num_indelmutations.passfilter = if_else(
-          num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations,
+        #max_num_indelmutations_postVCF
+        max_num_indelmutations_postVCF.passfilter = if_else(
+          num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations_postVCF,
           TRUE,
           FALSE
         )
         
         ,.groups = "drop"
+      )
+    ,by = join_by(run_id,zm)
+  )
+
+#Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
+bam.gr.filtered <- bam.gr.filtered %>%
+  mutate(
+    across(
+      matches("postVCF.*passfilter"),~ replace_na(.x, TRUE)
+    )
+  )
+
+#Annotate variants with new read filters
+variants.gr.filtered <- variants.gr.filtered %>%
+  left_join(
+    bam.gr.filtered %>%
+      distinct(
+        run_id,
+        zm,
+        pick(matches("postVCF.*passfilter"))
       )
     ,by = join_by(run_id,zm)
   )

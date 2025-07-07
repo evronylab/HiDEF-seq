@@ -77,9 +77,15 @@ for(i in 1:nrow(vcf_files_individual)){
 
   cat(">> Processing VCF file:",germline_vcf_file,"...")
 
-	#Atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref])
+	#Filter for records containing ALT alleles, and atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref])
 	tmpvcf <- tempfile(tmpdir=getwd(),pattern=".")
-	system(paste("/bin/bash -c",shQuote(paste(yaml.config$bcftools_bin,"norm -a -f",yaml.config$genome_fasta,germline_vcf_file,"| bcftools norm -m -both -f",yaml.config$genome_fasta,"2>/dev/null >",tmpvcf))))
+	system(paste("/bin/bash -c",shQuote(paste(
+	  yaml.config$bcftools_bin,"view -i 'GT=\"alt\"'",germline_vcf_file,"|",
+	  yaml.config$bcftools_bin,"norm -a -f",yaml.config$genome_fasta,"|",
+	  yaml.config$bcftools_bin,"norm -m -both -f",yaml.config$genome_fasta,
+	  "2>/dev/null >",tmpvcf
+	  )
+	 )))
 
   #Load vcf file
 	 #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry)

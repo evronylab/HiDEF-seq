@@ -652,7 +652,7 @@ workflow prepareFilters {
             filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
           }
 
-          region_filter.bin_filters?.each { filter ->
+          region_filter.genome_filters?.each { filter ->
             filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
           }
 

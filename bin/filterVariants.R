@@ -117,8 +117,8 @@ region_read_filters_config <- yaml.config$region_filters %>%
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
-region_bin_filters_config <- yaml.config$region_filters %>%
-  map("bin_filters") %>%
+region_genome_filters_config <- yaml.config$region_filters %>%
+  map("genome_filters") %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
@@ -140,6 +140,19 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
 
+######################
+### Define custom functions
+######################
+# Function to subtract two granges from each other, without reducing overlaps in the final output. Modified from code written by Herve Pages.
+GRanges_subtract <- function(gr1, gr2, ignore.strand=FALSE){
+	gr2 <- GenomicRanges::reduce(gr2, ignore.strand=ignore.strand)
+	hits <- findOverlaps(gr1, gr2, ignore.strand=ignore.strand)
+	ans <- psetdiff(gr1, extractList(gr2, as(hits, "IntegerList")))
+	unlisted_ans <- unlist(ans, use.names=FALSE)
+	mcols(unlisted_ans) <- extractROWS(mcols(gr1),Rle(seq_along(ans), lengths(ans)))
+	unlist(setNames(relist(unlisted_ans, ans), names(gr1)))
+}
+	
 ######################
 ### Load read and extracted variant information
 ######################
@@ -185,9 +198,9 @@ molecule_stats <- extractedVariants %>%
 cat("DONE\n")
 
 ######################
-### Basic whole-molecule filters
+### Basic molecule filters
 ######################
-cat("## Applying basic whole-molecule filters...")
+cat("## Applying basic molecule filters...")
 
 #Annotate reads for filters: rq, ec, mapq, num_softclipbases
 bam.gr.filtered <- bam.gr.filtered %>%
@@ -448,9 +461,9 @@ variants.gr.filtered <- variants.gr.filtered %>%
 cat("DONE\n")
 
 ######################
-### Post-germline VCF variant filtering whole-molecule filters
+### Post-germline VCF variant filtering molecule filters
 ######################
-cat("## Applying post-germline VCF variant filtering whole-molecule filters...")
+cat("## Applying post-germline VCF variant filtering molecule filters...")
 
 #Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_indelcalls_postVCF_eachstrand
 bam.gr.filtered <- bam.gr.filtered %>%
@@ -566,6 +579,104 @@ variants.gr.filtered <- variants.gr.filtered %>%
   )
 
 cat("DONE\n")
+
+
+######################
+### Region-based molecule filters
+######################
+cat("## Applying region-based molecule filters...")
+
+#GRanges of chroms to analyze so that only these necessary data is loaded from the bigwig file
+genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	seqinfo %>%
+	GRanges %>%
+	filter(seqnames %in% !!chroms_toanalyze)
+
+#Ranges-only copy of bam read GRanges on which to check filters to reduce memory requirements
+bam.gr.filtered.onlyranges <- bam.gr.filtered %>%
+	select(seqnames, start, end, strand, run_id, zm) %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns=TRUE,
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+	)
+
+for(i in seq_len(nrow(region_read_filters_config))){
+  
+  #Construct label for the newly created filter column
+  filter_label <- region_read_filters_config %>%
+    pluck("region_filter_threshold_file",i) %>%
+    basename %>%
+    str_c("region_read_filter_",.,".passfilter")
+    
+  #Extract read threshold
+  read_threshold_type <- region_read_filters_config %>%
+    pluck("read_threshold",i) %>%
+    str_extract("^(gte|lt)")
+  
+  read_threshold_value <- region_read_filters_config %>%
+    pluck("read_threshold",i) %>%
+    str_extract("[0-9.]+$")
+  
+  #Load region read filter bigwig
+  region_read_filter <- region_read_filters_config %>%
+    pluck("region_filter_threshold_file",i) %>%
+    import(format = "bigWig", which = genome_chromgroup.gr) %>%
+    {
+      seqlevels(.) <- seqlevels(genome_chromgroup.gr)
+      seqinfo(.) <- seqinfo(genome_chromgroup.gr)
+      .
+    } %>%
+    
+    #Add padding
+    resize(
+      width = width(.) + 2 * (region_read_filters_config %>% pluck("padding",i)),
+      fix="center"
+    ) %>%
+    suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+    trim %>%
+    
+    #Create a logical TRUE/FALSE RLE of genomic bases covered so that the below binnedAverage function calculates, for each read, the fraction covered by the region_read_filter
+    coverage %>%
+    {. > 0}
+  
+  #Annotate which molecules pass the filter
+  bam.gr.filtered <- bam.gr.filtered %>%
+    left_join(
+      bam.gr.filtered.onlyranges %>%
+        
+        #Calculate fraction of coverage by the region read filter
+        binnedAverage(region_read_filter,varname="frac") %>%
+        
+        #Annotate which molecules have a fraction of their length filtered by the above bigwig (averaged across plus and minus strands) that is either greater than or equal (gte) or less than (lt) read_threshold_value
+        as_tibble %>%
+        group_by(run_id, zm) %>%
+        summarize(
+          !!filter_label := ! case_when(
+            !!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
+            !!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value
+          ),
+          .groups = "drop"
+        ),
+      by = join_by(run_id,zm)
+    )
+    
+}
+
+#Annotate variants with new read filters
+variants.gr.filtered <- variants.gr.filtered %>%
+  left_join(
+    bam.gr.filtered %>%
+      distinct(
+        run_id,
+        zm,
+        pick(matches("region_read_filter.*passfilter"))
+      )
+    ,by = join_by(run_id,zm)
+  )
+
+cat("DONE\n")
+
 
 ######################
 ### Region filters

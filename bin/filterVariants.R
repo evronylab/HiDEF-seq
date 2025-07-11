@@ -72,6 +72,14 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	str_split_1(",") %>%
 	str_trim
 
+#GRanges of chroms to analyze, required as input for some analyses
+genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	seqinfo %>%
+	GRanges %>%
+	unname %>%
+	filter(seqnames %in% !!chroms_toanalyze)
+
  #individual_id of this sample_id
 individual_id_toanalyze <- yaml.config$samples %>%
   bind_rows %>%
@@ -141,59 +149,38 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
-### Define custom functions
-######################
-# Function to subtract two granges from each other, without reducing overlaps in the final output. Modified from code written by Herve Pages.
-GRanges_subtract <- function(gr1, gr2, ignore.strand=FALSE){
-	gr2 <- GenomicRanges::reduce(gr2, ignore.strand=ignore.strand)
-	hits <- findOverlaps(gr1, gr2, ignore.strand=ignore.strand)
-	ans <- psetdiff(gr1, extractList(gr2, as(hits, "IntegerList")))
-	unlisted_ans <- unlist(ans, use.names=FALSE)
-	mcols(unlisted_ans) <- extractROWS(mcols(gr1),Rle(seq_along(ans), lengths(ans)))
-	unlist(setNames(relist(unlisted_ans, ans), names(gr1)))
-}
-	
-######################
 ### Load read and extracted variant information
 ######################
 cat("## Loading reads and extracted variants...")
 
-#Load data
+#Load extractedVariants RDS file
 extractedVariants <- qs_read(extractVariantsFile)
 
-#Keep only reads in selected chroms_toanalyze
-bam.gr.filtered <- extractedVariants %>%
+#Load bam reads as tibble, keeping only reads in selected chroms_toanalyze
+bam <- extractedVariants %>%
 	pluck("bam.gr") %>%
 	filter(
 		seqnames %in% chroms_toanalyze
-	)
+	) %>%
+	as_tibble
 
-#Keep only variants in selected chroms_toanalyze with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or variant_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark variants with variant_type in variant_types_toanalyze with a new column variant_type_toanalyze = TRUE.
-variants.gr.filtered <- extractedVariants %>%
+#Load variants as tibble, keeping only variants in selected chroms_toanalyze with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or variant_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark variants with variant_type in variant_types_toanalyze with a new column variant_type_toanalyze = TRUE.
+variants <- extractedVariants %>%
 	pluck("variants.gr") %>%
   mutate(variant_type_toanalyze = if_else(variant_type %in% !!variant_types_toanalyze, TRUE, FALSE)) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
 	  variant_type_toanalyze == TRUE | variant_class %in% c("SBS","indel")
-		) 
-
-#Convert reads and variants to tibbles since much faster than plyranges analysis for initial filters
-bam.gr.filtered <- bam.gr.filtered %>%
+		) %>%
   as_tibble
 
-variants.gr.filtered <- variants.gr.filtered %>%
-  as_tibble
-
-#Create GRanges of selected chroms_toanalyze in the genome to track genome filtering
-genome_chromgroup.gr.filtered <- yaml.config$BSgenome$BSgenome_name %>%
-	get %>%
-	seqinfo %>%
-	GRanges %>%
-	filter(seqnames %in% !!chroms_toanalyze)
-
-#Molecule stats
+#Load prior molecule stats
 molecule_stats <- extractedVariants %>%
 	pluck("molecule_stats")
+
+#Create tibble to track genome region filter stats
+region_genome_filters_stats <- region_genome_filters_config %>%
+	mutate(num_bases_filtered = NA_integer_)
 
 cat("DONE\n")
 
@@ -203,7 +190,7 @@ cat("DONE\n")
 cat("## Applying basic molecule filters...")
 
 #Annotate reads for filters: rq, ec, mapq, num_softclipbases
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
 	mutate(num_softclipbases = cigar %>% cigarOpTable %>% as_tibble %>% pull(S)) %>%
 	group_by(run_id,zm) %>%
 	mutate(
@@ -262,7 +249,7 @@ bam.gr.filtered <- bam.gr.filtered %>%
 	ungroup
 
 #Annotate reads for filters: max_num_SBScalls_eachstrand, max_num_SBScalls_stranddiff, max_num_indelcalls_eachstrand, max_num_indelcalls_stranddiff
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
 	left_join(
 		
 		#Input all SBS and indel variants, not just variant_types being analyzed in this run, as the filters being calculated are used for general molecule filters that require info on both SBS and indels
@@ -326,7 +313,7 @@ bam.gr.filtered <- bam.gr.filtered %>%
 				
 
 #Annotate reads for filters: max_num_SBSmutations, max_num_indelmutations
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
 	left_join(
 		
 		#Input all variants, not just variant_types being analyzed, as this is used for general molecule filters that require info on SBS and indels
@@ -377,7 +364,7 @@ bam.gr.filtered <- bam.gr.filtered %>%
 	)
 
 #Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
   mutate(
     across(
       contains("passfilter"),~ replace_na(.x, TRUE)
@@ -385,9 +372,9 @@ bam.gr.filtered <- bam.gr.filtered %>%
   )
 
 #Annotate variants with read filters
-variants.gr.filtered <- variants.gr.filtered %>%
+variants <- variants %>%
   left_join(
-    bam.gr.filtered %>%
+    bam %>%
       distinct(
         run_id,
         zm,
@@ -441,7 +428,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
   )
 
 #Annotate calls matching germline VCF variants, and for MDB variants set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
-variants.gr.filtered <- variants.gr.filtered %>%
+variants <- variants %>%
   left_join(
     germline_vcf_variants %>%
       bind_rows(.id="germline_vcf_type") %>%
@@ -466,11 +453,11 @@ cat("DONE\n")
 cat("## Applying post-germline VCF variant filtering molecule filters...")
 
 #Annotate reads for filters: max_num_SBScalls_postVCF_eachstrand, max_num_indelcalls_postVCF_eachstrand
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
   left_join(
     
     #Filter to keep SBS and indel calls that pass all filters applied so far
-    variants.gr.filtered %>%
+    variants %>%
       filter(
         variant_class %in% c("SBS","indel"),
         if_all(contains("passfilter"), ~ .x == TRUE)
@@ -512,11 +499,11 @@ bam.gr.filtered <- bam.gr.filtered %>%
 
 
 #Annotate reads for filters: max_num_SBSmutations_postVCF, max_num_indelmutations_postVCF
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
   left_join(
     
     #Filter to keep SBS and indel calls that pass all filters applied so far
-    variants.gr.filtered %>%
+    variants %>%
       filter(
         variant_class %in% c("SBS","indel"),
         SBSindel_call_type == "mutation",
@@ -559,7 +546,7 @@ bam.gr.filtered <- bam.gr.filtered %>%
   )
 
 #Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
-bam.gr.filtered <- bam.gr.filtered %>%
+bam <- bam %>%
   mutate(
     across(
       matches("postVCF.*passfilter"),~ replace_na(.x, TRUE)
@@ -567,9 +554,9 @@ bam.gr.filtered <- bam.gr.filtered %>%
   )
 
 #Annotate variants with new read filters
-variants.gr.filtered <- variants.gr.filtered %>%
+variants <- variants %>%
   left_join(
-    bam.gr.filtered %>%
+    bam %>%
       distinct(
         run_id,
         zm,
@@ -586,15 +573,8 @@ cat("DONE\n")
 ######################
 cat("## Applying region-based molecule filters...")
 
-#GRanges of chroms to analyze so that only these necessary data is loaded from the bigwig file
-genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
-	get %>%
-	seqinfo %>%
-	GRanges %>%
-	filter(seqnames %in% !!chroms_toanalyze)
-
 #Ranges-only copy of bam read GRanges on which to check filters to reduce memory requirements
-bam.gr.filtered.onlyranges <- bam.gr.filtered %>%
+bam.gr.onlyranges <- bam %>%
 	select(seqnames, start, end, strand, run_id, zm) %>%
 	makeGRangesFromDataFrame(
 		keep.extra.columns=TRUE,
@@ -612,7 +592,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
   #Extract read threshold
   read_threshold_type <- region_read_filters_config %>%
     pluck("read_threshold",i) %>%
-    str_extract("^(gte|lt)")
+    str_extract("^(gt|gte|lt|lte)")
   
   read_threshold_value <- region_read_filters_config %>%
     pluck("read_threshold",i) %>%
@@ -635,26 +615,29 @@ for(i in seq_len(nrow(region_read_filters_config))){
     ) %>%
     suppressWarnings %>% #remove warnings of out of bounds regions due to resize
     trim %>%
-    
+  	GenomicRanges::reduce(ignore.strand=TRUE) %>%
+  	
     #Create a logical TRUE/FALSE RLE of genomic bases covered so that the below binnedAverage function calculates, for each read, the fraction covered by the region_read_filter
     coverage %>%
     {. > 0}
   
   #Annotate which molecules pass the filter
-  bam.gr.filtered <- bam.gr.filtered %>%
+  bam <- bam %>%
     left_join(
-      bam.gr.filtered.onlyranges %>%
+      bam.gr.onlyranges %>%
         
         #Calculate fraction of coverage by the region read filter
         binnedAverage(region_read_filter,varname="frac") %>%
         
-        #Annotate which molecules have a fraction of their length filtered by the above bigwig (averaged across plus and minus strands) that is either greater than or equal (gte) or less than (lt) read_threshold_value
+        #Annotate which molecules have a fraction of their length filtered by the above bigwig (averaged across plus and minus strands) that is either greater than (gt), greater than or equal (gte), less than (lt), or less than or equal (lte) to a read_threshold_value
         as_tibble %>%
         group_by(run_id, zm) %>%
         summarize(
           !!filter_label := ! case_when(
+          	!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value
             !!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
-            !!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value
+            !!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value,
+          	!!read_threshold_type == "lte" ~ mean(frac) <= read_threshold_value
           ),
           .groups = "drop"
         ),
@@ -663,10 +646,12 @@ for(i in seq_len(nrow(region_read_filters_config))){
     
 }
 
+rm(bam.gr.onlyranges, region_read_filter)
+
 #Annotate variants with new read filters
-variants.gr.filtered <- variants.gr.filtered %>%
+variants <- variants %>%
   left_join(
-    bam.gr.filtered %>%
+    bam %>%
       distinct(
         run_id,
         zm,
@@ -679,11 +664,180 @@ cat("DONE\n")
 
 
 ######################
-### Region filters
+### Calculate molecule filter stats
 ######################
-cat("## Applying region filters...")
 
-#Also noN filter
+cat("## Calculating molecule filter stats...")
+
+molecule_stats <- molecule_stats %>%
+	
+	#Annotate number of molecules passing each individual filter each applied separately
+	left_join(
+		bam %>%
+			group_by(run_id) %>%
+			summarize(across(
+				matches("passfilter$"),
+				~ n_distinct(zm[.x]),
+				.names = "num_molecules_{.col}"
+			)),
+		by = "run_id"
+	) %>%
+	
+	#Annotate number of molecules passing all the molecule filters
+	left_join(
+		bam %>%
+			filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+			group_by(run_id) %>%
+			summarize("num_molecules.passallfilters" = n_distinct(zm)),
+		by = "run_id"
+	)
+
+cat("DONE\n")
+
+######################
+### Format data for subsequent filters
+######################
+
+cat("## Formatting data for subsequent filters...")
+
+#Convert variants tibble back to GRanges
+variants.gr <- variants %>%
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE,
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+	)
+
+#Create bam read GRanges to track genome region filtering, containing only molecules that have passed all filters so far
+bam.gr.filtertrack <- bam %>%
+	filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+	makeGRangesFromDataFrame(
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+	)
+
+#Create genome GRanges of selected chroms_toanalyze to track genome region filtering
+genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr
+
+cat("DONE\n")
+
+######################
+### Genome region filters
+######################
+cat("## Applying genome region filters...")
+
+#Perform filtering
+for(i in seq_len(nrow(region_genome_filters_config))){
+	
+	#Construct label for the newly created filter column
+	filter_label <- region_genome_filters_config %>%
+		pluck("region_filter_threshold_file",i) %>%
+		basename %>%
+		str_c("region_genome_filter_",.,".passfilter")
+	
+	#Load region read filter bigwig
+	region_genome_filter <- region_genome_filters_config %>%
+		pluck("region_filter_threshold_file",i) %>%
+		import(format = "bigWig", which = genome_chromgroup.gr) %>%
+		{
+			seqlevels(.) <- seqlevels(genome_chromgroup.gr)
+			seqinfo(.) <- seqinfo(genome_chromgroup.gr)
+			.
+		} %>%
+		
+		#Add padding
+		resize(
+			width = width(.) + 2 * (region_genome_filters_config %>% pluck("padding",i)),
+			fix="center"
+		) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+		trim %>%
+		GenomicRanges::reduce(ignore.strand=TRUE) %>%
+		mutate(!!filter_label := FALSE)
+	
+	#Subtract genome region filters from filter trackers
+	bam.gr.filtertrack <- bam.gr.filtertrack %>%
+		subtract(region_genome_filter) %>% 
+		unlist
+	
+	genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
+		subtract(region_genome_filter) %>%
+		unlist
+	
+	#Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Annotates final result with a tibble join instead of with the GRanges join due to some variants that overlap > 1 region genome filter range.
+	variants <- variants %>%
+		left_join(
+			variants.gr %>%
+				join_overlap_left(region_genome_filter) %>%
+				as_tibble %>%
+				mutate(across(
+					any_of(filter_label),
+					~ replace_na(.x,TRUE)
+					)) %>%
+				distinct,
+			by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+		)
+	
+	#Record number of filtered bases to stats
+	region_genome_filters_stats[i,"num_bases_filtered"] <- region_genome_filter %>%
+		width %>%
+		sum
+}
+
+rm(region_genome_filter)
+
+cat("DONE\n")
+
+######################
+### Genome 'N' base sequences
+######################
+cat("## Applying genome 'N' base sequence filter...")
+
+filter_label <- "region_genome_filter_Nbases.passfilter"
+
+#Extract 'N' base sequence ranges
+region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	vmatchPattern("N",.) %>%
+	GenomicRanges::reduce(ignore.strand=TRUE) %>%
+	mutate(!!filter_label := FALSE)
+
+#Subtract genome region filters from filter trackers
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	subtract(region_genome_filter) %>%
+	unlist
+genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
+	subtract(region_genome_filter) %>%
+	unlist
+
+#Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Performed with a tibble join instead of with GRanges join due to some variants that overlap > 1 region genome filter range.
+variants <- variants %>%
+	left_join(
+		variants.gr %>%
+			join_overlap_left(region_genome_filter) %>%
+			as_tibble %>%
+			mutate(across(
+				any_of(filter_label),
+				~ replace_na(.x,TRUE)
+			)) %>%
+			distinct,
+		by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+	)
+
+rm(region_genome_filter)
+
+#Record number of filtered bases to stats
+region_genome_filters_stats <- region_genome_filters_stats %>% bind_rows(
+	tibble(
+		region_filter_file = "Nbases",
+		binsize = 1,
+		threshold = "gte0.1",
+		padding = 0,
+		applyto_chromgroups = "all",
+		applyto_filtergroups = "all",
+		num_bases_filtered = region_genome_filter %>%
+			width %>%
+			sum
+	)
+)
 
 cat("DONE\n")
 
@@ -729,9 +883,8 @@ cat("## Applying subread filters...")
 
 cat("DONE\n")
 
-#Convert back to GRanges
-%>%
-  makeGRangesFromDataFrame(
-    keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-  )
+######################
+### Save output data
+######################
+
+#Also save total number of bases in chromgroups to analyze

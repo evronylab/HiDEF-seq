@@ -405,8 +405,8 @@ process prepareRegionFilters {
 
     echo "scale command: \$scale_command"
 
-    if [[ ${threshold} == gte* || ${threshold} == lt* ]]; then
-      threshold_command=\$(echo ${threshold} | sed -E 's/^(gte|lt)([0-9.]+)/\\1 \\2/')
+    if [[ ${threshold} == gt* || ${threshold} == lt* ]]; then
+      threshold_command=\$(echo ${threshold} | sed -E 's/^(gt|gte|lt|lte)([0-9.]+)/\\1 \\2/')
     else
       echo "ERROR: Unknown threshold type: ${threshold}"
       exit 1

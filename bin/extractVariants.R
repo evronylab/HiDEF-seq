@@ -746,10 +746,9 @@ for(i in bam.gr %>% names){
 ######################
 cat("## Formatting and saving output...")
 
-#Collapse bam.gr back to a single GRanges object and remove seq and qual data that is no longer needed
+#Collapse bam.gr back to a single GRanges object and remove seq data that is no longer needed
 bam.gr <- bam.gr %>% unlist(use.names=F)
 bam.gr$seq <- NULL
-bam.gr$qual <- NULL
 
 #Combine variant calls of all runs
 variants.df <- variants.df %>%

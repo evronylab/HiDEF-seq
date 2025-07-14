@@ -747,6 +747,12 @@ workflow {
   def commandLineTokens = workflow.commandLine.tokenize()
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
+  //Check that selected workflow is a valid option
+  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractVariants", "filterVariants"]
+  if(!(params.workflow in validWorkflows)){
+    error "ERROR: Invalid workflow '${params.workflow}'. Valid options are: ${validWorkflows.join(', ')}"
+  }
+
   // Run processReads workflow
   if( params.workflow == "all" || params.workflow == "processReads" ){
     processReads()

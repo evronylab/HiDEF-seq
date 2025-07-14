@@ -148,6 +148,68 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
 
+
+######################
+### Define custom functions
+######################
+# Function to subtract two granges (x and y) from each other, without reducing overlaps in the final output. Modified from code written by Herve Pages.
+GRanges_subtract <- function(x, y, ignore.strand=FALSE){
+	y <- GenomicRanges::reduce(y, ignore.strand=ignore.strand)
+	hits <- findOverlaps(x, y, ignore.strand=ignore.strand)
+	ans <- psetdiff(x, extractList(y, as(hits, "IntegerList")))
+	unlisted_ans <- unlist(ans, use.names=FALSE)
+	mcols(unlisted_ans) <- extractROWS(mcols(x),Rle(seq_along(ans), lengths(ans)))
+	unlist(setNames(relist(unlisted_ans, ans), names(x)))
+}
+	
+# Function to subtract two granges (x and y) from each other, if they match on join_mcols (character vector of all columns to match), without reducing overlaps in the final output.
+GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
+  #Encode join keys as a factor
+  key_x <- x %>%
+    as_tibble %>%
+    select(all_of(join_mcols)) %>%
+    as.list %>%
+    interaction(drop = TRUE)
+  
+  key_y <- y %>%
+    as_tibble %>%
+    select(all_of(join_mcols)) %>%
+    as.list %>%
+    interaction(drop = TRUE)
+  
+  #Find all overlaps, then pick only those where the metadata‐keys match
+  hits <- findOverlaps(x, y, ignore.strand = ignore.strand)
+  qh <- queryHits(hits)
+  sh <- subjectHits(hits)
+  sameKey <- as.character(key_x[qh]) == as.character(key_y[sh])
+  if (!any(sameKey)) return(x)
+  
+  #Obtain intersecting segments for matched hits
+  qh <- qh[sameKey]
+  sh <- sh[sameKey]
+  segs_to_remove <- pintersect(x[qh], y[sh], ignore.strand = ignore.strand)
+  
+  #Split x and segs_to_remove by the index of x,
+  x_list  <- split(x, factor(seq_along(x), levels = seq_along(x)), drop = FALSE)
+  rem_list <- split(segs_to_remove, factor(qh, levels = seq_along(x)), drop = FALSE)
+  
+  #Subtract for each range in x (x_list) the ranges in y (rem_list) that intersect it
+  out_list <- GenomicRanges::setdiff(x_list, rem_list, ignore.strand = ignore.strand)
+  
+  #Flatten result and restore all metadata from the original x
+   #How many fragments came from each original x[i]
+  nfrags <- elementNROWS(out_list)
+   #Unlist into a single GRanges
+  out <- unlist(out_list, use.names = FALSE)
+   #Build an index mapping each fragment back to its source x[i]
+  src_idx  <- rep(seq_along(nfrags), times = nfrags)
+   #Re‐attach starnd and metadata columns from x[src_idx, ]
+  strand(out) <- strand(x)[src_idx]
+  mcols(out) <- mcols(x)[src_idx, , drop = FALSE]
+  
+  return(out)
+}
+
 ######################
 ### Load read and extracted variant information
 ######################
@@ -156,7 +218,7 @@ cat("## Loading reads and extracted variants...")
 #Load extractedVariants RDS file
 extractedVariants <- qs_read(extractVariantsFile)
 
-#Load bam reads as tibble, keeping only reads in selected chroms_toanalyze
+#Load bam reads as tibble, keeping only reads in selected chroms_toanalyze. Note, this transforms qual from PhredQuality to list.
 bam <- extractedVariants %>%
 	pluck("bam.gr") %>%
 	filter(
@@ -634,7 +696,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
         group_by(run_id, zm) %>%
         summarize(
           !!filter_label := ! case_when(
-          	!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value
+          	!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value,
             !!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
             !!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value,
           	!!read_threshold_type == "lte" ~ mean(frac) <= read_threshold_value
@@ -710,7 +772,9 @@ variants.gr <- variants %>%
 #Create bam read GRanges to track genome region filtering, containing only molecules that have passed all filters so far
 bam.gr.filtertrack <- bam %>%
 	filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+	select(run_id, zm, seqnames, start, end, strand) %>%
 	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE,
 		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
@@ -755,12 +819,10 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	
 	#Subtract genome region filters from filter trackers
 	bam.gr.filtertrack <- bam.gr.filtertrack %>%
-		subtract(region_genome_filter) %>% 
-		unlist
+		GRanges_subtract(region_genome_filter) #GRanges_subtract to retain run_id and zm columns
 	
 	genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
-		subtract(region_genome_filter) %>%
-		unlist
+		GRanges_subtract(region_genome_filter)
 	
 	#Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Annotates final result with a tibble join instead of with the GRanges join due to some variants that overlap > 1 region genome filter range.
 	variants <- variants %>%
@@ -802,11 +864,10 @@ region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
 
 #Subtract genome region filters from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
-	subtract(region_genome_filter) %>%
-	unlist
+	GRanges_subtract(region_genome_filter)
+
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
-	subtract(region_genome_filter) %>%
-	unlist
+	GRanges_subtract(region_genome_filter)
 
 #Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Performed with a tibble join instead of with GRanges join due to some variants that overlap > 1 region genome filter range.
 variants <- variants %>%
@@ -821,8 +882,6 @@ variants <- variants %>%
 			distinct,
 		by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
 	)
-
-rm(region_genome_filter)
 
 #Record number of filtered bases to stats
 region_genome_filters_stats <- region_genome_filters_stats %>% bind_rows(
@@ -839,6 +898,8 @@ region_genome_filters_stats <- region_genome_filters_stats %>% bind_rows(
 	)
 )
 
+rm(region_genome_filter)
+
 cat("DONE\n")
 
 ######################
@@ -846,12 +907,123 @@ cat("DONE\n")
 ######################
 cat("## Applying base-quality filters...")
 
+#Convert positions of bases failing min_qual filter from query space to reference space, while retaining run_id and zm info
+min_qual.fail.gr <- mapFromAlignments( #Main function
+  #GRanges of positions failing min_qual filter in query space
+  bam %>%
+    pull(qual) %>%
+    PhredQuality %>%
+    as("IntegerList") %>%
+    as("RleList") %>%
+    IRanges::slice(upper=filtergroup_toanalyze_config$min_qual, includeUpper=FALSE, rangesOnly=TRUE) %>%
+    setNames(bam %>% pull(seqnames)) %>%
+    as.data.frame %>%
+    as_tibble %>%
+    makeGRangesFromDataFrame(
+      seqnames = "group_name",
+      keep.extra.columns=TRUE
+    ) %>%
+    setNames(.$group) %>%
+    select(-group),
+  
+  #GAlignments of reads in reference space
+  bam %>%
+    select(seqnames, start, end, cigar) %>% 
+    makeGRangesFromDataFrame(
+      keep.extra.columns=TRUE,
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    ) %>%
+    as("GAlignments") %>%
+    setNames(1:nrow(bam))
+  ) %>%
+  
+  #Annotate result with run_id, zm, and strand
+  as_tibble %>%
+  left_join(
+    bam %>%
+      select(run_id, zm, strand) %>%
+      mutate(row_id = row_number()),
+    by = join_by(alignmentsHits == row_id)
+  ) %>%
+  select(-c(width, xHits, alignmentsHits, strand.x)) %>%
+  rename(strand = strand.y) %>%
+  makeGRangesFromDataFrame(
+    keep.extra.columns=TRUE,
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+  )
+
+#Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how variants are filtered.
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+  GRanges_subtract_bymcols(min_qual.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+#Annotate variants below min_qual threshold. If either strand fails the filter, both strands are set to fail.
+if(! filtergroup_toanalyze_config$min_qual_method %in% c("mean","all","any")){
+  stop("Incorrect min_qual_method setting!")
+}
+
+###FIX THIS CODE TO ALSO ANALYZE QUAL ON OPPOSITE STRAND and take into account possibility of NA in qual of opposite strand (situations where there wasn't a reference-space-matched base on the opposite strand)
+variants <- variants %>%
+  mutate(min_qual.passfilter =
+           if(filtergroup_toanalyze_config$min_qual_method=="mean"){
+             qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual
+           }else if(filtergroup_toanalyze_config$min_qual_method=="all"){
+             qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)})
+           }else if(filtergroup_toanalyze_config$min_qual_method=="any"){
+             qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)})
+           }
+  )
+
 cat("DONE\n")
 
 ######################
 ### Molecule position filters
 ######################
 cat("## Applying molecule position filters...")
+
+#Create GRanges of read ends
+bam.gr.onlyranges <- bam %>%
+  select(seqnames, start, end, strand, run_id, zm) %>%
+  makeGRangesFromDataFrame(
+    keep.extra.columns=TRUE,
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+  )
+
+bam.gr.trim <- c(
+    bam.gr.onlyranges %>%
+    mutate(
+      temp_end = start + filtergroup_toanalyze_config$read_trim_bp - 1,
+      end = if_else(temp_end < end, temp_end, end)  #prevents exceeding genome boundaries
+      ) %>%
+    select(-temp_end),
+    
+    bam.gr.onlyranges %>%
+      mutate(
+        temp_start = end - filtergroup_toanalyze_config$read_trim_bp + 1,
+        start = if_else(temp_start > start, temp_start, start)
+      ) %>%
+      select(-temp_start)
+  ) %>%
+  mutate(read_trim_bp.passfilter = FALSE)
+
+rm(bam.gr.onlyranges)
+
+#Subtract bases filtered by read_trim_bp from bam reads filter tracker, joining on run_id and zm. If a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how variants are filtered.
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+  GRanges_subtract_bymcols(bam.gr.trim, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+#Annotate variants filtered by read_trim_bp. If either strand fails the filter, both strands are set to fail.
+variants <- variants %>%
+  left_join(
+    variants.gr %>%
+      join_overlap_left(bam.gr.trim) %>%
+      as_tibble %>%
+      mutate(read_trim_bp.passfilter = read_trim_bp.passfilter ~ replace_na(.x,TRUE)) %>%
+      distinct,
+    by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+  ) %>%
+  group_by(seqnames,start,end,run_id) %>%
+  mutate(read_trim_bp.passfilter = if_else(all(read_trim_bp.passfilter), TRUE, FALSE)) %>%
+  ungroup
 
 cat("DONE\n")
 
@@ -880,6 +1052,17 @@ cat("DONE\n")
 ### Subread filters
 ######################
 cat("## Applying subread filters...")
+
+#Take into account possibility of values of 0 in the denominator, which will lead to value of Inf or 0/0 = NaN, etc.
+
+cat("DONE\n")
+
+######################
+### Duplex coverage filters
+######################
+cat("## Applying duplex coverage filters...")
+
+##Annotate which variants have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker.
 
 cat("DONE\n")
 

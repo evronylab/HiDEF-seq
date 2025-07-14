@@ -29,7 +29,6 @@ cat("## Loading configuration...")
 #General options
 options(datatable.showProgress = FALSE)
 options(warn=2) #Stop script for any warnings
-strand_levels <- c("+","-")
 
 #Command line arguments
 option_list = list(
@@ -50,6 +49,9 @@ if(is.na(opt$config) | is.na(opt$bam) | is.na(opt$output)){
 yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 outputFile <- opt$output
+
+#General parameters
+strand_levels <- c("+","-")
 
 #Load variant types, and filter to make a table only for MDB variant types
 variant_types <- yaml.config$variant_types %>%
@@ -255,10 +257,10 @@ cat("DONE\n")
 ######################
 ### Define function to extract variants
 ######################
-extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant_class.input, variant_type.input, cigar.ops.input = NULL, variant_bam_scoretag.input = NULL, variant_bam_scoretag_min.input = NULL){
+extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant_class.input, variant_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
   #cigar.ops.input for the variant_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
-  #variant_bam_scoretag.input TAG in the MDB containing the MDB score data
-  #variant_bam_scoretag_min.input: minimum score of MDBs to extract
+  #score_bamtag.input: tag in the BAM file containing the MDB score data (MDB only)
+  #score_min.input: minimum score of MDBs to extract (MDB only)
   
   #Initialize empty variants tibble
   variants.out <- tibble(
@@ -272,9 +274,14 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     ref_plus_strand=character(),
     alt_plus_strand=character(),
     qual=list(),
+    qual.opposite_strand=list(),
+    MDB_score=numeric(),
     sa=list(),
+    sa.opposite_strand=list(),
     sm=list(),
+    sm.opposite_strand=list(),
     sx=list(),
+    sx.opposite_strand=list(),
     variant_class=factor(),
     variant_type=factor(),
     indel_width=integer()
@@ -473,10 +480,86 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   var_qual <- var_qual %>%
     mutate(
-      qual = qual %>% PhredQuality %>% as("IntegerList") %>% as.list %>% set_names(NULL)
+      qual = qual %>%
+      	PhredQuality %>%
+      	as("IntegerList") %>%
+      	as.list %>%
+      	set_names(NULL)
     )
   
   rm(cigar.queryspace.var)
+  
+  #Variant base qualities in opposite strand (matched via reference space). Set missing values to NA (for example, an SBS across from a deletion)
+   #Make GRanges of variant locations in reference space.
+  var_refspace.gr <- var_refspace %>%
+    select(-ref_plus_strand) %>%
+    makeGRangesFromDataFrame(
+      seqnames.field="seqnames",
+      start.field="start_refspace",
+      end.field="end_refspace",
+      strand.field="strand",
+      keep.extra.columns=TRUE,
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    )
+  
+   #Make GRanges of bam reads parallel to variant refspace GRanges, but matching to the opposite strand read from the variant
+  bam.gr.input.opposite_strand.parallel_to_var_refspace <- bam.gr.input %>%
+    select(zm, cigar, qual) %>%
+    mutate(
+      opposite_strand = if_else(strand %>% as.character == "+", "-", "+"),
+      strand = "*"
+    ) %>%
+    setNames(str_c(.$zm, .$opposite_strand, sep="_")) %>%
+    select(-opposite_strand) %>%
+    slice(
+      match(
+        str_c(var_refspace.gr$zm,strand(var_refspace.gr) %>% as.character,sep="_"),
+        names(.)
+      )
+    )
+  
+   #Convert variants from reference space to query space of opposite strand
+  vars_queryspace.opposite_strand <- var_refspace.gr %>%
+    pmapToAlignments(bam.gr.input.opposite_strand.parallel_to_var_refspace %>% as("GAlignments")) %>%
+    setNames(str_c(var_refspace.gr$start_queryspace, var_refspace.gr$end_queryspace,sep="_")) %>%
+    (function(x) IRanges(start=start(x), end=end(x), names=names(x), seqnames = seqnames(x) %>% as.character)) %>%
+    filter(seqnames != "UNMAPPED") %>%
+    split(mcols(.)$seqnames)
+  
+   #Extract qual from opposite strand. Set missing values to NA.
+  var_qual.opposite_strand <- extractAt(
+    bam.gr.input.opposite_strand.parallel_to_var_refspace %>%
+        slice(
+          match(
+            names(vars_queryspace.opposite_strand),
+            names(.)
+            )
+          ) %>%
+        .$qual,
+      vars_queryspace.opposite_strand %>% setNames(NULL)
+    ) %>%
+    as("CharacterList") %>%
+    setNames(names(vars_queryspace.opposite_strand)) %>%
+    as.list %>%
+    enframe %>%
+    unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual.opposite_strand") %>%
+    separate(name,sep="_",into=c("zm","strand")) %>%
+    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    mutate(
+      zm = as.integer(zm),
+      strand = factor(strand,levels=strand_levels),
+      start_queryspace = as.integer(start_queryspace),
+      end_queryspace = as.integer(end_queryspace),
+      qual.opposite_strand = qual.opposite_strand %>%
+        PhredQuality %>%
+        as("IntegerList") %>%
+        as.list %>%
+        set_names(NULL) %>%
+        map_if(~ length(.x) == 0, ~NA_integer_)
+    )
+  
+  rm(var_refspace.gr, bam.gr.input.opposite_strand.parallel_to_var_refspace)
+  
   
   #Extract sa/sm/sx tags
   # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
@@ -490,44 +573,99 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       split(by="zm_strand",keep.by=F) %>%
       lapply(unlist,use.names=F)
     
-    #sa
-    var_sa <- map2(sa.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-      enframe %>%
-      separate(name,sep="_",into=c("zm","strand")) %>%
-      unnest_longer(col=value, values_to="sa", indices_to="start_queryspace") %>%
+    var_queryspace.opposite_strand.list <- vars_queryspace.opposite_strand %>%
+      as.data.table %>%
+      filter(start==end) %>% #Remove sites whose opposite strand aligned to width = -1, meaning there is no reference-aligned base on the opposite strand. These will then become NA after the final join.
+      select(seqnames, start) %>%
+      split(by="seqnames",keep.by=F) %>%
+      lapply(unlist,use.names=F)
+    
+    vars_queryspace.coordconversion <- vars_queryspace.opposite_strand %>%
+      as.data.table %>%
+      as_tibble %>%
+      filter(start==end) %>%
+      separate(seqnames,sep="_",into=c("zm","strand")) %>%
+      separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),
         start_queryspace = as.integer(start_queryspace),
-        end_queryspace = start_queryspace,
-        sa = sa %>% as.list %>% set_names(NULL)
+        end_queryspace = start_queryspace
+      ) %>%
+      select(-group,-group_name,-width)
+    
+    #Define extraction function
+    extract_sasmsx <- function(tag.input, tagdata.input, var_queryspace.list.input, vars_queryspace.coordconversion.input=NULL){
+      result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ .x[.y] %>% set_names(.y)) %>%
+        enframe %>%
+        separate(name,sep="_",into=c("zm","strand")) %>%
+        unnest_longer(col=value, values_to=tag.input, indices_to="start_queryspace") %>%
+          mutate(
+            zm = as.integer(zm),
+            strand = factor(strand,levels=strand_levels),
+            start_queryspace = as.integer(start_queryspace),
+            end_queryspace = start_queryspace,
+            !!tag.input := .data[[tag.input]] %>% as.list %>% set_names(NULL)
+          )
+      
+      #Convert query space coordinate of opposite strand to variant strand (if extracting opposite strand data)
+      if(!is.null(vars_queryspace.coordconversion.input)){
+        result <- result  %>%
+          rename(
+            start = start_queryspace,
+            end = end_queryspace
+          ) %>%
+          left_join(
+            vars_queryspace.coordconversion.input,
+            by = join_by(zm,strand,start,end)
+          ) %>%
+          select(-start,-end)
+      }
+      
+      return(result)
+    }
+    
+    #Extract data
+    var_sa <- extract_sasmsx(
+      "sa",
+      sa.input,
+      var_queryspace.list
       )
     
-    #sm
-    var_sm <- map2(sm.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-      enframe %>%
-      separate(name,sep="_",into=c("zm","strand")) %>%
-      unnest_longer(col=value, values_to="sm", indices_to="start_queryspace") %>%
-      mutate(
-        zm = as.integer(zm),
-        strand = factor(strand,levels=strand_levels),
-        start_queryspace = as.integer(start_queryspace),
-        end_queryspace = start_queryspace,
-        sm = sm %>% as.list %>% set_names(NULL)
+    var_sa.opposite_strand <- extract_sasmsx(
+      "sa.opposite_strand",
+      sa.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
+      var_queryspace.opposite_strand.list,
+      vars_queryspace.coordconversion
       )
     
-    #sx
-    var_sx <- map2(sx.input[var_queryspace.list %>% names], var_queryspace.list, ~ .x[.y] %>% set_names(.y)) %>%
-      enframe %>%
-      separate(name,sep="_",into=c("zm","strand")) %>%
-      unnest_longer(col=value, values_to="sx", indices_to="start_queryspace") %>%
-      mutate(
-        zm = as.integer(zm),
-        strand = factor(strand,levels=strand_levels),
-        start_queryspace = as.integer(start_queryspace),
-        end_queryspace = start_queryspace,
-        sx = sx %>% as.list %>% set_names(NULL)
-      )
+    var_sm <- extract_sasmsx(
+      "sm",
+      sm.input,
+      var_queryspace.list
+    )
+    
+    var_sm.opposite_strand <- extract_sasmsx(
+      "sm.opposite_strand",
+      sm.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
+      var_queryspace.opposite_strand.list,
+      vars_queryspace.coordconversion
+    )
+    
+    var_sx <- extract_sasmsx(
+      "sx",
+      sx.input,
+      var_queryspace.list
+    )
+    
+    var_sx.opposite_strand <- extract_sasmsx(
+      "sx.opposite_strand",
+      sx.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
+      var_queryspace.opposite_strand.list,
+      vars_queryspace.coordconversion
+    )
+    
+    rm(var_queryspace.list, var_queryspace.opposite_strand.list, vars_queryspace.coordconversion)
     
   }else if(variant_class.input == "indel"){
     #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
@@ -571,6 +709,8 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       )
   }
   
+  rm(sa.input, sm.input, sx.input)
+  
   #Combine variant info with prior empty initialized tibble and return result
   if(variant_class.input %in% c("SBS","MDB")){
     variants.out <- variants.out %>%
@@ -579,9 +719,19 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_alt, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_qual.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_sa, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sa.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_sm, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
-          left_join(var_sx, by=join_by(zm,strand,start_queryspace,end_queryspace))
+          left_join(var_sm.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sx, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_sx.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace))
+      ) %>%
+      mutate(
+        across(
+          c(qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, sx.opposite_strand),
+          ~ replace(.x, vapply(.x, function(el) is.null(el) || identical(el, NA), logical(1)), list(NA))
+        )
       )
   }else if(variant_class.input == "indel"){
     variants.out <- variants.out %>%
@@ -590,6 +740,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_alt, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(var_qual.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(indels_queryspace_pos, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           mutate(
             indel_width = if_else(is.na(insertion_width), deletion_width, insertion_width)
@@ -742,9 +893,9 @@ for(i in bam.gr %>% names){
 }
 
 ######################
-### Format and save output
+### Further annotate variants
 ######################
-cat("## Formatting and saving output...")
+cat("## Further annotating variants...")
 
 #Collapse bam.gr back to a single GRanges object and remove seq data that is no longer needed
 bam.gr <- bam.gr %>% unlist(use.names=F)
@@ -754,39 +905,6 @@ bam.gr$seq <- NULL
 variants.df <- variants.df %>%
   bind_rows(.id="run_id") %>%
   mutate(run_id=factor(run_id))
-
-#Annotate for each variant position if it has duplex coverage
-variants.df <- variants.df %>% left_join(
-  variants.df %>%
-  #Convert to GRanges
-  select(run_id,zm,seqnames,start_refspace,end_refspace) %>%
-  distinct %>% #In case there is an SBS and MDB at the same location, only want to join one row for the position to bam.gr
-  makeGRangesFromDataFrame(
-    seqnames.field="seqnames",
-    start.field="start_refspace",
-    end.field="end_refspace",
-    keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-  ) %>%
-
-  #Count for each variant position how many bam.gr reads from its zmw it overlaps (1 or 2)
-  join_overlap_left_within(bam.gr[,c("run_id","zm")],suffix=c("",".bam.gr")) %>%
-  filter(
-    run_id == run_id.bam.gr,
-    zm == zm.bam.gr
-  ) %>%
-  as_tibble %>%
-  rename(
-    start_refspace = start,
-    end_refspace = end
-    ) %>%
-  group_by(run_id,zm,start_refspace,end_refspace) %>%
-  summarize(
-    duplex_coverage = if_else(n() == 2, TRUE, FALSE),
-    .groups="drop"
-    ),
-  by = join_by(run_id,zm,start_refspace,end_refspace)
-)
 
 #Annotate for each variants its trinucleotide context when variant_class = SBS or MDB. For indels, this is set to NA.
 variants.df <- variants.df %>%
@@ -940,7 +1058,7 @@ variants.df <- variants.df %>%
 	)
 
 rm(variants.gr)
-  
+
 #Annotate for each variant (for all variant classes: SBS, indel, MDB) its 'SBSindel_call_type'.
  #No duplex coverage ("nonduplex")
  #Duplex coverage:
@@ -977,6 +1095,13 @@ variants.df <- variants.df %>%
 		  factor
 	) %>%
   arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand)
+
+cat("DONE\n")
+
+######################
+### Save output
+######################
+cat("## Saving output...")
 
 #Convert variants.df to GRanges
 variants.gr <- variants.df %>%

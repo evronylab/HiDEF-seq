@@ -489,7 +489,9 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   rm(cigar.queryspace.var)
   
-  #Variant base qualities in opposite strand (matched via reference space). Set missing values to NA (for example, an SBS across from a deletion)
+  #Variant base qualities in opposite strand (matched via reference space).
+  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the variant in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the variant in reference space, or left and right flanking bases if opposite strand query space width = 0. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from variant strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which variants are mutations (i.e., on both strands), we reassign opposite strand data for each variant from the variant call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
+  #Set missing values to NA (for example, an SBS across from a deletion).
    #Make GRanges of variant locations in reference space.
   var_refspace.gr <- var_refspace %>%
     select(-ref_plus_strand) %>%
@@ -523,7 +525,21 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     pmapToAlignments(bam.gr.input.opposite_strand.parallel_to_var_refspace %>% as("GAlignments")) %>%
     setNames(str_c(var_refspace.gr$start_queryspace, var_refspace.gr$end_queryspace,sep="_")) %>%
     (function(x) IRanges(start=start(x), end=end(x), names=names(x), seqnames = seqnames(x) %>% as.character)) %>%
-    filter(seqnames != "UNMAPPED") %>%
+    filter(seqnames != "UNMAPPED")
+  
+  #For indels, if opposite strand query space width = 0, swap start/end to get flanking bases.
+  if(variant_class.input == "indel"){
+    vars_queryspace.opposite_strand <- vars_queryspace.opposite_strand %>%
+      mutate(
+        start_tmp = start,
+        end_tmp = end,
+        start = if_else(start_tmp > end_tmp, end, start),
+        end = if_else(start_tmp > end_tmp, start, end)
+      ) %>%
+      select(-start_tmp,-end_tmp)
+  }
+  
+  vars_queryspace.opposite_strand <- vars_queryspace.opposite_strand %>%
     split(mcols(.)$seqnames)
   
    #Extract qual from opposite strand. Set missing values to NA.
@@ -563,6 +579,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   #Extract sa/sm/sx tags
   # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
+  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the variant in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the variant in reference space. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from variant strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which variants are mutations (i.e., on both strands), we reassign opposite strand data for each variant from the variant call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
   
   if(variant_class.input %in% c("SBS","MDB")){
     #Convert variant positions in query space to list for faster retrieval below of sa, sm, sx tags
@@ -632,17 +649,23 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       var_queryspace.list
       )
     
+    var_sm <- extract_sasmsx(
+      "sm",
+      sm.input,
+      var_queryspace.list
+    )
+ 
+    var_sx <- extract_sasmsx(
+      "sx",
+      sx.input,
+      var_queryspace.list
+    )
+
     var_sa.opposite_strand <- extract_sasmsx(
       "sa.opposite_strand",
       sa.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
       var_queryspace.opposite_strand.list,
       vars_queryspace.coordconversion
-      )
-    
-    var_sm <- extract_sasmsx(
-      "sm",
-      sm.input,
-      var_queryspace.list
     )
     
     var_sm.opposite_strand <- extract_sasmsx(
@@ -650,12 +673,6 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       sm.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
       var_queryspace.opposite_strand.list,
       vars_queryspace.coordconversion
-    )
-    
-    var_sx <- extract_sasmsx(
-      "sx",
-      sx.input,
-      var_queryspace.list
     )
     
     var_sx.opposite_strand <- extract_sasmsx(
@@ -687,14 +704,40 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       select(zm_strand,start_end_queryspace,pos_queryspace) %>%
       as.data.table
     
+    indels_queryspace_pos.opposite_strand <- vars_queryspace.opposite_strand %>%
+      as.data.frame %>%
+      select(-seqnames) %>%
+      rename(
+        zm_strand = group_name,
+        start_queryspace = start,
+        end_queryspace = end,
+        start_end_queryspace = names
+      ) %>%
+      select(zm_strand,start_queryspace,end_queryspace,start_end_queryspace,width) %>%
+      group_by(zm_strand) %>%
+      uncount(width) %>%
+      group_by(zm_strand,start_end_queryspace) %>%
+      mutate(pos_queryspace = start_queryspace + row_number() - 1) %>%
+      select(zm_strand,start_end_queryspace,pos_queryspace) %>%
+      as.data.table
+    
     setkey(indels_queryspace_pos, zm_strand, start_end_queryspace)
+    setkey(indels_queryspace_pos.opposite_strand, zm_strand, start_end_queryspace)
     
     #Extract data
     indels_queryspace_pos[, sa_val := sa.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     
-    rm(cigar.queryspace.var.forqualdata)
+    sa.input.opposite_strand <- sa.input %>% setNames(names(.) %>% chartr("+-","-+",.))
+    sm.input.opposite_strand <- sm.input %>% setNames(names(.) %>% chartr("+-","-+",.))
+    sx.input.opposite_strand <- sx.input %>% setNames(names(.) %>% chartr("+-","-+",.))
+
+    indels_queryspace_pos.opposite_strand[, sa_val := sa.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    
+    rm(cigar.queryspace.var.forqualdata, vars_queryspace.opposite_strand)
     
     #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
     indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
@@ -707,6 +750,19 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
         start_queryspace = as.integer(start_queryspace),
         end_queryspace = as.integer(end_queryspace)
       )
+    
+    indels_queryspace_pos.opposite_strand <- indels_queryspace_pos.opposite_strand[, .(sa.opposite_strand = list(sa_val), sm.opposite_strand = list(sm_val), sx.opposite_strand = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
+      as_tibble %>%
+      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
+      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      mutate(
+        zm = as.integer(zm),
+        strand = factor(strand,levels=strand_levels),
+        start_queryspace = as.integer(start_queryspace),
+        end_queryspace = as.integer(end_queryspace)
+      )
+    
+    rm(sa.input.opposite_strand, sm.input.opposite_strand, sx.input.opposite_strand)
   }
   
   rm(sa.input, sm.input, sx.input)
@@ -726,12 +782,6 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_sm.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_sx, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_sx.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace))
-      ) %>%
-      mutate(
-        across(
-          c(qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, sx.opposite_strand),
-          ~ replace(.x, vapply(.x, function(el) is.null(el) || identical(el, NA), logical(1)), list(NA))
-        )
       )
   }else if(variant_class.input == "indel"){
     variants.out <- variants.out %>%
@@ -742,12 +792,22 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_qual, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_qual.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(indels_queryspace_pos, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
+          left_join(indels_queryspace_pos.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           mutate(
             indel_width = if_else(is.na(insertion_width), deletion_width, insertion_width)
           ) %>%
           select(-deletion_width,-insertion_width)
       )
   }
+  
+  #Replace NA/NULL opposite strand values with list(NA)
+  variants.out <- variants.out %>%
+    mutate(
+      across(
+        c(qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, sx.opposite_strand),
+        ~ replace(.x, vapply(.x, function(el) is.null(el) || identical(el, NA), logical(1)), list(NA))
+      )
+    )
   
   #Set variant_class and variant_type
   variants.out <- variants.out %>%
@@ -1094,7 +1154,25 @@ variants.df <- variants.df %>%
 		) %>%
 		  factor
 	) %>%
-  arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand)
+  arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand,SBSindel_call_type)
+
+#For mutations, reannotate each strand's qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, and sx.opposite_strand based on the opposite strand's qual, sa, sm, sx. This is more accurate than the previously calculated opposite strand data, because the prior data utilized a query space -> reference space -> opposite strand query space transformation, whereas annotated mutations reflect corresponding deletion coordinates and insertion sequences that are lost in the prior transformation. Though note that mismatches still have imperfect opposite strand qual, sa, sm, sx, and to obtain this would require aligning strands to each other which would be significantly more complex to incorporate.
+variants.df <- variants.df %>%
+  group_by(run_id,zm,seqnames,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand) %>%
+  mutate(
+    across(
+      all_of(c("qual.opposite_strand","sa.opposite_strand","sm.opposite_strand","sx.opposite_strand")),
+      function(x, data=pick(everything())) {
+        if(!all(SBSindel_call_type == "mutation")) {
+          x
+        }else{
+          rev(data[[str_remove(cur_column(), "\\.opposite_strand$")]])
+        }
+      }
+    )
+  ) %>%
+  ungroup
+
 
 cat("DONE\n")
 

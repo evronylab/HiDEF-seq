@@ -732,7 +732,6 @@ cat("DONE\n")
 cat("## Calculating molecule filter stats...")
 
 molecule_stats <- molecule_stats %>%
-	
 	#Annotate number of molecules passing each individual filter each applied separately
 	left_join(
 		bam %>%
@@ -750,9 +749,51 @@ molecule_stats <- molecule_stats %>%
 		bam %>%
 			filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
 			group_by(run_id) %>%
-			summarize("num_molecules.passallfilters" = n_distinct(zm)),
+			summarize(num_molecules.passallmoleculefilters = n_distinct(zm)),
 		by = "run_id"
-	)
+	) %>%
+  
+  #Annotate number of query space bases passing each individual filter each applied separately
+  left_join(
+    bam %>%
+      group_by(run_id) %>%
+      summarize(across(
+        matches("passfilter$"),
+        ~ sum(zm[.x]$qwidth),
+        .names = "num_queryspacebases_{.col}"
+      )),
+    by = "run_id"
+  ) %>%
+  
+  #Annotate number of reference space bases passing each individual filter each applied separately
+  left_join(
+    bam %>%
+      group_by(run_id) %>%
+      summarize(across(
+        matches("passfilter$"),
+        ~ sum(zm[.x]$end - zm[.x]$start),
+        .names = "num_refspacebases_{.col}"
+      )),
+    by = "run_id"
+  ) %>%
+  
+  #Annotate number of query space bases passing all the molecule filters
+  left_join(
+    bam %>%
+      filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+      group_by(run_id) %>%
+      summarize(num_queryspacebases.passallmoleculefilters = sum(qwidth)),
+    by = "run_id"
+  ) %>%
+  
+  #Annotate number of reference space bases passing all the molecule filters
+  left_join(
+    bam %>%
+      filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases.passallmoleculefilters = sum(end-start)),
+    by = "run_id"
+  )
 
 cat("DONE\n")
 
@@ -844,6 +885,16 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		sum
 }
 
+#Record number of reference space bases remaining after genome region filters
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passgenomeregionfilters = sum(end-start)),
+    by = "run_id"
+  )
+
 rm(region_genome_filter)
 
 cat("DONE\n")
@@ -897,6 +948,16 @@ region_genome_filters_stats <- region_genome_filters_stats %>% bind_rows(
 			sum
 	)
 )
+
+#Record number of reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passNbasesfilter = sum(end-start)),
+    by = "run_id"
+  )
 
 rm(region_genome_filter)
 
@@ -956,21 +1017,36 @@ min_qual.fail.gr <- mapFromAlignments( #Main function
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(min_qual.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
-#Annotate variants below min_qual threshold. If either strand fails the filter, both strands are set to fail.
+#Annotate variants below min_qual threshold. If either strand fails the filter, both strands are set to fail. If any qual value in the opposite strand is NA, consider that failure to pass the filter.
 if(! filtergroup_toanalyze_config$min_qual_method %in% c("mean","all","any")){
   stop("Incorrect min_qual_method setting!")
 }
 
-###FIX THIS CODE TO ALSO ANALYZE QUAL ON OPPOSITE STRAND and take into account possibility of NA in qual of opposite strand (situations where there wasn't a reference-space-matched base on the opposite strand)
 variants <- variants %>%
   mutate(min_qual.passfilter =
            if(filtergroup_toanalyze_config$min_qual_method=="mean"){
-             qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual
+             qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
+               qual.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
+               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
            }else if(filtergroup_toanalyze_config$min_qual_method=="all"){
-             qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)})
+             qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
+               qual.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
+               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
            }else if(filtergroup_toanalyze_config$min_qual_method=="any"){
-             qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)})
+             qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
+               qual.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
+               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
            }
+  )
+
+#Record number of reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passminqualfilter = sum(end-start)),
+    by = "run_id"
   )
 
 cat("DONE\n")
@@ -1011,19 +1087,32 @@ rm(bam.gr.onlyranges)
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(bam.gr.trim, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
-#Annotate variants filtered by read_trim_bp. If either strand fails the filter, both strands are set to fail.
+#Annotate variants filtered by read_trim_bp without taking strand into account, so that if a variant on either strand fails the filter, variants on both strands fail the filter.
 variants <- variants %>%
   left_join(
     variants.gr %>%
-      join_overlap_left(bam.gr.trim) %>%
+      select(run_id,zm) %>%
+      join_overlap_inner(bam.gr.trim, suffix = c("",".trim")) %>% #strand ignored
+      filter(
+        run_id == run_id.trim,
+        zm == zm.trim
+      ) %>%
       as_tibble %>%
-      mutate(read_trim_bp.passfilter = read_trim_bp.passfilter ~ replace_na(.x,TRUE)) %>%
+      select(-run_id.trim,-zm.trim,-width) %>%
       distinct,
-    by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+    by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since variants on both strands were annotated in the join_overlap_inner step
   ) %>%
-  group_by(seqnames,start,end,run_id) %>%
-  mutate(read_trim_bp.passfilter = if_else(all(read_trim_bp.passfilter), TRUE, FALSE)) %>%
-  ungroup
+  mutate(read_trim_bp.passfilter = read_trim_bp.passfilter %>% replace_na(TRUE))
+
+#Record number of reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passreadtrimbpfilter = sum(end-start)),
+    by = "run_id"
+  )
 
 cat("DONE\n")
 

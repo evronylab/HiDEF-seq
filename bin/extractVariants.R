@@ -161,14 +161,34 @@ rm(bam.df)
 # Arrange bam.gr by run id, ZMW id and strand
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 
-#Count number of molecules per run
+#Count number of remaining molecules and query space and reference space bases per run
 molecule_stats <- mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 	as_tibble %>%
 	group_by(run_id,movie_id) %>%
 	summarize(
 		num_molecules_initial = n_distinct(zm),
 		.groups="drop"
-	)
+	) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_queryspacebases_initial = sum(qwidth),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  ) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_refspacebases_initial = sum(end-start),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  )
 
 cat("DONE\n")
 
@@ -196,18 +216,38 @@ zmwstokeep <- bam.gr %>%
 bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokeep$zm,]
 rm(zmwstokeep)
 
-# Count number of molecules per run
+# Count number of remaining molecules and query space and reference space bases per run
 molecule_stats <- molecule_stats %>%
 	left_join(
 		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 		as_tibble %>%
 		group_by(run_id,movie_id) %>%
 		summarize(
-			num_molecules_postalignmentfilter = n_distinct(zm),
+			num_molecules.passalignmentfilter = n_distinct(zm),
 			.groups="drop"
 		),
 		by = join_by(run_id,movie_id)
-)
+  ) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_queryspacebases.passalignmentfilter = sum(qwidth),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  ) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_refspacebases.passalignmentfilter = sum(end-start),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  )
 
 # Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal or both plus and minus strand alignments)
 
@@ -239,18 +279,38 @@ bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokee
  # Remove intermediate objects
 rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
 
-# Count number of molecules per run
+# Count number of remaining molecules and query space and reference space bases per run
 molecule_stats <- molecule_stats %>%
 	left_join(
 		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 			as_tibble %>%
 			group_by(run_id,movie_id) %>%
 			summarize(
-				num_molecules_postminstrandoverlap = n_distinct(zm),
+				num_molecules.passminstrandoverlapfilter = n_distinct(zm),
 				.groups="drop"
 			),
 		by = join_by(run_id,movie_id)
-	)
+	) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_queryspacebases.passminstrandoverlapfilter = sum(qwidth),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  ) %>%
+  left_join(
+    bam.gr %>%
+      as_tibble %>%
+      group_by(run_id,movie_id) %>%
+      summarize(
+        num_refspacebases.passminstrandoverlapfilter = sum(end-start),
+        .groups="drop"
+      ),
+    by = join_by(run_id,movie_id)
+  )
 
 cat("DONE\n")
 

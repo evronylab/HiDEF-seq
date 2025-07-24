@@ -111,26 +111,26 @@ for(i in 1:nrow(vcf_files_individual)){
   	separate(AD,c("AD1","AD2"),",",convert=TRUE) %>%
   	mutate(Depth=AD1+AD2, VAF=AD2/Depth) %>%
   	mutate(
-  	  variant_class = if_else(nchar(REF)==1 & nchar(ALT)==1,"SBS","indel") %>% factor,
-  		variant_type = case_when(
-  		  variant_class == "SBS" ~ "SBS",
-  		  variant_class == "indel" & (nchar(REF) - nchar(ALT) < 0) ~ "insertion",
-  		  variant_class == "indel" & (nchar(REF) - nchar(ALT) > 0) ~ "deletion"
+  	  call_class = if_else(nchar(REF)==1 & nchar(ALT)==1,"SBS","indel") %>% factor,
+  		call_type = case_when(
+  		  call_class == "SBS" ~ "SBS",
+  		  call_class == "indel" & (nchar(REF) - nchar(ALT) < 0) ~ "insertion",
+  		  call_class == "indel" & (nchar(REF) - nchar(ALT) > 0) ~ "deletion"
   			) %>%
   			factor,
   		SBSindel_call_type = "mutation" %>% factor,
   		CHROM = factor(CHROM),
   		POS = as.numeric(POS),
-  		start_refspace = if_else(variant_type %in% c("deletion","insertion"), POS + 1, POS),
-  		end_refspace = if_else(variant_type == "deletion", POS + nchar(REF) - nchar(ALT), POS),
+  		start_refspace = if_else(call_type %in% c("deletion","insertion"), POS + 1, POS),
+  		end_refspace = if_else(call_type == "deletion", POS + nchar(REF) - nchar(ALT), POS),
   		REF = case_when(
-  		  variant_type == "insertion" ~ "",
-  		  variant_type == "deletion" ~ str_sub(REF,2),
+  		  call_type == "insertion" ~ "",
+  		  call_type == "deletion" ~ str_sub(REF,2),
   		  .default = REF
   		  ),
   		ALT = case_when(
-  		  variant_type == "insertion" ~ str_sub(ALT,2),
-  		  variant_type == "deletion" ~ "",
+  		  call_type == "insertion" ~ str_sub(ALT,2),
+  		  call_type == "deletion" ~ "",
   		  .default = ALT
   		),
   		QUAL = as.numeric(QUAL),

@@ -1,10 +1,10 @@
 #!/usr/bin/env -S Rscript --vanilla
 
-#filterVariants.R:
-# Filters variants
-# Note: for all newly created 'passfilter' columns, TRUE = read/variant successfully passed the filter and should be analyzed.
+#filterCalls.R:
+# Filters calls
+# Note: for all newly created 'passfilter' columns, TRUE = read/call successfully passed the filter and should be analyzed.
 
-cat("#### Running filterVariants ####\n")
+cat("#### Running filterCalls ####\n")
 
 ######################
 ### Load required libraries
@@ -35,7 +35,7 @@ option_list = list(
 	make_option(c("-c", "--config"), type = "character", default=NULL,
 							help="path to YAML configuration file"),
 	make_option(c("-f", "--file"), type = "character", default=NULL,
-							help="path to extractVariants qs2 file"),
+							help="path to extractCalls qs2 file"),
 	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
 							help="sample_id to analyze"),
 	make_option(c("-g", "--chromgroup_toanalyze"), type = "character", default=NULL,
@@ -53,7 +53,7 @@ if(is.na(opt$config) | is.na(opt$file) | is.na(opt$sample_id_toanalyze) | is.na(
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
-extractVariantsFile <- opt$file
+extractCallsFile <- opt$file
 sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
@@ -94,8 +94,8 @@ germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value)
 
- #variant types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
-variant_types_toanalyze <- yaml.config$variant_types %>%
+ #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
+call_types_toanalyze <- yaml.config$call_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
   unnest_longer(SBSindel_call_types) %>%
@@ -104,7 +104,7 @@ variant_types_toanalyze <- yaml.config$variant_types %>%
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
 		) %>%
-	pull(variant_type) %>%
+	pull(call_type) %>%
   unique
   
  #filter group parameters (restrict to selected filtergroup_toanalyze)
@@ -140,7 +140,7 @@ region_genome_filters_config <- yaml.config$region_filters %>%
 
 #Display basic configuration parameters
 cat("> Processing:\n")
-cat("    extractVariants File:",extractVariantsFile,"\n")
+cat("    extractCalls File:",extractCallsFile,"\n")
 cat("    individual_id:",individual_id_toanalyze,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 cat("    chromgroup:",chromgroup_toanalyze,"\n")
@@ -211,33 +211,33 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
 }
 
 ######################
-### Load read and extracted variant information
+### Load read and extracted call information
 ######################
-cat("## Loading reads and extracted variants...")
+cat("## Loading reads and extracted calls...")
 
-#Load extractedVariants RDS file
-extractedVariants <- qs_read(extractVariantsFile)
+#Load extractedCalls RDS file
+extractedCalls <- qs_read(extractCallsFile)
 
 #Load bam reads as tibble, keeping only reads in selected chroms_toanalyze. Note, this transforms qual from PhredQuality to list.
-bam <- extractedVariants %>%
+bam <- extractedCalls %>%
 	pluck("bam.gr") %>%
 	filter(
 		seqnames %in% chroms_toanalyze
 	) %>%
 	as_tibble
 
-#Load variants as tibble, keeping only variants in selected chroms_toanalyze with variant_type in variant_types_toanalyze (i.e. variant_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or variant_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark variants with variant_type in variant_types_toanalyze with a new column variant_type_toanalyze = TRUE.
-variants <- extractedVariants %>%
-	pluck("variants.gr") %>%
-  mutate(variant_type_toanalyze = if_else(variant_type %in% !!variant_types_toanalyze, TRUE, FALSE)) %>%
+#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE.
+calls <- extractedCalls %>%
+	pluck("calls.gr") %>%
+  mutate(call_type_toanalyze = if_else(call_type %in% !!call_types_toanalyze, TRUE, FALSE)) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
-	  variant_type_toanalyze == TRUE | variant_class %in% c("SBS","indel")
+	  call_type_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		) %>%
   as_tibble
 
 #Load prior molecule stats
-molecule_stats <- extractedVariants %>%
+molecule_stats <- extractedCalls %>%
 	pluck("molecule_stats")
 
 #Create tibble to track genome region filter stats
@@ -314,28 +314,28 @@ bam <- bam %>%
 bam <- bam %>%
 	left_join(
 		
-		#Input all SBS and indel variants, not just variant_types being analyzed in this run, as the filters being calculated are used for general molecule filters that require info on both SBS and indels
-		extractedVariants %>%
-			pluck("variants.gr") %>%
+		#Input all SBS and indel calls, not just call_types being analyzed in this run, as the filters being calculated are used for general molecule filters that require info on both SBS and indels
+		extractedCalls %>%
+			pluck("calls.gr") %>%
 			as_tibble %>%
 			
 			#Count number of SBS and indel calls per strand
 			filter(
 			  seqnames %in% chroms_toanalyze,
-			  variant_class %in% c("SBS","indel")
+			  call_class %in% c("SBS","indel")
 			  ) %>%
 		  
-		  #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{variant_class}calls are calculated correctly
+		  #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
 			mutate(
 			  strand = strand %>% factor(levels=c("+","-")),
-			  variant_class = variant_class %>% factor(levels=c("SBS","indel"))
+			  call_class = call_class %>% factor(levels=c("SBS","indel"))
 			  ) %>% 
-			count(run_id,zm,strand,variant_class) %>%
-		  complete(nesting(run_id,zm), strand, variant_class, fill = list(n=0)) %>%
+			count(run_id,zm,strand,call_class) %>%
+		  complete(nesting(run_id,zm), strand, call_class, fill = list(n=0)) %>%
 			pivot_wider(
-				names_from=variant_class,
+				names_from=call_class,
 				values_from=n,
-				names_glue = "num_{variant_class}calls"
+				names_glue = "num_{call_class}calls"
 				) %>%
 			
 			#Calculate filters for each molecule
@@ -378,29 +378,29 @@ bam <- bam %>%
 bam <- bam %>%
 	left_join(
 		
-		#Input all variants, not just variant_types being analyzed, as this is used for general molecule filters that require info on SBS and indels
-		extractedVariants %>%
-			pluck("variants.gr") %>%
+		#Input all calls, not just call_types being analyzed, as this is used for general molecule filters that require info on SBS and indels
+		extractedCalls %>%
+			pluck("calls.gr") %>%
 			as_tibble %>%
 			
 			#Count number of SBS and indel mutations per molecule
 			filter(
 			  seqnames %in% chroms_toanalyze,
-				variant_class %in% c("SBS","indel"),
+				call_class %in% c("SBS","indel"),
 				SBSindel_call_type == "mutation"
 				) %>%
 		  
-		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
+		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
 		  mutate(
-		    variant_class = variant_class %>% factor(levels=c("SBS","indel")),
+		    call_class = call_class %>% factor(levels=c("SBS","indel")),
 		    SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
 		  ) %>% 
-		  count(run_id,zm,variant_class,SBSindel_call_type) %>%
-		  complete(nesting(run_id,zm), variant_class, SBSindel_call_type, fill = list(n=0)) %>%
+		  count(run_id,zm,call_class,SBSindel_call_type) %>%
+		  complete(nesting(run_id,zm), call_class, SBSindel_call_type, fill = list(n=0)) %>%
 			pivot_wider(
-				names_from=variant_class,
+				names_from=call_class,
 				values_from=n,
-				names_glue = "num_{variant_class}mutations"
+				names_glue = "num_{call_class}mutations"
 			) %>%
 			
 			#Calculate filters for each molecule
@@ -425,7 +425,7 @@ bam <- bam %>%
 		,by = join_by(run_id,zm)
 	)
 
-#Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
+#Replace NA with TRUE for read filters, since some molecules had no SBS or indel calls called.
 bam <- bam %>%
   mutate(
     across(
@@ -433,8 +433,8 @@ bam <- bam %>%
     )
   )
 
-#Annotate variants with read filters
-variants <- variants %>%
+#Annotate calls with read filters
+calls <- calls %>%
   left_join(
     bam %>%
       distinct(
@@ -468,7 +468,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
       x %>%
         filter(
           (
-            variant_class == "SBS" &
+            call_class == "SBS" &
               FILTER %in% (filters$SBS_FILTERS %>% unlist) &
               Depth >= filters$SBS_min_Depth &
               GQ >= filters$SBS_min_GQ &
@@ -476,7 +476,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
               QUAL >= filters$SBS_min_QUAL
           ) |
           (
-            variant_class == "indel" &
+            call_class == "indel" &
               FILTER %in% (filters$indel_FILTERS %>% unlist) &
               Depth >= filters$indel_min_Depth &
               GQ >= filters$indel_min_GQ &
@@ -489,8 +489,8 @@ germline_vcf_variants <- germline_vcf_variants  %>%
     }
   )
 
-#Annotate calls matching germline VCF variants, and for MDB variants set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
-variants <- variants %>%
+#Annotate calls matching germline VCF variants, and for MDB calls set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
+calls <- calls %>%
   left_join(
     germline_vcf_variants %>%
       bind_rows(.id="germline_vcf_type") %>%
@@ -504,7 +504,7 @@ variants <- variants %>%
   ) %>%
   mutate(
     germline_vcf.passfilter = germline_vcf.passfilter %>% replace_na(TRUE),
-    germline_vcf.passfilter = if_else(variant_class == "MDB", TRUE, germline_vcf.passfilter)
+    germline_vcf.passfilter = if_else(call_class == "MDB", TRUE, germline_vcf.passfilter)
     )
 
 cat("DONE\n")
@@ -519,23 +519,23 @@ bam <- bam %>%
   left_join(
     
     #Filter to keep SBS and indel calls that pass all filters applied so far
-    variants %>%
+    calls %>%
       filter(
-        variant_class %in% c("SBS","indel"),
+        call_class %in% c("SBS","indel"),
         if_all(contains("passfilter"), ~ .x == TRUE)
       ) %>%
       
-      #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{variant_class}calls are calculated correctly
+      #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
       mutate(
         strand = strand %>% factor(levels=c("+","-")),
-        variant_class = variant_class %>% factor(levels=c("SBS","indel"))
+        call_class = call_class %>% factor(levels=c("SBS","indel"))
       ) %>% 
-      count(run_id,zm,strand,variant_class) %>%
-      complete(nesting(run_id,zm), strand, variant_class, fill = list(n=0)) %>%
+      count(run_id,zm,strand,call_class) %>%
+      complete(nesting(run_id,zm), strand, call_class, fill = list(n=0)) %>%
       pivot_wider(
-        names_from=variant_class,
+        names_from=call_class,
         values_from=n,
-        names_glue = "num_{variant_class}calls"
+        names_glue = "num_{call_class}calls"
       ) %>%
       
       #Calculate filters for each molecule
@@ -565,24 +565,24 @@ bam <- bam %>%
   left_join(
     
     #Filter to keep SBS and indel calls that pass all filters applied so far
-    variants %>%
+    calls %>%
       filter(
-        variant_class %in% c("SBS","indel"),
+        call_class %in% c("SBS","indel"),
         SBSindel_call_type == "mutation",
         if_all(contains("passfilter"), ~ .x == TRUE)
       ) %>%
       
-      #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{variant_class}mutations are calculated correctly
+      #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
       mutate(
-        variant_class = variant_class %>% factor(levels=c("SBS","indel")),
+        call_class = call_class %>% factor(levels=c("SBS","indel")),
         SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
       ) %>% 
-      count(run_id,zm,variant_class,SBSindel_call_type) %>%
-      complete(nesting(run_id,zm), variant_class, SBSindel_call_type, fill = list(n=0)) %>%
+      count(run_id,zm,call_class,SBSindel_call_type) %>%
+      complete(nesting(run_id,zm), call_class, SBSindel_call_type, fill = list(n=0)) %>%
       pivot_wider(
-        names_from=variant_class,
+        names_from=call_class,
         values_from=n,
-        names_glue = "num_{variant_class}mutations"
+        names_glue = "num_{call_class}mutations"
       ) %>%
       
       #Calculate filters for each molecule
@@ -607,7 +607,7 @@ bam <- bam %>%
     ,by = join_by(run_id,zm)
   )
 
-#Replace NA with TRUE for read filters, since some molecules had no SBS or indel variants called.
+#Replace NA with TRUE for read filters, since some molecules had no SBS or indel calls called.
 bam <- bam %>%
   mutate(
     across(
@@ -615,8 +615,8 @@ bam <- bam %>%
     )
   )
 
-#Annotate variants with new read filters
-variants <- variants %>%
+#Annotate calls with new read filters
+calls <- calls %>%
   left_join(
     bam %>%
       distinct(
@@ -710,8 +710,8 @@ for(i in seq_len(nrow(region_read_filters_config))){
 
 rm(bam.gr.onlyranges, region_read_filter)
 
-#Annotate variants with new read filters
-variants <- variants %>%
+#Annotate calls with new read filters
+calls <- calls %>%
   left_join(
     bam %>%
       distinct(
@@ -803,8 +803,8 @@ cat("DONE\n")
 
 cat("## Formatting data for subsequent filters...")
 
-#Convert variants tibble back to GRanges
-variants.gr <- variants %>%
+#Convert calls tibble back to GRanges
+calls.gr <- calls %>%
 	makeGRangesFromDataFrame(
 		keep.extra.columns = TRUE,
 		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
@@ -865,10 +865,10 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 		GRanges_subtract(region_genome_filter)
 	
-	#Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Annotates final result with a tibble join instead of with the GRanges join due to some variants that overlap > 1 region genome filter range.
-	variants <- variants %>%
+	#Annotate filtered calls. Annotates even if partial overlap (relevant for deletions). Annotates final result with a tibble join instead of with the GRanges join due to some calls that overlap > 1 region genome filter range.
+	calls <- calls %>%
 		left_join(
-			variants.gr %>%
+			calls.gr %>%
 				join_overlap_left(region_genome_filter) %>%
 				as_tibble %>%
 				mutate(across(
@@ -920,10 +920,10 @@ bam.gr.filtertrack <- bam.gr.filtertrack %>%
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 	GRanges_subtract(region_genome_filter)
 
-#Annotate filtered variants. Annotates even if partial overlap (relevant for deletions). Performed with a tibble join instead of with GRanges join due to some variants that overlap > 1 region genome filter range.
-variants <- variants %>%
+#Annotate filtered calls. Annotates even if partial overlap (relevant for deletions). Performed with a tibble join instead of with GRanges join due to some calls that overlap > 1 region genome filter range.
+calls <- calls %>%
 	left_join(
-		variants.gr %>%
+		calls.gr %>%
 			join_overlap_left(region_genome_filter) %>%
 			as_tibble %>%
 			mutate(across(
@@ -1013,16 +1013,16 @@ min_qual.fail.gr <- mapFromAlignments( #Main function
     seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   )
 
-#Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how variants are filtered.
+#Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(min_qual.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
-#Annotate variants below min_qual threshold. If either strand fails the filter, both strands are set to fail. If any qual value in the opposite strand is NA, consider that failure to pass the filter.
+#Annotate calls below min_qual threshold. If either strand fails the filter, both strands are set to fail. If any qual value in the opposite strand is NA, consider that failure to pass the filter.
 if(! filtergroup_toanalyze_config$min_qual_method %in% c("mean","all","any")){
   stop("Incorrect min_qual_method setting!")
 }
 
-variants <- variants %>%
+calls <- calls %>%
   mutate(min_qual.passfilter =
            if(filtergroup_toanalyze_config$min_qual_method=="mean"){
              qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
@@ -1083,14 +1083,14 @@ bam.gr.trim <- c(
 
 rm(bam.gr.onlyranges)
 
-#Subtract bases filtered by read_trim_bp from bam reads filter tracker, joining on run_id and zm. If a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how variants are filtered.
+#Subtract bases filtered by read_trim_bp from bam reads filter tracker, joining on run_id and zm. If a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(bam.gr.trim, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
-#Annotate variants filtered by read_trim_bp without taking strand into account, so that if a variant on either strand fails the filter, variants on both strands fail the filter.
-variants <- variants %>%
+#Annotate calls filtered by read_trim_bp without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter.
+calls <- calls %>%
   left_join(
-    variants.gr %>%
+    calls.gr %>%
       select(run_id,zm) %>%
       join_overlap_inner(bam.gr.trim, suffix = c("",".trim")) %>% #strand ignored
       filter(
@@ -1100,7 +1100,7 @@ variants <- variants %>%
       as_tibble %>%
       select(-run_id.trim,-zm.trim,-width) %>%
       distinct,
-    by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since variants on both strands were annotated in the join_overlap_inner step
+    by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
   ) %>%
   mutate(read_trim_bp.passfilter = read_trim_bp.passfilter %>% replace_na(TRUE))
 
@@ -1151,7 +1151,7 @@ cat("DONE\n")
 ######################
 cat("## Applying duplex coverage filters...")
 
-##Annotate which variants have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker.
+##Annotate which calls have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker.
 
 cat("DONE\n")
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env -S Rscript --vanilla
 
-#extractVariants.R:
-# Perform initial molecule filtering and extract variants, including all variant information required for analysis.  
-# Note: extracts variants of all variant_types across all chromosomes, not just those in configured chromgroups. filterVariants then removes variants outside configured chromgroups.
+#extractCalls.R:
+# Perform initial molecule filtering and extract calls, including all call information required for analysis.  
+# Note: extracts calls of all call_types across all chromosomes, not just those in configured chromgroups. filterCalls then removes calls outside configured chromgroups.
 
-cat("#### Running extractVariants ####\n")
+cat("#### Running extractCalls ####\n")
 
 ######################
 ### Load required libraries
@@ -53,15 +53,15 @@ outputFile <- opt$output
 #General parameters
 strand_levels <- c("+","-")
 
-#Load variant types, and filter to make a table only for MDB variant types
-variant_types <- yaml.config$variant_types %>%
+#Load call types, and filter to make a table only for MDB call types
+call_types <- yaml.config$call_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
   unnest_longer(SBSindel_call_types) %>%
   unnest_wider(SBSindel_call_types)
 
-variant_types_MDB <- variant_types %>%
-  filter(variant_class == "MDB")
+call_types_MDB <- call_types %>%
+  filter(call_class == "MDB")
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -115,7 +115,7 @@ bam <- bamFile %>%
       what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
       tag=c(
         "ec","np","rq","zm","sa","sm","sx","RG",
-        variant_types_MDB %>% pluck("variant_bam_scoretag")
+        call_types_MDB %>% pluck("call_bam_scoretag")
         )
     )
   ) %>%
@@ -315,15 +315,15 @@ molecule_stats <- molecule_stats %>%
 cat("DONE\n")
 
 ######################
-### Define function to extract variants
+### Define function to extract calls
 ######################
-extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant_class.input, variant_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
-  #cigar.ops.input for the variant_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
+extract_calls <- function(bam.gr.input, sa.input, sm.input, sx.input, call_class.input, call_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
+  #cigar.ops.input for the call_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
   #score_bamtag.input: tag in the BAM file containing the MDB score data (MDB only)
   #score_min.input: minimum score of MDBs to extract (MDB only)
   
-  #Initialize empty variants tibble
-  variants.out <- tibble(
+  #Initialize empty calls tibble
+  calls.out <- tibble(
     zm=integer(),
     seqnames=factor(),
     strand=factor(),
@@ -342,35 +342,35 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     sm.opposite_strand=list(),
     sx=list(),
     sx.opposite_strand=list(),
-    variant_class=factor(),
-    variant_type=factor(),
+    call_class=factor(),
+    call_type=factor(),
     indel_width=integer()
     )
   
-  #Extract variant positions
-  if(variant_class.input %in% c("SBS","indel")){
+  #Extract call positions
+  if(call_class.input %in% c("SBS","indel")){
     
-    #Extract variant positions in query space, and name variants with the position to retain this in the final data frame
+    #Extract call positions in query space, and name calls with the position to retain this in the final data frame
     cigar.queryspace.var <- cigarRangesAlongQuerySpace(bam.gr.input$cigar,ops=cigar.ops.input)
     cigar.queryspace.var <- cigar.queryspace.var %>%
       unlist(use.names=FALSE) %>%
       setNames(str_c(start(.),end(.),sep="_")) %>%
       relist(.,cigar.queryspace.var)
     
-    #Extract variant positions in reference space
+    #Extract call positions in reference space
     cigar.refspace.var <- cigarRangesAlongReferenceSpace(bam.gr.input$cigar,ops=cigar.ops.input,pos=start(bam.gr.input))
     
-  }else if(variant_class.input == "MDB"){
+  }else if(call_class.input == "MDB"){
     
   }
   
-  #Check if no variants
+  #Check if no calls
   if(cigar.queryspace.var %>% as.data.frame %>% nrow == 0){
-    cat("  No variants extracted of type",vartype_label,"!\n")
-    return(variants.out)
+    cat("  No calls extracted of type",vartype_label,"!\n")
+    return(calls.out)
   }
   
-  #Variant positions in query space
+  #Call positions in query space
   # Note for indels: in query space, deletion width = 0.
   var_queryspace <- cigar.queryspace.var %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
@@ -385,7 +385,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       end_queryspace = end
       )
   
-  if(variant_class.input %in% c("SBS","MDB")){
+  if(call_class.input %in% c("SBS","MDB")){
     var_queryspace <- var_queryspace %>%
       uncount(weights=width) %>%
       select(zm,strand,start_queryspace) %>%
@@ -395,7 +395,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
         end_queryspace = start_queryspace
       ) %>%
       ungroup
-  }else if(variant_class.input == "indel"){
+  }else if(call_class.input == "indel"){
     var_queryspace <- var_queryspace %>%
       rename(insertion_width = width) %>%
       mutate(insertion_width = insertion_width %>% na_if(0)) %>%
@@ -403,7 +403,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       as_tibble
   }
   
-  #Variant positions in reference space, annotated with positions in query space for later joining
+  #Call positions in reference space, annotated with positions in query space for later joining
   # Note for indels: in reference space, insertion width = 0.
   var_refspace <- cigar.refspace.var %>%
     unlist(use.names=FALSE) %>%
@@ -434,7 +434,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       by = join_by(zm)
     )
   
-  if(variant_class.input %in% c("SBS","MDB")){
+  if(call_class.input %in% c("SBS","MDB")){
     var_refspace <- var_refspace %>%
       uncount(weights=width) %>%
       select(zm,strand,start_refspace,start_queryspace,seqnames) %>%
@@ -446,7 +446,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
         end_queryspace = start_queryspace
       ) %>%
       ungroup
-  }else if(variant_class.input == "indel"){
+  }else if(call_class.input == "indel"){
     var_refspace <- var_refspace %>%
       rename(deletion_width = width) %>%
       mutate(deletion_width = deletion_width %>% na_if(0)) %>%
@@ -456,7 +456,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   rm(cigar.refspace.var)
   
-  #Variant REF base sequences, relative to reference plus strand
+  #Call REF base sequences, relative to reference plus strand
   var_refspace$ref_plus_strand <- var_refspace %>%
     mutate(strand="+") %>%
     makeGRangesFromDataFrame(
@@ -469,7 +469,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
     as.character
   
-  #Variant ALT base sequences, relative to reference plus strand
+  #Call ALT base sequences, relative to reference plus strand
   var_alt <- extractAt(bam.gr.input$seq,cigar.queryspace.var) %>%
     as("CharacterList") %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
@@ -485,7 +485,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       end_queryspace = as.integer(end_queryspace)
     )
   
-  if(variant_class.input %in% c("SBS","MDB")){
+  if(call_class.input %in% c("SBS","MDB")){
     var_alt <- var_alt %>%
       separate_longer_position(alt_plus_strand,width=1) %>%
       group_by(zm,strand,start_queryspace) %>%
@@ -496,10 +496,10 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       ungroup
   }
   
-  #Variant base qualities
-  if(variant_class.input %in% c("SBS","MDB")){
+  #Call base qualities
+  if(call_class.input %in% c("SBS","MDB")){
     cigar.queryspace.var.forqualdata <- cigar.queryspace.var
-  }else if(variant_class.input == "indel"){
+  }else if(call_class.input == "indel"){
     #Indel base qualities. For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
     cigar.queryspace.var.forqualdata <- cigar.queryspace.var %>% unlist
     deletionidx <- start(cigar.queryspace.var.forqualdata) > end(cigar.queryspace.var.forqualdata)
@@ -527,7 +527,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       end_queryspace = as.integer(end_queryspace)
     )
   
-  if(variant_class.input %in% c("SBS","MDB")){
+  if(call_class.input %in% c("SBS","MDB")){
     var_qual <- var_qual %>%
       separate_longer_position(qual,width=1) %>%
       group_by(zm,strand,start_queryspace) %>%
@@ -549,10 +549,10 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   rm(cigar.queryspace.var)
   
-  #Variant base qualities in opposite strand (matched via reference space).
-  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the variant in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the variant in reference space, or left and right flanking bases if opposite strand query space width = 0. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from variant strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which variants are mutations (i.e., on both strands), we reassign opposite strand data for each variant from the variant call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
+  #Call base qualities in opposite strand (matched via reference space).
+  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space, or left and right flanking bases if opposite strand query space width = 0. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
   #Set missing values to NA (for example, an SBS across from a deletion).
-   #Make GRanges of variant locations in reference space.
+   #Make GRanges of call locations in reference space.
   var_refspace.gr <- var_refspace %>%
     select(-ref_plus_strand) %>%
     makeGRangesFromDataFrame(
@@ -564,7 +564,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
     )
   
-   #Make GRanges of bam reads parallel to variant refspace GRanges, but matching to the opposite strand read from the variant
+   #Make GRanges of bam reads parallel to call refspace GRanges, but matching to the opposite strand read from the call
   bam.gr.input.opposite_strand.parallel_to_var_refspace <- bam.gr.input %>%
     select(zm, cigar, qual) %>%
     mutate(
@@ -580,7 +580,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       )
     )
   
-   #Convert variants from reference space to query space of opposite strand
+   #Convert calls from reference space to query space of opposite strand
   vars_queryspace.opposite_strand <- var_refspace.gr %>%
     pmapToAlignments(bam.gr.input.opposite_strand.parallel_to_var_refspace %>% as("GAlignments")) %>%
     setNames(str_c(var_refspace.gr$start_queryspace, var_refspace.gr$end_queryspace,sep="_")) %>%
@@ -588,7 +588,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     filter(seqnames != "UNMAPPED")
   
   #For indels, if opposite strand query space width = 0, swap start/end to get flanking bases.
-  if(variant_class.input == "indel"){
+  if(call_class.input == "indel"){
     vars_queryspace.opposite_strand <- vars_queryspace.opposite_strand %>%
       mutate(
         start_tmp = start,
@@ -639,10 +639,10 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   #Extract sa/sm/sx tags
   # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
-  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the variant in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the variant in reference space. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from variant strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which variants are mutations (i.e., on both strands), we reassign opposite strand data for each variant from the variant call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
+  #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
   
-  if(variant_class.input %in% c("SBS","MDB")){
-    #Convert variant positions in query space to list for faster retrieval below of sa, sm, sx tags
+  if(call_class.input %in% c("SBS","MDB")){
+    #Convert call positions in query space to list for faster retrieval below of sa, sm, sx tags
     var_queryspace.list <- var_queryspace %>%
       mutate(zm_strand = str_c(zm,strand,sep="_")) %>%
       select(zm_strand,start_queryspace) %>%
@@ -685,7 +685,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
             !!tag.input := .data[[tag.input]] %>% as.list %>% set_names(NULL)
           )
       
-      #Convert query space coordinate of opposite strand to variant strand (if extracting opposite strand data)
+      #Convert query space coordinate of opposite strand to call strand (if extracting opposite strand data)
       if(!is.null(vars_queryspace.coordconversion.input)){
         result <- result  %>%
           rename(
@@ -744,7 +744,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
     
     rm(var_queryspace.list, var_queryspace.opposite_strand.list, vars_queryspace.coordconversion)
     
-  }else if(variant_class.input == "indel"){
+  }else if(call_class.input == "indel"){
     #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
     # Flatten indel ranges, annotate with start_end_queryspace, then expand the ranges into the needed query_pos, preserving start_end_queryspace.
     indels_queryspace_pos <- cigar.queryspace.var.forqualdata %>%
@@ -827,9 +827,9 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   
   rm(sa.input, sm.input, sx.input)
   
-  #Combine variant info with prior empty initialized tibble and return result
-  if(variant_class.input %in% c("SBS","MDB")){
-    variants.out <- variants.out %>%
+  #Combine call info with prior empty initialized tibble and return result
+  if(call_class.input %in% c("SBS","MDB")){
+    calls.out <- calls.out %>%
       bind_rows(
         var_queryspace %>%
           left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
@@ -843,8 +843,8 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
           left_join(var_sx, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
           left_join(var_sx.opposite_strand, by=join_by(zm,strand,start_queryspace,end_queryspace))
       )
-  }else if(variant_class.input == "indel"){
-    variants.out <- variants.out %>%
+  }else if(call_class.input == "indel"){
+    calls.out <- calls.out %>%
       bind_rows(
         var_queryspace %>%
           left_join(var_refspace, by=join_by(zm,strand,start_queryspace,end_queryspace)) %>%
@@ -861,7 +861,7 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
   }
   
   #Replace NA/NULL opposite strand values with list(NA)
-  variants.out <- variants.out %>%
+  calls.out <- calls.out %>%
     mutate(
       across(
         c(qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, sx.opposite_strand),
@@ -869,27 +869,27 @@ extract_variants <- function(bam.gr.input, sa.input, sm.input, sx.input, variant
       )
     )
   
-  #Set variant_class and variant_type
-  variants.out <- variants.out %>%
+  #Set call_class and call_type
+  calls.out <- calls.out %>%
     mutate(
-      variant_class = !!variant_class.input %>% factor,
-      variant_type = !!variant_type.input %>% factor
+      call_class = !!call_class.input %>% factor,
+      call_type = !!call_type.input %>% factor
       )
   
-  return(variants.out)
+  return(calls.out)
 
 }
 
 
 #########################################
-### Loop to extract variants from each run_id/movie_id separately
+### Loop to extract calls from each run_id/movie_id separately
 #########################################
 
 #Split bam.gr by run_id
 bam.gr <- bam.gr %>% split(bam.gr$run_id)
 
 #Create output list
-variants.df <- list()
+calls.df <- list()
 
 for(i in bam.gr %>% names){
 
@@ -934,18 +934,18 @@ for(i in bam.gr %>% names){
   cat("DONE\n")
   
   ######################
-  ### Extract variants
+  ### Extract calls
   ######################
   cat(" ## Extracting single base substitutions...")
   
   #SBS
-  variants.df[[i]] <- extract_variants(
+  calls.df[[i]] <- extract_calls(
     bam.gr.input = bam.gr[[i]],
     sa.input = sa,
     sm.input = sm,
     sx.input = sx,
-    variant_class.input = "SBS",
-    variant_type.input = "SBS",
+    call_class.input = "SBS",
+    call_type.input = "SBS",
     cigar.ops.input = "X"
     )
   
@@ -954,15 +954,15 @@ for(i in bam.gr %>% names){
   #Insertions
   cat(" ## Extracting insertions...")
   
-  variants.df[[i]] <- variants.df[[i]] %>%
+  calls.df[[i]] <- calls.df[[i]] %>%
     bind_rows(
-      extract_variants(
+      extract_calls(
         bam.gr.input = bam.gr[[i]],
         sa.input = sa,
         sm.input = sm,
         sx.input = sx,
-        variant_class.input = "indel",
-        variant_type.input = "insertion",
+        call_class.input = "indel",
+        call_type.input = "insertion",
         cigar.ops.input = c("I")
       )
     )
@@ -972,15 +972,15 @@ for(i in bam.gr %>% names){
   #Deletions
   cat(" ## Extracting deletions...")
   
-  variants.df[[i]] <- variants.df[[i]] %>%
+  calls.df[[i]] <- calls.df[[i]] %>%
     bind_rows(
-      extract_variants(
+      extract_calls(
         bam.gr.input = bam.gr[[i]],
         sa.input = sa,
         sm.input = sm,
         sx.input = sx,
-        variant_class.input = "indel",
-        variant_type.input = "deletion",
+        call_class.input = "indel",
+        call_type.input = "deletion",
         cigar.ops.input = c("D")
       )
     )
@@ -989,21 +989,21 @@ for(i in bam.gr %>% names){
   
   
   #MDBs
-  for(j in seq_len(nrow(variant_types_MDB))){
+  for(j in seq_len(nrow(call_types_MDB))){
     
-    cat(" ## Extracting",variant_types_MDB %>% pluck("variant_type",j),"...")
+    cat(" ## Extracting",call_types_MDB %>% pluck("call_type",j),"...")
     
-    variants.df[[i]] <- variants.df[[i]] %>%
+    calls.df[[i]] <- calls.df[[i]] %>%
       bind_rows(
-        extract_variants(
+        extract_calls(
           bam.gr.input = bam.gr[[i]],
           sa.input = sa,
           sm.input = sm,
           sx.input = sx,
-          variant_class.input = "MDB",
-          variant_type.input = variant_types_MDB %>% pluck("variant_type",j),
-          variant_bam_scoretag.input = variant_types_MDB %>% pluck("variant_bam_scoretag",j),
-          variant_bam_scoretag_min.input = variant_types_MDB %>% pluck("variant_bam_scoretag_min",j)
+          call_class.input = "MDB",
+          call_type.input = call_types_MDB %>% pluck("call_type",j),
+          call_bam_scoretag.input = call_types_MDB %>% pluck("call_bam_scoretag",j),
+          call_bam_scoretag_min.input = call_types_MDB %>% pluck("call_bam_scoretag_min",j)
         )
       )
     
@@ -1013,25 +1013,25 @@ for(i in bam.gr %>% names){
 }
 
 ######################
-### Further annotate variants
+### Further annotate calls
 ######################
-cat("## Further annotating variants...")
+cat("## Further annotating calls...")
 
 #Collapse bam.gr back to a single GRanges object and remove seq data that is no longer needed
 bam.gr <- bam.gr %>% unlist(use.names=F)
 bam.gr$seq <- NULL
 
-#Combine variant calls of all runs
-variants.df <- variants.df %>%
+#Combine call calls of all runs
+calls.df <- calls.df %>%
   bind_rows(.id="run_id") %>%
   mutate(run_id=factor(run_id))
 
-#Annotate for each variants its trinucleotide context when variant_class = SBS or MDB. For indels, this is set to NA.
-variants.df <- variants.df %>%
+#Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
+calls.df <- calls.df %>%
 	left_join(
-		variants.df %>%
-			filter(variant_class %in% c("SBS","MDB")) %>%
-			select(seqnames,start_refspace,end_refspace,variant_class) %>%
+		calls.df %>%
+			filter(call_class %in% c("SBS","MDB")) %>%
+			select(seqnames,start_refspace,end_refspace,call_class) %>%
 			distinct %>%
 
 			#Make GRanges of trinculeotide positions
@@ -1064,11 +1064,11 @@ variants.df <- variants.df %>%
 			) %>%
 			select(-width,-strand)
 		,
-		by = join_by(seqnames,start_refspace,end_refspace,variant_class)
+		by = join_by(seqnames,start_refspace,end_refspace,call_class)
 	)
 
-#Annotate for each variants its ref, alt, and trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
-variants.df <- variants.df %>%
+#Annotate for each calls its ref, alt, and trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
+calls.df <- calls.df %>%
 	mutate(
 		ref_minus_strand = ref_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
 		ref_synthesized_strand = if_else(strand=="+",ref_plus_strand,ref_minus_strand),
@@ -1083,18 +1083,18 @@ variants.df <- variants.df %>%
 	) %>%
 	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand))
 
-#Annotate for each variant (for all variant classes: SBS, indel, MDB) the base sequence on the opposite strand based on reference space coordinates, taking into account if there was an SBS or an indel called on the opposite strand, regardless if there was an MDB called on the opposite strand.
+#Annotate for each call (for all call classes: SBS, indel, MDB) the base sequence on the opposite strand based on reference space coordinates, taking into account if there was an SBS or an indel called on the opposite strand, regardless if there was an MDB called on the opposite strand.
 # Possible overlaps are SBS/MDB with SBS, SBS/MDB with deletion, insertion with insertion, insertion with deletion, deletion with SBS, deletion with insertion, deletion with deletion.
 # If a deletion on the opposite strand only partially overlaps an analyzed deletion, annotate it as a deletion on the opposite strand.
 # For deletions called on both strands, annotate if the deletions have the same coordinates on both strands (deletion.bothstrands.startendmatch).
 # Note, for an analyzed deletion, it is possible for > 1 SBS, insertion or deletion to overlap it on the opposite strand.
-# Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterVariants step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of variants on the opposite strand, so it doesn't matter if we annotate here opposite strand SBS and indel variants before filtering.
+# Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterCalls step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of calls on the opposite strand, so it doesn't matter if we annotate here opposite strand SBS and indel calls before filtering.
 
- #Make GRanges of variants. Swap start and end for insertions, since the subsequent join otherwise cannot join two insertions with the same coordinates (this won't affect later joining, since original start_refspace and end_refspace are used to filter the joins).
-variants.gr <- variants.df %>%
+ #Make GRanges of calls. Swap start and end for insertions, since the subsequent join otherwise cannot join two insertions with the same coordinates (this won't affect later joining, since original start_refspace and end_refspace are used to filter the joins).
+calls.gr <- calls.df %>%
   mutate(
-    start = if_else(variant_type=="insertion",end_refspace,start_refspace),
-    end = if_else(variant_type=="insertion",start_refspace,end_refspace),
+    start = if_else(call_type=="insertion",end_refspace,start_refspace),
+    end = if_else(call_type=="insertion",start_refspace,end_refspace),
     strand_copy = strand
     ) %>%
   makeGRangesFromDataFrame(
@@ -1106,10 +1106,10 @@ variants.gr <- variants.df %>%
     seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   )
 
- #Annotate variants GRanges with opposite strand variants
-variants.gr <- variants.gr %>%
+ #Annotate calls GRanges with opposite strand calls
+calls.gr <- calls.gr %>%
   join_overlap_left(
-    variants.gr %>% filter(variant_class %in% c("SBS","indel")),
+    calls.gr %>% filter(call_class %in% c("SBS","indel")),
     suffix = c("",".opposite_strand")
   ) %>%
   filter(
@@ -1117,79 +1117,79 @@ variants.gr <- variants.gr %>%
     zm == zm.opposite_strand,
     strand_copy != strand_copy.opposite_strand,
     (
-      variant_class %in% c("SBS","MDB") & variant_type.opposite_strand == "SBS" &
+      call_class %in% c("SBS","MDB") & call_type.opposite_strand == "SBS" &
       start_refspace == start_refspace.opposite_strand &
       end_refspace == end_refspace.opposite_strand
     ) |
     (
-      variant_class %in% c("SBS","MDB") & variant_type.opposite_strand == "deletion" &
+      call_class %in% c("SBS","MDB") & call_type.opposite_strand == "deletion" &
         start_refspace >= start_refspace.opposite_strand &
         end_refspace <= end_refspace.opposite_strand
     ) |
     (
-      variant_type == "insertion" & variant_type.opposite_strand == "insertion" &
+      call_type == "insertion" & call_type.opposite_strand == "insertion" &
         start_refspace == start_refspace.opposite_strand &
         end_refspace == end_refspace.opposite_strand
     ) |
     (
-      variant_type == "insertion" & variant_type.opposite_strand == "deletion" &
+      call_type == "insertion" & call_type.opposite_strand == "deletion" &
         start_refspace <= end_refspace.opposite_strand &
         end_refspace >= start_refspace.opposite_strand
     ) |
     (
-      variant_type == "deletion" & variant_type.opposite_strand == "SBS" &
+      call_type == "deletion" & call_type.opposite_strand == "SBS" &
       start_refspace <= start_refspace.opposite_strand &
       end_refspace >= end_refspace.opposite_strand
     ) |
     (
-      variant_type == "deletion" & variant_type.opposite_strand == "insertion" &
+      call_type == "deletion" & call_type.opposite_strand == "insertion" &
         start_refspace <= end_refspace.opposite_strand &
         end_refspace >= start_refspace.opposite_strand
     ) |
     (
-      variant_type == "deletion" & variant_type.opposite_strand == "deletion" &
+      call_type == "deletion" & call_type.opposite_strand == "deletion" &
         start_refspace <= end_refspace.opposite_strand &
         end_refspace >= start_refspace.opposite_strand
     )
   ) %>%
   mutate(
     deletion.bothstrands.startendmatch = case_when(
-      variant_type != "deletion" | variant_type.opposite_strand != "deletion" ~ NA,
+      call_type != "deletion" | call_type.opposite_strand != "deletion" ~ NA,
     	start_refspace == start_refspace.opposite_strand & end_refspace == end_refspace.opposite_strand ~ TRUE,
       start_refspace != start_refspace.opposite_strand | end_refspace != end_refspace.opposite_strand ~ FALSE
     )
   )
 
- #Join to variants.df with opposite strand information.
+ #Join to calls.df with opposite strand information.
  # Note that for deletions with one partially overlapping deletion on the opposite strand, alt_plus_strand.opposite_strand will still equal "" even though part of the analyzed deletion's sequence is still present in the opposite strand. Likewise for deletions with > 1 overlapping SBS, insertion, or deletion on the opposite strand, alt_plus_strand.opposite_strand will contain the sequence of one random one of these. These two issues would be difficult to fix, and are not critical for downstream analysis.
-variants.df <- variants.df %>%
+calls.df <- calls.df %>%
 	left_join(
-		variants.gr %>%
+		calls.gr %>%
 			as_tibble %>%
 			select(
 				run_id,zm,start_refspace,end_refspace,strand,
-				variant_class.opposite_strand,
-				variant_type.opposite_strand,
+				call_class.opposite_strand,
+				call_type.opposite_strand,
 				alt_plus_strand.opposite_strand,
 				deletion.bothstrands.startendmatch
 			),
 		by=join_by(run_id,zm,start_refspace,end_refspace,strand),
-		multiple="any" # Required due to possibility of > 1 variant on the opposite strand overlapping an analyzed deletion
+		multiple="any" # Required due to possibility of > 1 call on the opposite strand overlapping an analyzed deletion
 	)
 
-rm(variants.gr)
+rm(calls.gr)
 
-#Annotate for each variant (for all variant classes: SBS, indel, MDB) its 'SBSindel_call_type'.
+#Annotate for each call (for all call classes: SBS, indel, MDB) its 'SBSindel_call_type'.
  #No duplex coverage ("nonduplex")
  #Duplex coverage:
-  #  Variant strand | Opposite strand (SBS or indel) overlapping based on reference space coordinates
-  #       N         |       N                       			=> "match" (possible only for MDB)
-  #       N         |       Y                       			=> "mismatch-os" (possible only for MDB)
-  #       Y         |       N                     				=> "mismatch-ss"
-  #       Y         |       Y (non-complementary change)  => "mismatch-ds"
-  #       Y         |       Y (complementary change)      => "mutation"
+  #  Call strand | Opposite strand (SBS or indel) overlapping based on reference space coordinates
+  #       N      |       N                       			=> "match" (possible only for MDB)
+  #       N      |       Y                       			=> "mismatch-os" (possible only for MDB)
+  #       Y      |       N                     				=> "mismatch-ss"
+  #       Y      |       Y (non-complementary change)  => "mismatch-ds"
+  #       Y      |       Y (complementary change)      => "mutation"
 
-variants.df <- variants.df %>%
+calls.df <- calls.df %>%
 	mutate(SBSindel_call_type = case_when(
 			ref_plus_strand == alt_plus_strand & is.na(alt_plus_strand.opposite_strand) ~ "match",
 			ref_plus_strand == alt_plus_strand & !is.na(alt_plus_strand.opposite_strand) ~ "mismatch-os",
@@ -1214,13 +1214,13 @@ variants.df <- variants.df %>%
 		) %>%
 		  factor
 	) %>%
-  arrange(run_id,zm,start_refspace,end_refspace,variant_type,strand,SBSindel_call_type)
+  arrange(run_id,zm,start_refspace,end_refspace,call_type,strand,SBSindel_call_type)
 
 #For mutations, reannotate each strand's qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, and sx.opposite_strand based on the opposite strand's qual, sa, sm, sx. This is more accurate than the previously calculated opposite strand data, because the prior data utilized a query space -> reference space -> opposite strand query space transformation, whereas annotated mutations reflect corresponding deletion coordinates and insertion sequences that are lost in the prior transformation. Though note that mismatches still have imperfect opposite strand qual, sa, sm, sx, and to obtain this would require aligning strands to each other which would be significantly more complex to incorporate.
 
-variants.df <- variants.df %>% left_join(
+calls.df <- calls.df %>% left_join(
   #Extract only mutations, and reverse strand orientation so that opposite strand info is annotated
-  variants.df %>%
+  calls.df %>%
     filter(SBSindel_call_type == "mutation") %>%
     select(
       run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand,
@@ -1251,8 +1251,8 @@ cat("DONE\n")
 ######################
 cat("## Saving output...")
 
-#Convert variants.df to GRanges
-variants.gr <- variants.df %>%
+#Convert calls.df to GRanges
+calls.gr <- calls.df %>%
 	makeGRangesFromDataFrame(
 		seqnames.field="seqnames",
 		start.field="start_refspace",
@@ -1262,7 +1262,7 @@ variants.gr <- variants.df %>%
 		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
-rm(variants.df)
+rm(calls.df)
 
 #Save output
 qs_save(
@@ -1270,7 +1270,7 @@ qs_save(
   	run_metadata = run_metadata,
   	molecule_stats = molecule_stats,
   	bam.gr = bam.gr,
-  	variants.gr = variants.gr
+  	calls.gr = calls.gr
   	),
   outputFile
   )

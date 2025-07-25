@@ -452,15 +452,15 @@ cat("DONE\n")
 ######################
 cat("## Applying germline VCF variant filters...")
 
-#Load germline VCF filter data, and split by germline_vcf_type
+#Load germline VCF filter data
 germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id_toanalyze,".germline_vcf_variants.qs2")) %>%
-  as_tibble %>%
-  group_by(germline_vcf_type) %>%
-  nest %>%
-  deframe
+  as_tibble
   
 #Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering
 germline_vcf_variants <- germline_vcf_variants  %>%
+  group_by(germline_vcf_type) %>% #split by germline_vcf_type
+  nest %>%
+  deframe %>%
   imap(
     function(x,idx){
       filters <- germline_vcf_types_config %>% filter(germline_vcf_type == idx)
@@ -484,16 +484,16 @@ germline_vcf_variants <- germline_vcf_variants  %>%
               QUAL >= filters$indel_min_QUAL
           )
         ) %>%
-        select(seqnames,start,end,ref_plus_strand,alt_plus_strand,germline_vcf_file) %>%
+        select(seqnames,start,end,ref_plus_strand,alt_plus_strand,call_class,call_type,germline_vcf_file) %>%
         distinct #in case atomization/multi-allelic records created duplicate records
     }
-  )
+  ) %>%
+  bind_rows(.id="germline_vcf_type") #Combine back to one tibble
 
 #Annotate calls matching germline VCF variants, and for MDB calls set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
 calls <- calls %>%
   left_join(
     germline_vcf_variants %>%
-      bind_rows(.id="germline_vcf_type") %>%
       group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
       summarize(
         germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),
@@ -759,7 +759,7 @@ molecule_stats <- molecule_stats %>%
       group_by(run_id) %>%
       summarize(across(
         matches("passfilter$"),
-        ~ sum(zm[.x]$qwidth),
+        ~ sum(qwidth[.x]),
         .names = "num_queryspacebases_{.col}"
       )),
     by = "run_id"
@@ -771,7 +771,7 @@ molecule_stats <- molecule_stats %>%
       group_by(run_id) %>%
       summarize(across(
         matches("passfilter$"),
-        ~ sum(zm[.x]$end - zm[.x]$start),
+        ~ sum(end[.x] - start[.x]),
         .names = "num_refspacebases_{.col}"
       )),
     by = "run_id"
@@ -809,6 +809,12 @@ calls.gr <- calls %>%
 		keep.extra.columns = TRUE,
 		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
+
+#Get list of columns by which to join calls to calls.gr (all original columns before filter annotations)
+calls.joincols <- extractedCalls %>%
+  pluck("calls.gr") %>%
+  as_tibble %>%
+  colnames
 
 #Create bam read GRanges to track genome region filtering, containing only molecules that have passed all filters so far
 bam.gr.filtertrack <- bam %>%
@@ -856,7 +862,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
 		GenomicRanges::reduce(ignore.strand=TRUE) %>%
-		mutate(!!filter_label := FALSE)
+		mutate(filter = FALSE)
 	
 	#Subtract genome region filters from filter trackers
 	bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -871,12 +877,11 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 			calls.gr %>%
 				join_overlap_left(region_genome_filter) %>%
 				as_tibble %>%
-				mutate(across(
-					any_of(filter_label),
-					~ replace_na(.x,TRUE)
-					)) %>%
-				distinct,
-			by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+				mutate(filter = filter %>% replace_na(TRUE)) %>%
+			  rename(!!filter_label := filter) %>%
+				distinct %>%
+			  select(all_of(c(calls.joincols,filter_label))),
+			by = join_by(calls.joincols)
 		)
 	
 	#Record number of filtered bases to stats
@@ -885,7 +890,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		sum
 }
 
-#Record number of reference space bases remaining after genome region filters
+#Record number of reference space bases remaining after filters
 molecule_stats <- molecule_stats %>%
   left_join(
     bam.gr.filtertrack %>%
@@ -930,23 +935,25 @@ calls <- calls %>%
 				any_of(filter_label),
 				~ replace_na(.x,TRUE)
 			)) %>%
-			distinct,
-		by = colnames(.) %>% str_subset("^region_genome_filter", negate=TRUE)
+			distinct %>%
+		  select(all_of(c(calls.joincols,filter_label))),
+		by = calls.joincols
 	)
 
 #Record number of filtered bases to stats
-region_genome_filters_stats <- region_genome_filters_stats %>% bind_rows(
-	tibble(
-		region_filter_file = "Nbases",
-		binsize = 1,
-		threshold = "gte0.1",
-		padding = 0,
-		applyto_chromgroups = "all",
-		applyto_filtergroups = "all",
-		num_bases_filtered = region_genome_filter %>%
-			width %>%
-			sum
-	)
+region_genome_filters_stats <- region_genome_filters_stats %>%
+  bind_rows(
+  	tibble(
+  		region_filter_file = "Nbases",
+  		binsize = NA,
+  		threshold = NA,
+  		padding = NA,
+  		applyto_chromgroups = "all",
+  		applyto_filtergroups = "all",
+  		num_bases_filtered = region_genome_filter %>%
+  			width %>%
+  			sum
+  	)
 )
 
 #Record number of reference space bases remaining after filter
@@ -1121,6 +1128,113 @@ cat("DONE\n")
 ######################
 cat("## Applying germline VCF indel region filters...")
 
+#Split by germline_vcf_variants by germline_vcf_file
+germline_vcf_variants <- germline_vcf_variants  %>%
+  group_by(germline_vcf_file) %>% 
+  nest %>%
+  deframe
+
+for(i in names(germline_vcf_variants)){
+  
+  #Construct label for the newly created filter column
+  filter_label <- i %>%
+    basename %>%
+    str_c("germline_vcf_indel_region_filter_",.,".passfilter")
+  
+  #Extract germline VCF type and padding configuration
+  vcf_type <- germline_vcf_variants %>% pluck(i,"germline_vcf_type",1)
+  indel_inspad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_inspad)
+  indel_delpad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_delpad)
+  
+  if(!is.na(indel_inspad)){
+    indel_inspad <- indel_inspad %>%
+      tibble(pad=.) %>%
+      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+  }else{
+    indel_inspad <- tibble(m = 0, b = 0)
+  }
+  
+  if(!is.na(indel_delpad)){
+    indel_delpad <- indel_delpad %>%
+      tibble(pad=.) %>%
+      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+  }else{
+    indel_delpad <- tibble(m = 0, b = 0)
+  }
+  
+  #Create GRanges of variants to filter with configured padding
+  germline_vcf_indel_region_filter <- germline_vcf_variants %>%
+    pluck(i) %>%
+    filter(call_class == "indel") %>%
+    mutate(
+      padding_m = case_when(
+        call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+        call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+      ),
+      padding_b = case_when(
+        call_type == "insertion" ~ indel_inspad$b,
+        call_type == "deletion" ~ indel_delpad$b
+      ),
+      start = start - pmax(padding_m,padding_b),
+      end = end + pmax(padding_m,padding_b)
+    ) %>%
+    select(-padding_m,-padding_b) %>%
+    makeGRangesFromDataFrame(
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    ) %>%
+    trim %>%
+    GenomicRanges::reduce(ignore.strand=TRUE) %>%
+    mutate(filter = FALSE)
+  
+  #Subtract genome region filters from filter trackers
+  bam.gr.filtertrack <- bam.gr.filtertrack %>%
+    GRanges_subtract(germline_vcf_indel_region_filter, ignore.strand = TRUE)
+  
+  genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
+    GRanges_subtract(germline_vcf_indel_region_filter)
+  
+  #Annotate filtered calls. Annotates even if partial overlap (relevant for deletions). Annotates final result with a tibble join instead of with the GRanges join due to some calls that overlap > 1 region genome filter range.
+  calls <- calls %>%
+    left_join(
+      calls.gr %>%
+        join_overlap_left(germline_vcf_indel_region_filter) %>%
+        as_tibble %>%
+        mutate(filter = filter %>% replace_na(TRUE)) %>%
+        rename(!!filter_label := filter) %>%
+        distinct %>%
+        select(all_of(c(calls.joincols,filter_label))),
+      by = calls.joincols
+    )
+  
+  #Record number of filtered bases to stats
+  region_genome_filters_stats <- region_genome_filters_stats %>%
+    bind_rows(
+      tibble(
+        region_filter_file = i,
+        binsize = NA,
+        threshold = NA,
+        padding = NA,
+        applyto_chromgroups = "all",
+        applyto_filtergroups = "all",
+        num_bases_filtered = germline_vcf_indel_region_filter %>%
+          width %>%
+          sum
+      )
+  )
+}
+
+#Record number of reference space bases remaining after filters
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passgermlinevcfindelregionfilters = sum(end-start)),
+    by = "run_id"
+  )
+
+rm(germline_vcf_indel_region_filter)
+
 cat("DONE\n")
 
 ######################
@@ -1128,12 +1242,91 @@ cat("DONE\n")
 ######################
 cat("## Applying read indel region filters...")
 
+if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
+  
+  #Extract padding configuration
+  indel_inspad <- filtergroup_toanalyze_config %>% pull(ccsindel_inspad)
+  indel_delpad <- filtergroup_toanalyze_config %>% pull(ccsindel_delpad)
+  
+  if(!is.na(indel_inspad)){
+    indel_inspad <- indel_inspad %>%
+      tibble(pad=.) %>%
+      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+  }else{
+    indel_inspad <- tibble(m = 0, b = 0)
+  }
+  
+  if(!is.na(indel_delpad)){
+    indel_delpad <- indel_delpad %>%
+      tibble(pad=.) %>%
+      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+  }else{
+    indel_delpad <- tibble(m = 0, b = 0)
+  }
+  
+  #Create GRanges of indels with configured padding
+  read_indel_region_filter <- calls %>%
+    filter(call_class=="indel") %>%
+    mutate(
+      padding_m = case_when(
+        call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+        call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+      ),
+      padding_b = case_when(
+        call_type == "insertion" ~ indel_inspad$b,
+        call_type == "deletion" ~ indel_delpad$b
+      ),
+      start = start - pmax(padding_m,padding_b),
+      end = end + pmax(padding_m,padding_b)
+    ) %>%
+    select(run_id, zm, seqnames, start, end, strand,-padding_m,-padding_b) %>%
+    makeGRangesFromDataFrame(
+      keep.extra.columns = TRUE,
+      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    ) %>%
+    mutate(read_indel_region_filter.passfilter = FALSE)
+   
+  #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter.
+  calls <- calls %>%
+    left_join(
+      calls.gr %>%
+        select(run_id,zm) %>%
+        join_overlap_inner(read_indel_region_filter, suffix = c("",".filter")) %>% #strand ignored
+        filter(
+          run_id == run_id.filter,
+          zm == zm.filter
+        ) %>%
+        as_tibble %>%
+        select(-run_id.filter,-zm.filter,-width) %>%
+        distinct,
+      by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+    ) %>%
+    mutate(read_indel_region_filter.passfilter = read_indel_region_filter.passfilter %>% replace_na(TRUE))
+  
+  #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
+  bam.gr.filtertrack <- bam.gr.filtertrack %>%
+    GRanges_subtract_bymcols(read_indel_region_filter, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+  
+  #Record number of reference space bases remaining after filters
+  molecule_stats <- molecule_stats %>%
+    left_join(
+      bam.gr.filtertrack %>%
+        as_tibble %>%
+        group_by(run_id) %>%
+        summarize(num_refspacebases_passreadindelregionfilter = sum(end-start)),
+      by = "run_id"
+    )
+
+}
+
 cat("DONE\n")
 
 ######################
 ### Germline BAM filter
 ######################
 cat("## Applying germline BAM filter...")
+
+
 
 cat("DONE\n")
 
@@ -1152,6 +1345,17 @@ cat("DONE\n")
 cat("## Applying duplex coverage filters...")
 
 ##Annotate which calls have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker.
+
+#Also reduce bam.gr filter tracker and calculate stats for final duplex only covered bases
+
+cat("DONE\n")
+
+######################
+### Max final calls per molecule filter
+######################
+cat("## Applying max final calls per molecule filters...")
+
+max_finalcalls_varstrands
 
 cat("DONE\n")
 

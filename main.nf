@@ -340,19 +340,20 @@ process processGermlineBAMs {
 
     output:
       path("${germline_bam_file}.bw")
+      path("${germline_bam_file}.vcf.gz*")
 
     storeDir "${params.cache_dir}"
 
     script:
     """
-    #Output per-base coverage using samtools mpileup with the similar filters as used by bcftools mpileup in later call
-    #filtering. This ensures this coverage data for calculating the fraction of the genome that was filtered
-    #maintains correct calculation of the mutation rate.
+    #Output per-base coverage using samtools mpileup and direct BAM variant calls using bcftools mpileup
+    #Use similar filters for both samtools and bcftools to ensure that samtools coverage data for calculating
+    #the fraction of the genome that was filtered maintains correct calculation of the mutation rate.
 
-    #Note using samtools mpileup here instead of bcftools mpileup that is later used in call filtering, because here we
-    #need an output that can be re-formatted into bedgraph. Whereas in the later call filtering, we use bcftools mpileup
-    #to check for low mosaicism at call positions, and the output of that is in VCF format that is easier to parse. The
-    #difference between samtools mpileup and bcftools mpileup should not be significant.
+    #Using samtools mpileup for genome coverage filtering, because the output can be re-formatted into bedgraph.
+    #Using bcftools mpileup for call filtering, because the output is in VCF format that is easier to parse.
+    #The difference between samtools mpileup and bcftools mpileup should not be significant.
+    #We are not calling indels with bcftools mpileup, since that is too noisy to use for filtering.
 
     #Slightly different parameters are used for Illumina vs PacBio germline BAM to match how bcftools mpileup is run later
     #in the call filtering analysis.
@@ -361,8 +362,10 @@ process processGermlineBAMs {
 
     if [[ ${germline_bam_type} == Illumina ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+      ${params.bcftools_bin} mpileup -A -B -Q 11 -d 999999 --ns 3328 -I -a "INFO/AD" -f ${params.genome_fasta} -Oz ${germline_bam_file} -W=tbi 2>/dev/null > ${germline_bam_file}.vcf.gz
     elif [[ ${germline_bam_type} == PacBio ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
+      ${params.bcftools_bin} mpileup -A -B -Q 5 -d 999999 --ns 3328 -I -a "INFO/AD" --max-BQ 50 -F0.1 -o25 -e1 -f ${params.genome_fasta} -W=tbi -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
     else
       echo "ERROR: Unknown germline_bam_type: ${germline_bam_type}"
       exit 1

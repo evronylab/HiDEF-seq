@@ -362,10 +362,12 @@ process processGermlineBAMs {
 
     if [[ ${germline_bam_type} == Illumina ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
-      ${params.bcftools_bin} mpileup -A -B -Q 11 -d 999999 --ns 3328 -I -a "INFO/AD" -f ${params.genome_fasta} -Oz ${germline_bam_file} -W=tbi 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} mpileup -A -B -Q 11 -d 999999 --ns 3328 -I -a "INFO/AD" -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} index ${germline_bam_file}.vcf.gz
     elif [[ ${germline_bam_type} == PacBio ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
-      ${params.bcftools_bin} mpileup -A -B -Q 5 -d 999999 --ns 3328 -I -a "INFO/AD" --max-BQ 50 -F0.1 -o25 -e1 -f ${params.genome_fasta} -W=tbi -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} mpileup -A -B -Q 5 -d 999999 --ns 3328 -I -a "INFO/AD" --max-BQ 50 -F0.1 -o25 -e1 -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} index ${germline_bam_file}.vcf.gz
     else
       echo "ERROR: Unknown germline_bam_type: ${germline_bam_type}"
       exit 1

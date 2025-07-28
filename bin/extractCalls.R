@@ -143,6 +143,29 @@ for(i in c("flag","RG","movie_id","run_id","ccs_strand")){
 #Recalculate isize, since pbmm2 has a bug that miscalculates it
 bam.df$isize <- cigarWidthAlongReferenceSpace(bam.df$cigar)
 
+#Reformat sa, sm, sx tags
+ #sa: the number of subread alignments that span each CCS read position. sa is run-length encoded (rle) in the BAM file as length, value pairs. We inverse the rle encoding back to standard per-position values, then reverse the value orders for reads aligned to genome minus strand, then convert back to rle (as a list of rles instead of RleList as the former is much faster to convert to tibble).
+sa.lengths <- lapply(bam.df$sa,function(x){x[c(TRUE, FALSE)]})
+sa.values <- lapply(bam.df$sa,function(x){x[c(FALSE, TRUE)]})
+bam.df$sa <- mapply(
+		function(x,y){inverse.rle(list(lengths=x,values=y))},
+		x=sa.lengths,
+		y=sa.values,
+		USE.NAMES=FALSE
+	)
+
+rm(sa.lengths,sa.values)
+
+bam.df$sa[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sa[bam.df$strand %>% as.vector == "-"], rev)
+
+bam.df$sa <- bam.df$sa %>% lapply(Rle)
+
+ #sm: the number of subreads that align as a match to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
+bam.df$sm[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sm[bam.df$strand %>% as.vector == "-"], rev)
+
+ #sx: the number of subreads that align as a sbs to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
+bam.df$sx[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sx[bam.df$strand %>% as.vector == "-"], rev)
+
 #Convert to GRanges
 bam.df$end <- bam.df$pos + bam.df$isize - 1
 
@@ -161,7 +184,7 @@ rm(bam.df)
 # Arrange bam.gr by run id, ZMW id and strand
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 
-#Count number of remaining molecules and query space and reference space bases per run
+#Count number of remaining molecules and molecule query space and reference space bases per run
 molecule_stats <- mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
 	as_tibble %>%
 	group_by(run_id,movie_id) %>%
@@ -317,7 +340,7 @@ cat("DONE\n")
 ######################
 ### Define function to extract calls
 ######################
-extract_calls <- function(bam.gr.input, sa.input, sm.input, sx.input, call_class.input, call_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
+extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
   #cigar.ops.input for the call_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
   #score_bamtag.input: tag in the BAM file containing the MDB score data (MDB only)
   #score_min.input: minimum score of MDBs to extract (MDB only)
@@ -702,6 +725,17 @@ extract_calls <- function(bam.gr.input, sa.input, sm.input, sx.input, call_class
       return(result)
     }
     
+    #Format sa, sm, sx inputs
+    sa.input <- bam.gr.input$sa %>%
+    	lapply(as.vector) %>%
+    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+    
+    sm.input <- bam.gr.input$sm %>%
+    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+    
+    sx.input <- bam.gr.input$sx %>%
+    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+    
     #Extract data
     var_sa <- extract_sasmsx(
       "sa",
@@ -896,44 +930,6 @@ for(i in bam.gr %>% names){
   cat("> Processing run:",i,"\n")
   
   ######################
-  ### Extract subread alignment tags
-  ######################
-  cat(" ## Extracting subread alignment tags...")
-  
-  #sa: the number of subread alignments that span each CCS read position
-  # sa is run-length encoded (rle) in the BAM file as length,value pairs. We inverse the rle encoding back to standard per-position values
-  # sa needs to be reversed for reads aligned to genome minus strand
-  
-  #Extract all sa values and inverse rle.
-  sa.lengths <- lapply(bam.gr[[i]]$sa,function(x){x[c(TRUE, FALSE)]})
-  sa.values <- lapply(bam.gr[[i]]$sa,function(x){x[c(FALSE, TRUE)]})
-  sa <- mapply(
-  	function(x,y){inverse.rle(list(lengths=x,values=y))},
-  	x=sa.lengths,
-  	y=sa.values,
-  	USE.NAMES=FALSE
-  ) %>%
-  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-  rm(sa.lengths,sa.values)
-  
-  #Reverse order for reads aligned to genome minus strand
-  sa[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sa[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-  
-  #sm: the number of subreads that align as a match to each CCS read position
-  # sm needs to be reversed for reads aligned to genome minus strand
-  sm <- bam.gr[[i]]$sm %>%
-  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-  sm[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sm[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-  
-  #sx: the number of subreads that align as a sbs to each CCS read position
-  # sx needs to be reversed for reads aligned to genome minus strand
-  sx <- bam.gr[[i]]$sx %>%
-  	setNames(str_c(bam.gr[[i]]$zm,strand(bam.gr[[i]]) %>% as.character,sep="_"))
-  sx[strand(bam.gr[[i]]) %>% as.vector == "-"] <- lapply(sx[strand(bam.gr[[i]]) %>% as.vector == "-"], rev)
-  
-  cat("DONE\n")
-  
-  ######################
   ### Extract calls
   ######################
   cat(" ## Extracting single base substitutions...")
@@ -941,9 +937,6 @@ for(i in bam.gr %>% names){
   #SBS
   calls.df[[i]] <- extract_calls(
     bam.gr.input = bam.gr[[i]],
-    sa.input = sa,
-    sm.input = sm,
-    sx.input = sx,
     call_class.input = "SBS",
     call_type.input = "SBS",
     cigar.ops.input = "X"
@@ -958,9 +951,6 @@ for(i in bam.gr %>% names){
     bind_rows(
       extract_calls(
         bam.gr.input = bam.gr[[i]],
-        sa.input = sa,
-        sm.input = sm,
-        sx.input = sx,
         call_class.input = "indel",
         call_type.input = "insertion",
         cigar.ops.input = c("I")
@@ -976,9 +966,6 @@ for(i in bam.gr %>% names){
     bind_rows(
       extract_calls(
         bam.gr.input = bam.gr[[i]],
-        sa.input = sa,
-        sm.input = sm,
-        sx.input = sx,
         call_class.input = "indel",
         call_type.input = "deletion",
         cigar.ops.input = c("D")
@@ -997,9 +984,6 @@ for(i in bam.gr %>% names){
       bind_rows(
         extract_calls(
           bam.gr.input = bam.gr[[i]],
-          sa.input = sa,
-          sm.input = sm,
-          sx.input = sx,
           call_class.input = "MDB",
           call_type.input = call_types_MDB %>% pluck("call_type",j),
           call_bam_scoretag.input = call_types_MDB %>% pluck("call_bam_scoretag",j),
@@ -1180,8 +1164,6 @@ calls.df <- calls.df %>%
 rm(calls.gr)
 
 #Annotate for each call (for all call classes: SBS, indel, MDB) its 'SBSindel_call_type'.
- #No duplex coverage ("nonduplex")
- #Duplex coverage:
   #  Call strand | Opposite strand (SBS or indel) overlapping based on reference space coordinates
   #       N      |       N                       			=> "match" (possible only for MDB)
   #       N      |       Y                       			=> "mismatch-os" (possible only for MDB)

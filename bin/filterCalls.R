@@ -1272,7 +1272,7 @@ cat("DONE\n")
 ######################
 cat("## Applying germline BAM total reads (coverage) filter...")
 
-filter_label <- "minBAMTotalReads.passfilter"
+filter_label <- "min_BAMTotalReads.passfilter"
 
 #Load germline BAM samtools mpileup bigwig; only bases failing filter due to memory constraints.
 germline_bam_samtools_mpileup_file <- cache_dir %>%
@@ -1290,7 +1290,7 @@ tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
 
 system(paste("/bin/bash -c",shQuote(paste(
 	yaml.config$wiggletools_bin,"lt",
-	filtergroup_toanalyze_config$minBAMTotalReads,
+	filtergroup_toanalyze_config$min_BAMTotalReads,
 	germline_bam_samtools_mpileup_file,"|",
 	yaml.config$wigToBigWig_bin,"stdin <(cut -f 1,2",
 	yaml.config$genome_fai,")",
@@ -1318,7 +1318,7 @@ bam.gr.filtertrack <- bam.gr.filtertrack %>%
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 	GRanges_subtract(germline_bam_samtools_mpileup_filter,ignore.strand = TRUE)
 
-#Annotate calls with germline BAM samtools mpileup bigwig filter. For insertions ,left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter.
+#Annotate calls with germline BAM samtools mpileup bigwig filter. For insertions, left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter.
 calls <- calls %>%
 	left_join(
 		calls.gr %>%
@@ -1350,7 +1350,7 @@ calls <- calls %>%
 region_genome_filters_stats <- region_genome_filters_stats %>%
 	bind_rows(
 		tibble(
-			region_filter_file = "BAMTotalReads",
+			region_filter_file = "min_BAMTotalReads",
 			binsize = NA,
 			threshold = NA,
 			padding = NA,
@@ -1414,28 +1414,31 @@ germline_bam_bcftools_mpileup_filter <- load_vcf(
 #Annotate mpileup with variants passing filters
 germline_bam_bcftools_mpileup_filter <- germline_bam_bcftools_mpileup_filter %>%
 	mutate(
-		BAMVariantReads.passfilter = if_else(AD2 <= filtergroup_toanalyze_config$maxBAMVariantReads, TRUE, FALSE),
-		BAMVAF.passfilter = if_else(VAF <= filtergroup_toanalyze_config$maxBAMVAF, TRUE, FALSE)
+		max_BAMVariantReads.passfilter = if_else(AD2 <= filtergroup_toanalyze_config$max_BAMVariantReads, TRUE, FALSE),
+		max_BAMVAF.passfilter = if_else(VAF <= filtergroup_toanalyze_config$max_BAMVAF, TRUE, FALSE)
 	)
 
 #Annotate SBS calls with germline BAM bcftools mpileup VCF filters. Then set non-SBS calls to pass these filters.
 calls <- calls %>%
 	left_join(
 		calls.gr %>%
-			filter(call_class == "SBS") %>% #Keep only SBS for compute efficiency
-			join_overlap_left(germline_bam_bcftools_mpileup_filter) %>%
+			join_overlap_inner(germline_bam_bcftools_mpileup_filter, suffix = c("",".mpileup")) %>%
 			as_tibble %>%
-			mutate(
-				BAMVariantReads.passfilter = BAMVariantReads.passfilter %>% replace_na(TRUE),
-				BAMVAF.passfilter = BAMVAF.passfilter %>% replace_na(TRUE)
-				) %>%
-			select(all_of(c(calls.joincols,"BAMVariantReads.passfilter","BAMVAF.passfilter"))) %>%
+			filter(
+				call_class %>% as.character == call_class.mpileup %>% as.character ,
+				call_type %>% as.character == call_type.mpileup %>% as.character ,
+				SBSindel_call_type %>% as.character == SBSindel_call_type.mpileup %>% as.character,
+				ref_plus_strand == ref_plus_strand.mpileup,
+				alt_plus_strand == alt_plus_strand.mpileup
+			) %>%
+			select(-c(call_class.mpileup,call_type.mpileup,SBSindel_call_type.mpileup,ref_plus_strand.mpileup,alt_plus_strand.mpileup)) %>%
+			select(all_of(c(calls.joincols,"max_BAMVariantReads.passfilter","max_BAMVAF.passfilter"))) %>%
 			distinct,
 		by = calls.joincols
 	) %>%
 	mutate(
-		BAMVariantReads.passfilter = if_else(call_class != "SBS", TRUE, BAMVariantReads.passfilter),
-		BAMVAF.passfilter = if_else(call_class != "SBS", TRUE, BAMVAF.passfilter)
+		max_BAMVariantReads.passfilter = max_BAMVariantReads.passfilter %>% replace_na(TRUE),
+		max_BAMVAF.passfilter = max_BAMVAF.passfilter %>% replace_na(TRUE)
 	)
 
 cat("DONE\n")

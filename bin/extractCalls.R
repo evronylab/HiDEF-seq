@@ -163,7 +163,7 @@ bam.df$sa <- bam.df$sa %>% lapply(Rle)
  #sm: the number of subreads that align as a match to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
 bam.df$sm[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sm[bam.df$strand %>% as.vector == "-"], rev)
 
- #sx: the number of subreads that align as a sbs to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
+ #sx: the number of subreads that align as a mismatch to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
 bam.df$sx[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sx[bam.df$strand %>% as.vector == "-"], rev)
 
 #Convert to GRanges

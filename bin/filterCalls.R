@@ -28,6 +28,53 @@ suppressPackageStartupMessages(library(tidyverse))
 source(sharedFunctions.R)
 
 ######################
+### Define custom functions
+######################
+#Convert positions of bases from query space to reference space, while retaining run_id and zm info
+#iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
+convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
+	mapFromAlignments( #Main function
+		
+		#GRanges of positions failing subreads filters in query space
+		irangeslist.input %>%
+			setNames(bam.input %>% pull(seqnames)) %>%
+			as.data.frame %>%
+			as_tibble %>%
+			makeGRangesFromDataFrame(
+				seqnames = "group_name",
+				keep.extra.columns=TRUE
+			) %>%
+			setNames(.$group) %>%
+			select(-group),
+		
+		#GAlignments of reads in reference space
+		bam.input %>%
+			select(seqnames, start, end, cigar) %>% 
+			makeGRangesFromDataFrame(
+				keep.extra.columns=TRUE,
+				seqinfo=BSgenome_name.input %>% get %>% seqinfo
+			) %>%
+			as("GAlignments") %>%
+			setNames(1:nrow(bam.input))
+	) %>%
+		
+		#Annotate result with run_id, zm, and strand
+		as_tibble %>%
+		left_join(
+			bam.input %>%
+				select(run_id, zm, strand) %>%
+				mutate(row_id = row_number()),
+			by = join_by(alignmentsHits == row_id)
+		) %>%
+		select(-c(width, xHits, alignmentsHits, strand.x)) %>%
+		rename(strand = strand.y) %>%
+		makeGRangesFromDataFrame(
+			keep.extra.columns=TRUE,
+			seqinfo=BSgenome_name.input %>% get %>% seqinfo
+		)
+}
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -920,49 +967,13 @@ cat("DONE\n")
 cat("## Applying base-quality filters...")
 
 #Convert positions of bases failing min_qual filter from query space to reference space, while retaining run_id and zm info
-min_qual.fail.gr <- mapFromAlignments( #Main function
-  #GRanges of positions failing min_qual filter in query space
-  bam %>%
-    pull(qual) %>%
-    PhredQuality %>%
-    as("IntegerList") %>%
-    as("RleList") %>%
-    IRanges::slice(upper=filtergroup_toanalyze_config$min_qual, includeUpper=FALSE, rangesOnly=TRUE) %>%
-    setNames(bam %>% pull(seqnames)) %>%
-    as.data.frame %>%
-    as_tibble %>%
-    makeGRangesFromDataFrame(
-      seqnames = "group_name",
-      keep.extra.columns=TRUE
-    ) %>%
-    setNames(.$group) %>%
-    select(-group),
-  
-  #GAlignments of reads in reference space
-  bam %>%
-    select(seqnames, start, end, cigar) %>% 
-    makeGRangesFromDataFrame(
-      keep.extra.columns=TRUE,
-      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-    ) %>%
-    as("GAlignments") %>%
-    setNames(1:nrow(bam))
-  ) %>%
-  
-  #Annotate result with run_id, zm, and strand
-  as_tibble %>%
-  left_join(
-    bam %>%
-      select(run_id, zm, strand) %>%
-      mutate(row_id = row_number()),
-    by = join_by(alignmentsHits == row_id)
-  ) %>%
-  select(-c(width, xHits, alignmentsHits, strand.x)) %>%
-  rename(strand = strand.y) %>%
-  makeGRangesFromDataFrame(
-    keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-  )
+min_qual.fail.gr <- bam %>%
+	pull(qual) %>%
+	PhredQuality %>%
+	as("IntegerList") %>%
+	as("RleList") %>%
+	IRanges::slice(upper=filtergroup_toanalyze_config$min_qual, includeUpper=FALSE, rangesOnly=TRUE) %>%
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
 
 #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1001,6 +1012,8 @@ molecule_stats <- molecule_stats %>%
       summarize(num_refspacebases_passminqualfilter = sum(end-start)),
     by = "run_id"
   )
+
+rm(min_qual.fail.gr)
 
 cat("DONE\n")
 
@@ -1066,6 +1079,8 @@ molecule_stats <- molecule_stats %>%
       summarize(num_refspacebases_passreadtrimbpfilter = sum(end-start)),
     by = "run_id"
   )
+
+rm(bam.gr.trim)
 
 cat("DONE\n")
 
@@ -1372,6 +1387,8 @@ molecule_stats <- molecule_stats %>%
 		by = "run_id"
 	)
 
+rm(germline_bam_samtools_mpileup_filter)
+
 cat("DONE\n")
 
 ######################
@@ -1441,6 +1458,8 @@ calls <- calls %>%
 		max_BAMVAF.passfilter = max_BAMVAF.passfilter %>% replace_na(TRUE)
 	)
 
+rm(germline_bam_bcftools_mpileup_filter)
+
 cat("DONE\n")
 
 ######################
@@ -1448,16 +1467,119 @@ cat("DONE\n")
 ######################
 cat("## Applying subread filters...")
 
-#Take into account possibility of values of 0 in the denominator, which will lead to value of Inf or 0/0 = NaN, etc.
+#Convert positions of bases failing subread filters from query space to reference space, while retaining run_id and zm info
+ #min_frac_subreads_cvg (sa/max(sa)) 
+frac_subreads_cvg.fail.gr <- bam %>%
+		pull(sa) %>%
+		map(
+			function(x){
+				vals <- x %>% as.vector
+				(vals/max(vals)) %>%
+					replace_na(0) %>%
+					{. < filtergroup_toanalyze_config$min_frac_subreads_cvg} %>%
+					which %>%
+					IRanges
+				}
+		) %>%
+		IRangesList %>%
+		convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
 
-#If a variant fails filter on one strand, also fail on the other strand
+ #min_num_subreads_match (sm)
+num_subreads_match.fail.gr <- bam %>%
+	pull(sm) %>%
+	map(
+		function(x){
+			x < filtergroup_toanalyze_config$min_num_subreads_match %>%
+				which %>%
+				IRanges
+		}
+	) %>%
+	IRangesList %>%
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
 
-filtergroup_toanalyze_config$min_frac_subreads_cvg_eachstrand
-filtergroup_toanalyze_config$min_num_subreads_match_varstrands
-filtergroup_toanalyze_config$min_frac_subreads_match_varstrands
+ #min_frac_subreads_match (sm / [sm+sx])
+frac_subreads_match.fail.gr <- map2(
+		.x = bam$sm,
+		.y = bam$sx,
+		function(x,y){
+			(x/(x+y)) %>%
+				replace_na(0) %>%
+				{. < filtergroup_toanalyze_config$min_frac_subreads_match} %>%
+				which %>%
+				IRanges
+			}
+	) %>%
+	IRangesList %>%
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
+
+#Subtract bases below filter thresholds from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	GRanges_subtract_bymcols(frac_subreads_cvg.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+ #Record number of molecule reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+	left_join(
+		bam.gr.filtertrack %>%
+			as_tibble %>%
+			group_by(run_id) %>%
+			summarize(num_refspacebases_passminfracsubreadscvgfilter = sum(end-start)),
+		by = "run_id"
+	)
+
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	GRanges_subtract_bymcols(num_subreads_match.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+ #Record number of molecule reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+	left_join(
+		bam.gr.filtertrack %>%
+			as_tibble %>%
+			group_by(run_id) %>%
+			summarize(num_refspacebases_passminnumsubreadsmatchfilter = sum(end-start)),
+		by = "run_id"
+	)
+
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	GRanges_subtract_bymcols(frac_subreads_match.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+ #Record number of molecule reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+	left_join(
+		bam.gr.filtertrack %>%
+			as_tibble %>%
+			group_by(run_id) %>%
+			summarize(num_refspacebases_passminfracsubreadsmatchfilter = sum(end-start)),
+		by = "run_id"
+	)
+
+#Annotate calls below filter thresholds. If either strand fails the filter, both strands are set to fail. If sa, sm, or sx in the opposite strand are NA, consider that failure to pass the filter.
+if(! filtergroup_toanalyze_config$min_subreads_cvgmatch_method %in% c("mean","all","any")){
+	stop("Incorrect min_qual_method setting!")
+}
+
+calls <- calls %>%
+	mutate(min_qual.passfilter =
+				 	if(filtergroup_toanalyze_config$min_qual_method=="mean"){
+				 		qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
+				 			qual.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
+				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_qual_method=="all"){
+				 		qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
+				 			qual.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
+				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_qual_method=="any"){
+				 		qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
+				 			qual.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
+				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 	}
+	)
+
+rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
+
 cat("DONE\n")
 
-#Subtract filtered regions from filter trackers.
 
 ######################
 ### Duplex coverage filters

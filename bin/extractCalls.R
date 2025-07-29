@@ -664,6 +664,17 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
   #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
   
+  #Format sa, sm, sx inputs
+  sa.input <- bam.gr.input$sa %>%
+  	lapply(as.vector) %>%
+  	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+  
+  sm.input <- bam.gr.input$sm %>%
+  	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+  
+  sx.input <- bam.gr.input$sx %>%
+  	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
+  
   if(call_class.input %in% c("SBS","MDB")){
     #Convert call positions in query space to list for faster retrieval below of sa, sm, sx tags
     var_queryspace.list <- var_queryspace %>%
@@ -724,17 +735,6 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       
       return(result)
     }
-    
-    #Format sa, sm, sx inputs
-    sa.input <- bam.gr.input$sa %>%
-    	lapply(as.vector) %>%
-    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
-    
-    sm.input <- bam.gr.input$sm %>%
-    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
-    
-    sx.input <- bam.gr.input$sx %>%
-    	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
     
     #Extract data
     var_sa <- extract_sasmsx(

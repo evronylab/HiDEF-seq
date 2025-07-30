@@ -33,19 +33,28 @@ source(sharedFunctions.R)
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info
 #iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
 convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
+	
+	#Format irangeslist.input to GRanges of positions failing subreads filters in query space, with annotated bam read id
+	irangeslist.input <- irangeslist.input %>%
+		setNames(bam.input %>% pull(seqnames)) %>%
+		as.data.frame %>%
+		as_tibble %>%
+		makeGRangesFromDataFrame(
+			seqnames = "group_name",
+			keep.extra.columns=TRUE
+		) %>%
+		setNames(.$group) %>%
+		select(-group)
+	
+	if(length(irangeslist.input) == 0){
+		return(
+			GRanges(run_id=factor(), zm=integer())
+		)
+	}
+	
 	mapFromAlignments( #Main function
 		
-		#GRanges of positions failing subreads filters in query space
-		irangeslist.input %>%
-			setNames(bam.input %>% pull(seqnames)) %>%
-			as.data.frame %>%
-			as_tibble %>%
-			makeGRangesFromDataFrame(
-				seqnames = "group_name",
-				keep.extra.columns=TRUE
-			) %>%
-			setNames(.$group) %>%
-			select(-group),
+		irangeslist.input,
 		
 		#GAlignments of reads in reference space
 		bam.input %>%
@@ -637,7 +646,7 @@ bam.gr.onlyranges <- bam %>%
 for(i in seq_len(nrow(region_read_filters_config))){
   
   #Construct label for the newly created filter column
-  filter_label <- region_read_filters_config %>%
+  passfilter_label <- region_read_filters_config %>%
     pluck("region_filter_threshold_file",i) %>%
     basename %>%
     str_c("region_read_filter_",.,".passfilter")
@@ -687,7 +696,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
         as_tibble %>%
         group_by(run_id, zm) %>%
         summarize(
-          !!filter_label := ! case_when(
+          !!passfilter_label := ! case_when(
           	!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value,
             !!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
             !!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value,
@@ -831,7 +840,7 @@ cat("## Applying genome region filters...")
 for(i in seq_len(nrow(region_genome_filters_config))){
 	
 	#Construct label for the newly created filter column
-	filter_label <- region_genome_filters_config %>%
+	passfilter_label <- region_genome_filters_config %>%
 		pluck("region_filter_threshold_file",i) %>%
 		basename %>%
 		str_c("region_genome_filter_",.,".passfilter")
@@ -855,11 +864,11 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
 		GenomicRanges::reduce(ignore.strand=TRUE) %>%
-		mutate(filter = FALSE)
+		mutate(!!passfilter_label := FALSE)
 	
 	#Subtract genome region filters from filter trackers
 	bam.gr.filtertrack <- bam.gr.filtertrack %>%
-		GRanges_subtract(region_genome_filter) #GRanges_subtract to retain run_id and zm columns
+		GRanges_subtract(region_genome_filter, ignore.strand=TRUE) #GRanges_subtract to retain run_id and zm columns
 	
 	genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 		GRanges_subtract(region_genome_filter)
@@ -868,14 +877,14 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	calls <- calls %>%
 		left_join(
 			calls.gr %>%
-				join_overlap_left(region_genome_filter) %>%
+				select(run_id,zm) %>%
+				join_overlap_inner(region_genome_filter,suffix=c("",".filter")) %>%
 				as_tibble %>%
-				mutate(filter = filter %>% replace_na(TRUE)) %>%
-			  rename(!!filter_label := filter) %>%
-			  select(all_of(c(calls.joincols,filter_label))) %>%
+				select(-width) %>%
 				distinct,
-			by = calls.joincols
-		)
+			by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+		) %>%
+		mutate(across(all_of(passfilter_label), ~ . %>% replace_na(TRUE)))
 	
 	#Record number of filtered genome bases to stats
 	region_genome_filters_stats[i,"num_bases_filtered"] <- region_genome_filter %>%
@@ -902,18 +911,18 @@ cat("DONE\n")
 ######################
 cat("## Applying genome 'N' base sequence filter...")
 
-filter_label <- "region_genome_filter_Nbases.passfilter"
+passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
 #Extract 'N' base sequence ranges
 region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	vmatchPattern("N",.) %>%
 	GenomicRanges::reduce(ignore.strand=TRUE) %>%
-	mutate(filter = FALSE)
+	mutate(!!passfilter_label = FALSE)
 
 #Subtract genome region filters from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
-	GRanges_subtract(region_genome_filter)
+	GRanges_subtract(region_genome_filter, ignore.strand=TRUE)
 
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 	GRanges_subtract(region_genome_filter)
@@ -922,14 +931,14 @@ genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 calls <- calls %>%
 	left_join(
 		calls.gr %>%
-			join_overlap_left(region_genome_filter) %>%
+			select(run_id,zm) %>%
+			join_overlap_inner(region_genome_filter,suffix=c("",".filter")) %>%
 			as_tibble %>%
-			mutate(filter = filter %>% replace_na(TRUE)) %>%
-			rename(!!filter_label := filter) %>%
-		  select(all_of(c(calls.joincols,filter_label))) %>%
+		  select(-width) %>%
 			distinct,
-		by = calls.joincols
-	)
+		by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+	) %>%
+	mutate(across(all_of(passfilter_label), ~ . %>% replace_na(TRUE)))
 
 #Record number of filtered genome bases to stats
 region_genome_filters_stats <- region_genome_filters_stats %>%
@@ -979,7 +988,7 @@ min_qual.fail.gr <- bam %>%
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(min_qual.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
-#Annotate calls below min_qual threshold. If either strand fails the filter, both strands are set to fail. If any qual value in the opposite strand is NA, consider that failure to pass the filter.
+#Annotate calls below min_qual threshold. If either strand fails the filter, both strands are set to fail. If any qual value in the opposite strand contains NA, consider that failure to pass the filter.
 if(! filtergroup_toanalyze_config$min_qual_method %in% c("mean","all","any")){
   stop("Incorrect min_qual_method setting!")
 }
@@ -1098,7 +1107,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
 for(i in names(germline_vcf_variants)){
   
   #Construct label for the newly created filter column
-  filter_label <- i %>%
+  passfilter_label <- i %>%
     basename %>%
     str_c("germline_vcf_indel_region_filter_",.,".passfilter")
   
@@ -1145,7 +1154,7 @@ for(i in names(germline_vcf_variants)){
     ) %>%
     trim %>%
     GenomicRanges::reduce(ignore.strand=TRUE) %>%
-    mutate(filter = FALSE)
+    mutate(!!passfilter_label = FALSE)
   
   #Subtract filtered regions from filter trackers
   bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1158,14 +1167,14 @@ for(i in names(germline_vcf_variants)){
   calls <- calls %>%
     left_join(
       calls.gr %>%
-        join_overlap_left(germline_vcf_indel_region_filter) %>%
+      	select(run_id,zm) %>%
+        join_overlap_inner(germline_vcf_indel_region_filter,suffix=c("",".filter")) %>%
         as_tibble %>%
-        mutate(filter = filter %>% replace_na(TRUE)) %>%
-        rename(!!filter_label := filter) %>%
-        select(all_of(c(calls.joincols,filter_label))) %>%
+        select(-width) %>%
       	distinct,
-      by = calls.joincols
-    )
+      by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+    ) %>%
+  	mutate(across(all_of(passfilter_label), ~ . %>% replace_na(TRUE)))
   
   #Record number of filtered genome bases to stats
   region_genome_filters_stats <- region_genome_filters_stats %>%
@@ -1287,7 +1296,7 @@ cat("DONE\n")
 ######################
 cat("## Applying germline BAM total reads (coverage) filter...")
 
-filter_label <- "min_BAMTotalReads.passfilter"
+passfilter_label <- "min_BAMTotalReads.passfilter"
 
 #Load germline BAM samtools mpileup bigwig; only bases failing filter due to memory constraints.
 germline_bam_samtools_mpileup_file <- cache_dir %>%
@@ -1322,7 +1331,7 @@ germline_bam_samtools_mpileup_filter <- tmpbw %>%
 	} %>%
 	subsetByOverlaps(genome_chromgroup.gr) %>%
 	select(-score) %>%
-	mutate(filter = FALSE)
+	mutate(passfilter = FALSE)
 
 file.remove(tmpbw) %>% invisible
 
@@ -1347,7 +1356,7 @@ calls <- calls %>%
 			as_tibble %>%
 			mutate(filter = filter %>% replace_na(TRUE)) %>%
 			group_by(across(all_of(calls.joincols))) %>%
-			summarize(filter = if_else(all(filter), TRUE, FALSE), .groups="drop") %>%
+			summarize(passfilter = if_else(all(passfilter), TRUE, FALSE), .groups="drop") %>%
 			mutate(
 				startnew = if_else(call_type == "insertion", end, start),
 				endnew = if_else(call_type == "insertion", start, end),
@@ -1356,7 +1365,7 @@ calls <- calls %>%
 				width = if_else(call_type == "insertion", 0, width)
 			) %>%
 			select(-c(startnew,endnew)) %>%
-			rename(!!filter_label := filter) %>%
+			rename(!!passfilter_label := passfilter) %>%
 			distinct,
 		by = calls.joincols
 	)
@@ -1442,8 +1451,8 @@ calls <- calls %>%
 			join_overlap_inner(germline_bam_bcftools_mpileup_filter, suffix = c("",".mpileup")) %>%
 			as_tibble %>%
 			filter(
-				call_class %>% as.character == call_class.mpileup %>% as.character ,
-				call_type %>% as.character == call_type.mpileup %>% as.character ,
+				call_class %>% as.character == call_class.mpileup %>% as.character,
+				call_type %>% as.character == call_type.mpileup %>% as.character,
 				SBSindel_call_type %>% as.character == SBSindel_call_type.mpileup %>% as.character,
 				ref_plus_strand == ref_plus_strand.mpileup,
 				alt_plus_strand == alt_plus_strand.mpileup
@@ -1489,7 +1498,7 @@ num_subreads_match.fail.gr <- bam %>%
 	pull(sm) %>%
 	map(
 		function(x){
-			x < filtergroup_toanalyze_config$min_num_subreads_match %>%
+			(x < filtergroup_toanalyze_config$min_num_subreads_match) %>%
 				which %>%
 				IRanges
 		}
@@ -1552,30 +1561,123 @@ molecule_stats <- molecule_stats %>%
 		by = "run_id"
 	)
 
-#Annotate calls below filter thresholds. If either strand fails the filter, both strands are set to fail. If sa, sm, or sx in the opposite strand are NA, consider that failure to pass the filter.
+#Annotate calls below filter thresholds. If either strand fails the filter, both strands are set to fail. If sa, sm, or sx in the opposite strand contain NA, consider that failure to pass the filter.
 if(! filtergroup_toanalyze_config$min_subreads_cvgmatch_method %in% c("mean","all","any")){
 	stop("Incorrect min_qual_method setting!")
 }
 
+#min_frac_subreads_cvg
 calls <- calls %>%
-	mutate(min_qual.passfilter =
-				 	if(filtergroup_toanalyze_config$min_qual_method=="mean"){
-				 		qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
-				 			qual.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
-				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+	#Extract max sa of strand and opposite strand, required for frac_subreads_cvg calculations
+	left_join(
+		bam %>%
+			mutate(
+				max_sa = map_int(sa, function(x){x %>% as.vector %>% max})
+			) %>%
+			select(run_id,zm,strand,max_sa),
+		by = join_by(run_id,zm,strand)
+	) %>%
+	left_join(
+		bam %>%
+			mutate(
+				strand = if_else(strand == "+","-","+") %>% factor,
+				max_sa.opposite_strand = map_int(sa, function(x){x %>% as.vector %>% max})
+				) %>%
+			select(run_id,zm,strand,max_sa.opposite_strand),
+		by = join_by(run_id,zm,strand)
+	) %>%
+	
+	#Calculate frac_subreads_cvg for both strands
+	mutate(
+		frac_subreads_cvg = map2(
+			.x = sa,
+			.y = max_sa,
+			function(x,y){x/y}
+		),
+		frac_subreads_cvg.opposite_strand = map2(
+			.x = sa.opposite_strand,
+			.y = max_sa.opposite_strand,
+			function(x,y){x/y}
+		)
+	) %>%
+	
+	#Perform filtering
+	mutate(min_frac_subreads_cvg.passfilter =
+				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
+				 		frac_subreads_cvg %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
+				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 		
-				 	}else if(filtergroup_toanalyze_config$min_qual_method=="all"){
-				 		qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
-				 			qual.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
-				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
+				 		frac_subreads_cvg %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 		
-				 	}else if(filtergroup_toanalyze_config$min_qual_method=="any"){
-				 		qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
-				 			qual.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
-				 			!(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
+				 		frac_subreads_cvg %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 	}
+	) %>%
+	select(-max_sa,-max_sa.opposite_strand,frac_subreads_cvg,frac_subreads_cvg.opposite_strand)
+
+
+#min_num_subreads_match
+calls <- calls %>%
+	mutate(min_num_subreads_match.passfilter =
+				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
+				 		sm %>% sapply(mean) >= filtergroup_toanalyze_config$min_num_subreads_match &
+				 			sm.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_num_subreads_match &
+				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
+				 		sm %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
+				 			sm.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
+				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
+				 		sm %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
+				 			sm.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
+				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 	}
 	)
-
+	
+#min_frac_subreads_match
+calls <- calls %>%
+	#Calculate frac_subreads_match for both strands
+	mutate(
+		frac_subreads_match = map2(
+			.x = sm,
+			.y = sx,
+			function(x,y){x/(x+y)}
+		),
+		frac_subreads_match.opposite_strand = map2(
+			.x = sm.opposite_strand,
+			.y = sx.opposite_strand,
+			function(x,y){x/(x+y)}
+		)
+	) %>%
+	
+	#Perform filtering
+	mutate(min_frac_subreads_cvg.passfilter =
+				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
+				 		frac_subreads_match %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
+				 			frac_subreads_match.opposite_strand %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
+				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
+				 		frac_subreads_match %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
+				 			frac_subreads_match.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
+				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		
+				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
+				 		frac_subreads_match %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
+				 			frac_subreads_match.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
+				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 	}
+	) %>%
+	select(-frac_subreads_match,-frac_subreads_match.opposite_strand)
+	
 rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
 
 cat("DONE\n")
@@ -1586,9 +1688,56 @@ cat("DONE\n")
 ######################
 cat("## Applying duplex coverage filters...")
 
-##Annotate which calls have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker.
+#Extract read regions remaining after all filtering that do not have duplex (i.e. both strand) coverage
 
-#Also reduce bam.gr filter tracker and calculate stats for final duplex only covered bases
+ #Remaining plus and minus strand read regions after all filters
+bam.gr.filtertrack.plus <- bam.gr.filtertrack %>% filter(strand=="+")
+bam.gr.filtertrack.minus <- bam.gr.filtertrack %>% filter(strand=="-")
+
+ #Regions only in plus or minus strand reads
+duplex_coverage.fail.gr <- c(
+	#Plus strand only
+	bam.gr.filtertrack.plus %>%
+		GRanges_subtract_bymcols(bam.gr.filtertrack.minus, join_mcols = c("run_id","zm"), ignore.strand = TRUE),
+	
+	#Minus strand only
+	bam.gr.filtertrack.minus %>%
+		GRanges_subtract_bymcols(bam.gr.filtertrack.plus, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+) %>%
+	mutate(duplex_coverage.passfilter = FALSE)
+
+ #Subtract these regions from the bam.gr filter tracker
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	GRanges_subtract_bymcols(duplex_coverage.fail.gr, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+#Record number of molecule reference space bases remaining after filter
+molecule_stats <- molecule_stats %>%
+	left_join(
+		bam.gr.filtertrack %>%
+			as_tibble %>%
+			group_by(run_id) %>%
+			summarize(num_refspacebases_passduplexcoveragefilter = sum(end-start)),
+		by = "run_id"
+	)
+
+##Annotate which calls have duplex coverage after all filtering by comparing to final filtered bam.gr filter tracker without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter.
+calls <- calls %>%
+	left_join(
+		calls.gr %>%
+			select(run_id,zm) %>%
+			join_overlap_inner(duplex_coverage.fail.gr,suffix = c("",".filter")) %>% #strand ignored
+			filter(
+				run_id == run_id.filter,
+				zm == zm.filter
+			) %>%
+			as_tibble %>%
+			select(-run_id.filter,-zm.filter,-width) %>%
+			distinct,
+		by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+	) %>%
+	mutate(duplex_coverage.passfilter = duplex_coverage.passfilter %>% replace_na(TRUE))
+
+rm(bam.gr.filtertrack.plus,bam.gr.filtertrack.minus,duplex_coverage.fail.gr)
 
 cat("DONE\n")
 

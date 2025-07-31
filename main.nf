@@ -729,9 +729,11 @@ process test2 {
     time '1h'
     container "${params.hidefseq_container}"
 
+    storeDir "~/"
+
     script:
     """
-    ls
+    ls > test.txt
     """
 }
 

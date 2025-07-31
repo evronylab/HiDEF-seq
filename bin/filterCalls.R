@@ -23,67 +23,6 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
-### Load custom shared functions
-######################
-source(sharedFunctions.R)
-
-######################
-### Define custom functions
-######################
-#Convert positions of bases from query space to reference space, while retaining run_id and zm info
-#iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
-convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
-	
-	#Format irangeslist.input to GRanges of positions failing subreads filters in query space, with annotated bam read id
-	irangeslist.input <- irangeslist.input %>%
-		setNames(bam.input %>% pull(seqnames)) %>%
-		as.data.frame %>%
-		as_tibble %>%
-		makeGRangesFromDataFrame(
-			seqnames = "group_name",
-			keep.extra.columns=TRUE
-		) %>%
-		setNames(.$group) %>%
-		select(-group)
-	
-	if(length(irangeslist.input) == 0){
-		return(
-			GRanges(run_id=factor(), zm=integer())
-		)
-	}
-	
-	mapFromAlignments( #Main function
-		
-		irangeslist.input,
-		
-		#GAlignments of reads in reference space
-		bam.input %>%
-			select(seqnames, start, end, cigar) %>% 
-			makeGRangesFromDataFrame(
-				keep.extra.columns=TRUE,
-				seqinfo=BSgenome_name.input %>% get %>% seqinfo
-			) %>%
-			as("GAlignments") %>%
-			setNames(1:nrow(bam.input))
-	) %>%
-		
-		#Annotate result with run_id, zm, and strand
-		as_tibble %>%
-		left_join(
-			bam.input %>%
-				select(run_id, zm, strand) %>%
-				mutate(row_id = row_number()),
-			by = join_by(alignmentsHits == row_id)
-		) %>%
-		select(-c(width, xHits, alignmentsHits, strand.x)) %>%
-		rename(strand = strand.y) %>%
-		makeGRangesFromDataFrame(
-			keep.extra.columns=TRUE,
-			seqinfo=BSgenome_name.input %>% get %>% seqinfo
-		)
-}
-
-######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -165,9 +104,7 @@ call_types_toanalyze <- yaml.config$call_types %>%
 	filter(
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
-		) %>%
-	pull(call_type) %>%
-  unique
+		)
   
  #filter group parameters (restrict to selected filtergroup_toanalyze)
 filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
@@ -211,6 +148,67 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
+### Load custom shared functions
+######################
+source(sharedFunctions.R)
+
+######################
+### Define custom functions
+######################
+#Convert positions of bases from query space to reference space, while retaining run_id and zm info
+#iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
+convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
+	
+	#Format irangeslist.input to GRanges of positions failing subreads filters in query space, with annotated bam read id
+	irangeslist.input <- irangeslist.input %>%
+		setNames(bam.input %>% pull(seqnames)) %>%
+		as.data.frame %>%
+		as_tibble %>%
+		makeGRangesFromDataFrame(
+			seqnames = "group_name",
+			keep.extra.columns=TRUE
+		) %>%
+		setNames(.$group) %>%
+		select(-group)
+	
+	if(length(irangeslist.input) == 0){
+		return(
+			GRanges(run_id=factor(), zm=integer())
+		)
+	}
+	
+	mapFromAlignments( #Main function
+		
+		irangeslist.input,
+		
+		#GAlignments of reads in reference space
+		bam.input %>%
+			select(seqnames, start, end, cigar) %>% 
+			makeGRangesFromDataFrame(
+				keep.extra.columns=TRUE,
+				seqinfo=BSgenome_name.input %>% get %>% seqinfo
+			) %>%
+			as("GAlignments") %>%
+			setNames(1:nrow(bam.input))
+	) %>%
+		
+		#Annotate result with run_id, zm, and strand
+		as_tibble %>%
+		left_join(
+			bam.input %>%
+				select(run_id, zm, strand) %>%
+				mutate(row_id = row_number()),
+			by = join_by(alignmentsHits == row_id)
+		) %>%
+		select(-c(width, xHits, alignmentsHits, strand.x)) %>%
+		rename(strand = strand.y) %>%
+		makeGRangesFromDataFrame(
+			keep.extra.columns=TRUE,
+			seqinfo=BSgenome_name.input %>% get %>% seqinfo
+		)
+}
+
+######################
 ### Load read and extracted call information
 ######################
 cat("## Loading reads and extracted calls...")
@@ -229,7 +227,7 @@ bam <- extractedCalls %>%
 #Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE.
 calls <- extractedCalls %>%
 	pluck("calls.gr") %>%
-  mutate(call_type_toanalyze = if_else(call_type %in% !!call_types_toanalyze, TRUE, FALSE)) %>%
+  mutate(call_type_toanalyze = if_else(call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique), TRUE, FALSE)) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
 	  call_type_toanalyze == TRUE | call_class %in% c("SBS","indel")
@@ -603,8 +601,8 @@ bam <- bam %>%
         )
         
         ,.groups = "drop"
-      )
-    ,by = join_by(run_id,zm)
+      ),
+    by = join_by(run_id,zm)
   )
 
 #Replace NA with TRUE for read filters, since some molecules had no SBS or indel calls called.
@@ -829,6 +827,8 @@ bam.gr.filtertrack <- bam %>%
 #Create genome GRanges of selected chroms_toanalyze to track genome region filtering
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr
 
+rm(extractedCalls)
+
 cat("DONE\n")
 
 ######################
@@ -864,7 +864,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
 		GenomicRanges::reduce(ignore.strand=TRUE) %>%
-		mutate(!!passfilter_label := FALSE)
+		mutate(passfilter = FALSE)
 	
 	#Subtract genome region filters from filter trackers
 	bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -881,6 +881,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 				join_overlap_inner(region_genome_filter,suffix=c("",".filter")) %>%
 				as_tibble %>%
 				select(-width) %>%
+				rename(!!passfilter_label := passfilter) %>%
 				distinct,
 			by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
 		) %>%
@@ -918,7 +919,7 @@ region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	vmatchPattern("N",.) %>%
 	GenomicRanges::reduce(ignore.strand=TRUE) %>%
-	mutate(!!passfilter_label = FALSE)
+	mutate(!!passfilter_label := FALSE)
 
 #Subtract genome region filters from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1154,7 +1155,7 @@ for(i in names(germline_vcf_variants)){
     ) %>%
     trim %>%
     GenomicRanges::reduce(ignore.strand=TRUE) %>%
-    mutate(!!passfilter_label = FALSE)
+  	mutate(passfilter = FALSE)
   
   #Subtract filtered regions from filter trackers
   bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1171,6 +1172,7 @@ for(i in names(germline_vcf_variants)){
         join_overlap_inner(germline_vcf_indel_region_filter,suffix=c("",".filter")) %>%
         as_tibble %>%
         select(-width) %>%
+      	rename(!!passfilter_label := passfilter) %>%
       	distinct,
       by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
     ) %>%
@@ -1210,7 +1212,7 @@ cat("DONE\n")
 ######################
 ### Read indel region filters
 ######################
-cat("## Applying read indel region filters...")
+cat("## Applying read indel region filters (not applied to indels)...")
 
 if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
   
@@ -1256,7 +1258,7 @@ if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
     ) %>%
     mutate(read_indel_region_filter.passfilter = FALSE)
    
-  #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter.
+  #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels
   calls <- calls %>%
     left_join(
       calls.gr %>%
@@ -1271,7 +1273,10 @@ if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
         distinct,
       by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
     ) %>%
-    mutate(read_indel_region_filter.passfilter = read_indel_region_filter.passfilter %>% replace_na(TRUE))
+    mutate(
+    	read_indel_region_filter.passfilter = read_indel_region_filter.passfilter %>% replace_na(TRUE),
+    	read_indel_region_filter.passfilter = if_else(call_class == "indel", TRUE, read_indel_region_filter.passfilter)
+    	)
   
   #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
   bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1286,8 +1291,9 @@ if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
         summarize(num_refspacebases_passreadindelregionfilter = sum(end-start)),
       by = "run_id"
     )
-
 }
+
+rm(read_indel_region_filter)
 
 cat("DONE\n")
 
@@ -1331,7 +1337,7 @@ germline_bam_samtools_mpileup_filter <- tmpbw %>%
 	} %>%
 	subsetByOverlaps(genome_chromgroup.gr) %>%
 	select(-score) %>%
-	mutate(passfilter = FALSE)
+	mutate(!!passfilter_label := FALSE)
 
 file.remove(tmpbw) %>% invisible
 
@@ -1352,11 +1358,8 @@ calls <- calls %>%
 				start = startnew,
 				end = endnew
 			) %>%
-			join_overlap_left(germline_bam_samtools_mpileup_filter) %>%
+			join_overlap_inner(germline_bam_samtools_mpileup_filter) %>%
 			as_tibble %>%
-			mutate(filter = filter %>% replace_na(TRUE)) %>%
-			group_by(across(all_of(calls.joincols))) %>%
-			summarize(passfilter = if_else(all(passfilter), TRUE, FALSE), .groups="drop") %>%
 			mutate(
 				startnew = if_else(call_type == "insertion", end, start),
 				endnew = if_else(call_type == "insertion", start, end),
@@ -1364,11 +1367,11 @@ calls <- calls %>%
 				end = endnew,
 				width = if_else(call_type == "insertion", 0, width)
 			) %>%
-			select(-c(startnew,endnew)) %>%
-			rename(!!passfilter_label := passfilter) %>%
+			select(all_of(c(calls.joincols,passfilter_label))) %>%
 			distinct,
 		by = calls.joincols
-	)
+	) %>%
+	mutate(across(all_of(passfilter_label), ~ . %>% replace_na(TRUE)))
 
 #Record number of filtered genome bases to stats
 region_genome_filters_stats <- region_genome_filters_stats %>%
@@ -1457,7 +1460,6 @@ calls <- calls %>%
 				ref_plus_strand == ref_plus_strand.mpileup,
 				alt_plus_strand == alt_plus_strand.mpileup
 			) %>%
-			select(-c(call_class.mpileup,call_type.mpileup,SBSindel_call_type.mpileup,ref_plus_strand.mpileup,alt_plus_strand.mpileup)) %>%
 			select(all_of(c(calls.joincols,"max_BAMVariantReads.passfilter","max_BAMVAF.passfilter"))) %>%
 			distinct,
 		by = calls.joincols
@@ -1467,7 +1469,7 @@ calls <- calls %>%
 		max_BAMVAF.passfilter = max_BAMVAF.passfilter %>% replace_na(TRUE)
 	)
 
-rm(germline_bam_bcftools_mpileup_filter)
+rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter)
 
 cat("DONE\n")
 
@@ -1484,7 +1486,6 @@ frac_subreads_cvg.fail.gr <- bam %>%
 			function(x){
 				vals <- x %>% as.vector
 				(vals/max(vals)) %>%
-					replace_na(0) %>%
 					{. < filtergroup_toanalyze_config$min_frac_subreads_cvg} %>%
 					which %>%
 					IRanges
@@ -1601,28 +1602,28 @@ calls <- calls %>%
 		)
 	) %>%
 	
-	#Perform filtering
+	#Perform filtering. NA in any base on the opposite strand is assigned passfilter = FALSE.
 	mutate(min_frac_subreads_cvg.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
-				 		frac_subreads_cvg %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
+				 		frac_subreads_cvg %>% sapply(mean) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
 				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 		
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
-				 		frac_subreads_cvg %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 		frac_subreads_cvg %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
 				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 		
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
-				 		frac_subreads_cvg %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) %>% replace_na(0) &
+				 		frac_subreads_cvg %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
+				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
 				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 	}
 	) %>%
-	select(-max_sa,-max_sa.opposite_strand,frac_subreads_cvg,frac_subreads_cvg.opposite_strand)
+	select(-c(max_sa,max_sa.opposite_strand,frac_subreads_cvg,frac_subreads_cvg.opposite_strand))
 
 
-#min_num_subreads_match
+#min_num_subreads_match. NA in any base on the opposite strand is assigned passfilter = FALSE.
 calls <- calls %>%
 	mutate(min_num_subreads_match.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
@@ -1658,8 +1659,8 @@ calls <- calls %>%
 		)
 	) %>%
 	
-	#Perform filtering
-	mutate(min_frac_subreads_cvg.passfilter =
+	#Perform filtering. If any base on the call strand or opposite strand has (sm+sx) = 0, evaluate frac_subreads_match as 0. If any opposite strand base has sm or sx = NA, then assign passfilter = FALSE.
+	mutate(min_frac_subreads_match.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
 				 		frac_subreads_match %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
 				 			frac_subreads_match.opposite_strand %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
@@ -1676,7 +1677,7 @@ calls <- calls %>%
 				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
 				 	}
 	) %>%
-	select(-frac_subreads_match,-frac_subreads_match.opposite_strand)
+	select(-c(frac_subreads_match,frac_subreads_match.opposite_strand))
 	
 rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
 
@@ -1690,19 +1691,17 @@ cat("## Applying duplex coverage filters...")
 
 #Extract read regions remaining after all filtering that do not have duplex (i.e. both strand) coverage
 
- #Remaining plus and minus strand read regions after all filters
-bam.gr.filtertrack.plus <- bam.gr.filtertrack %>% filter(strand=="+")
-bam.gr.filtertrack.minus <- bam.gr.filtertrack %>% filter(strand=="-")
-
  #Regions only in plus or minus strand reads
 duplex_coverage.fail.gr <- c(
 	#Plus strand only
-	bam.gr.filtertrack.plus %>%
-		GRanges_subtract_bymcols(bam.gr.filtertrack.minus, join_mcols = c("run_id","zm"), ignore.strand = TRUE),
+	bam.gr.filtertrack %>%
+		filter(strand=="+") %>%
+		GRanges_subtract_bymcols(bam.gr.filtertrack %>% filter(strand=="-"), join_mcols = c("run_id","zm"), ignore.strand = TRUE),
 	
 	#Minus strand only
-	bam.gr.filtertrack.minus %>%
-		GRanges_subtract_bymcols(bam.gr.filtertrack.plus, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+	bam.gr.filtertrack %>%
+		filter(strand=="-") %>%
+		GRanges_subtract_bymcols(bam.gr.filtertrack %>% filter(strand=="+"), join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 ) %>%
 	mutate(duplex_coverage.passfilter = FALSE)
 
@@ -1737,7 +1736,7 @@ calls <- calls %>%
 	) %>%
 	mutate(duplex_coverage.passfilter = duplex_coverage.passfilter %>% replace_na(TRUE))
 
-rm(bam.gr.filtertrack.plus,bam.gr.filtertrack.minus,duplex_coverage.fail.gr)
+rm(duplex_coverage.fail.gr)
 
 cat("DONE\n")
 
@@ -1746,49 +1745,96 @@ cat("DONE\n")
 ######################
 cat("## Applying max final calls per molecule filters...")
 
-max_finalcalls_varstrands.filter <- calls %>%
-	filter(passallfilters = if_all(contains("passfilter"), ~ . == TRUE)) %>%
+#Extract which molecules fail the filter for each call_type / SBSindel_call_type being analyzed
+max_finalcalls_eachstrand.filter <- calls %>%
+	mutate(passallfilters = if_all(contains("passfilter"), ~ . == TRUE)) %>%
 	group_by(run_id,zm,strand,call_type,SBSindel_call_type) %>%
 	summarize(num_calls = sum(passallfilters), .groups = "drop") %>%
-	filter(num_calls > filtergroup_toanalyze_config$max_finalcalls_varstrands) %>%
-	mutate(max_finalcalls_varstrands.passfilter = FALSE)
+	group_by(run_id,zm,call_type,SBSindel_call_type) %>% #not grouping by strand so entire molecule is filtered if either strand fails
+	summarize(max_finalcalls_eachstrand.passfilter = all(num_calls <= filtergroup_toanalyze_config$max_finalcalls_eachstrand),.groups="drop")
 
-#Subtract filtered regions from filter trackers. Create final annotation for each call_type x SBSindel_call_type combination.
-bam.gr.filtertrack <- bam.gr.filtertrack %>%
-	map(
-		***
-		filter(
-			!(
-				run_id %in% max_finalcalls_varstrands.filter$run_id &
-					zm %in% max_finalcalls_varstrands.filter$zm &
-					strand %in% max_finalcalls_varstrands.filter$strand
-			)
+#Subtract filtered molecules from bam.gr.filtertrack, creating a new copy of bam.gr.filtertrack for each call_type x SBSindel_call_type combination.
+bam.gr.filtertrack <- call_types_toanalyze %>%
+	mutate(
+		bam.gr.filtertrack.call_type = list(!!bam.gr.filtertrack),
+		bam.gr.filtertrack.call_type = pmap(
+			list(bam.gr.filtertrack.call_type, call_type, SBSindel_call_type),
+			function(x,y,z){
+				molecules_to_filter <- !!max_finalcalls_eachstrand.filter %>%
+					filter(
+						max_finalcalls_eachstrand.passfilter == FALSE,
+						call_type == y,
+						SBSindel_call_type == z
+						)
+				
+				x %>%
+					filter(
+						!(run_id %in% molecules_to_filter$run_id &
+								zm %in% molecules_to_filter$zm)
+						) %>%
+					return
+			}
 		)
 	)
+
+#Record number of molecule reference space bases remaining after filter, for each call_type x SBSindel_call_type combination.
+molecule_stats <- list(
+	pre_max_finalcalls_eachstrand_filter = molecule_stats,
+	post_max_finalcalls_eachstrand_filter = bam.gr.filtertrack %>%
+		mutate(
+			numbases = 
+				map(
+					bam.gr.filtertrack.call_type,
+					function(x){
+						x %>%
+							as_tibble %>%
+							group_by(run_id) %>%
+							summarize(num_refspacebases_passmaxfinalcallseachstrandfilter = sum(end-start))
+					}
+				)
+		) %>%
+		select(call_type,SBSindel_call_type,numbases) %>%
+		unnest_wider(numbases)
+)
 
 #Annotate calls with filter
 calls <- calls %>%
 	left_join(
-		max_finalcalls_varstrands.filter,
-		by = join_by(run_id,zm,strand,call_type,SBSindel_call_type)
+		max_finalcalls_eachstrand.filter,
+		by = join_by(run_id,zm,call_type,SBSindel_call_type)
 	) %>%
-	mutate(max_finalcalls_varstrands.passfilter = max_finalcalls_varstrands.passfilter %>% replace_na(TRUE))
+	mutate(max_finalcalls_eachstrand.passfilter = max_finalcalls_eachstrand.passfilter %>% replace_na(TRUE))
 
-#Record number of molecule reference space bases remaining after filters, for each call_type x SBSindel_call_type combination.
-**** For each combo
-molecule_stats <- molecule_stats %>%
-	left_join(
-		bam.gr.filtertrack %>%
-			as_tibble %>%
-			group_by(run_id) %>%
-			summarize(num_refspacebases_passgermlinebamtotalreadsfilter = sum(end-start)),
-		by = "run_id"
-	)
+rm(max_finalcalls_eachstrand.filter)
 
 cat("DONE\n")
 
 ######################
 ### Save output data
 ######################
-
+cat("## Saving output data...")
 #Also save total number of bases in chromgroups to analyze
+
+qs_save(
+	list(
+		config = list(
+			yaml.config = yaml.config,
+			run_metadata = extractedCalls %>% pluck("run_metadata"),
+			extractCallsFile = extractCallsFile,
+			individual = individual_id_toanalyze,
+			sample_id = sample_id_toanalyze,
+			chromgroup = chromgroup_toanalyze,
+			genome_chromgroup.gr = genome_chromgroup.gr,
+			filtergroup = filtergroup_toanalyze,
+			call_types = call_types_toanalyze
+		),
+		calls = calls,
+		bam.gr.filtertrack = bam.gr.filtertrack,
+		genome_chromgroup.gr.filtertrack = genome_chromgroup.gr.filtertrack,
+		region_genome_filters_stats = region_genome_filters_stats,
+		molecule_stats = molecule_stats
+	),
+	outputFile
+)
+
+cat("DONE\n")

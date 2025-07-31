@@ -135,8 +135,6 @@ region_genome_filters_config <- yaml.config$region_filters %>%
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
-#Output data lists
-
 #Display basic configuration parameters
 cat("> Processing:\n")
 cat("    extractCalls File:",extractCallsFile,"\n")
@@ -224,7 +222,7 @@ bam <- extractedCalls %>%
 	) %>%
 	as_tibble
 
-#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters and for sensitivity estimation using germline SBS and indel mutations). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE.
+#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are remoevd). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE.
 calls <- extractedCalls %>%
 	pluck("calls.gr") %>%
   mutate(call_type_toanalyze = if_else(call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique), TRUE, FALSE)) %>%
@@ -612,6 +610,9 @@ bam <- bam %>%
       matches("postVCF.*passfilter"),~ replace_na(.x, TRUE)
     )
   )
+
+#Keep only calls with call_type_toanalyze == TRUE in order to remove SBS and indel calls that were included up to this point only for max calls/mutations postVCF filters (though SBS and indel calls will be retained if relevant to this chromgroup/filtergroup chunk).
+calls <- calls %>% filter(call_type_toanalyze == TRUE)
 
 #Annotate calls with new read filters
 calls <- calls %>%

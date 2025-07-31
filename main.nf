@@ -718,6 +718,24 @@ workflow filterCalls {
 
 }
 
+workflow test {
+  main:
+  test2()
+}
+
+process test2 {
+    cpus 1
+    memory '2 GB'
+    time '1h'
+    container "${params.hidefseq_container}"
+
+    script:
+    """
+    ls
+    """
+}
+
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
@@ -735,6 +753,10 @@ extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
 filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
 
 workflow {
+  // test workflow
+  if( params.workflow == "test" ){
+    test()
+  }
 
   // Save copy of parameters file to logs directory
   def logsDir = file("${logs_output_dir}")

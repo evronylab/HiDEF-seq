@@ -63,6 +63,9 @@ outputFile <- opt$output
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
+#General parameters
+strand_levels <- c("+","-")
+
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
 chroms_toanalyze <- yaml.config$chromgroups %>%
@@ -220,19 +223,23 @@ bam <- extractedCalls %>%
 	filter(
 		seqnames %in% chroms_toanalyze
 	) %>%
-	as_tibble
+	as_tibble %>%
+	mutate(strand = strand %>% factor(levels=strand_levels))
 
-#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are remoevd). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE.
+#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are remoevd). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
 calls <- extractedCalls %>%
 	pluck("calls.gr") %>%
-  mutate(call_type_toanalyze = if_else(call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique), TRUE, FALSE)) %>%
+  mutate(
+  	call_type_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique),
+  	strand = strand %>% factor(strand_levels)
+  	) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
 	  call_type_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		) %>%
   as_tibble
 
-#Load prior molecule stats
+#Load prior molecule stats, and add annotation of the current chromgroup and filtergroup being analyzed
 molecule_stats <- extractedCalls %>%
 	pluck("molecule_stats")
 
@@ -254,53 +261,20 @@ bam <- bam %>%
 	mutate(
 		
 		#rq
-		min_rq_eachstrand.passfilter = if_else(
-			all(rq >= filtergroup_toanalyze_config$min_rq_eachstrand),
-			TRUE,
-			FALSE
-		),
-		min_rq_avgstrands.passfilter = if_else(
-			mean(rq) >= filtergroup_toanalyze_config$min_rq_avgstrands,
-			TRUE,
-			FALSE
-		),
-		
+		min_rq_eachstrand.passfilter = all(rq >= filtergroup_toanalyze_config$min_rq_eachstrand),
+		min_rq_avgstrands.passfilter = mean(rq) >= filtergroup_toanalyze_config$min_rq_avgstrands,
 		
 		#ec
-		min_ec_eachstrand.passfilter = if_else(
-			all(ec >= filtergroup_toanalyze_config$min_ec_eachstrand),
-			TRUE,
-			FALSE
-		),
-		min_ec_avgstrands.passfilter = if_else(
-			mean(ec) >= filtergroup_toanalyze_config$min_ec_avgstrands,
-			TRUE,
-			FALSE
-		),
+		min_ec_eachstrand.passfilter = all(ec >= filtergroup_toanalyze_config$min_ec_eachstrand),
+		min_ec_avgstrands.passfilter = mean(ec) >= filtergroup_toanalyze_config$min_ec_avgstrands,
 		
 		#mapq
-		min_mapq_eachstrand.passfilter = if_else(
-			all(mapq >= filtergroup_toanalyze_config$min_mapq_eachstrand),
-			TRUE,
-			FALSE
-		),
-		min_mapq_avgstrands.passfilter = if_else(
-			mean(mapq) >= filtergroup_toanalyze_config$min_mapq_avgstrands,
-			TRUE,
-			FALSE
-		),
+		min_mapq_eachstrand.passfilter = all(mapq >= filtergroup_toanalyze_config$min_mapq_eachstrand),
+		min_mapq_avgstrands.passfilter = mean(mapq) >= filtergroup_toanalyze_config$min_mapq_avgstrands,
 		
 		#num_softclipbases
-		max_num_softclipbases_eachstrand.passfilter = if_else(
-			all(num_softclipbases <= filtergroup_toanalyze_config$max_num_softclipbases_eachstrand),
-			TRUE,
-			FALSE
-		),
-		max_num_softclipbases_avgstrands.passfilter = if_else(
-			mean(num_softclipbases) <= filtergroup_toanalyze_config$max_num_softclipbases_avgstrands,
-			TRUE,
-			FALSE
-		)
+		max_num_softclipbases_eachstrand.passfilter = all(num_softclipbases <= filtergroup_toanalyze_config$max_num_softclipbases_eachstrand),
+		max_num_softclipbases_avgstrands.passfilter = mean(num_softclipbases) <= filtergroup_toanalyze_config$max_num_softclipbases_avgstrands
 		
 	) %>%
 	select(-num_softclipbases) %>%
@@ -315,59 +289,63 @@ bam <- bam %>%
 			pluck("calls.gr") %>%
 			as_tibble %>%
 			
-			#Count number of SBS and indel calls per strand
+			#Filter for SBS and indel calls
 			filter(
 			  seqnames %in% chroms_toanalyze,
 			  call_class %in% c("SBS","indel")
 			  ) %>%
 		  
-		  #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
+			#Change call_class to factor so that count results are listed for both SBS and indel below. Fix strand levels to '+/-' to avoid expanding strand = '*'.
 			mutate(
-			  strand = strand %>% factor(levels=c("+","-")),
-			  call_class = call_class %>% factor(levels=c("SBS","indel"))
-			  ) %>% 
+				call_class = call_class %>% factor(levels=c("SBS","indel")),
+				strand = strand %>% factor(strand_levels)
+			) %>% 
+			
+			#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
 			count(run_id,zm,strand,call_class) %>%
-		  complete(nesting(run_id,zm), strand, call_class, fill = list(n=0)) %>%
+		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
 			pivot_wider(
-				names_from=call_class,
-				values_from=n,
-				names_glue = "num_{call_class}calls"
+				names_from = call_class,
+				values_from = n,
+				names_glue = "num_{call_class}calls",
+				names_expand = TRUE #Necessary if there are no calls
 				) %>%
 			
 			#Calculate filters for each molecule
 			group_by(run_id,zm) %>%
 			summarize(
 				#max_num_SBScalls_eachstrand.passfilter
-				max_num_SBScalls_eachstrand.passfilter = if_else(
-					all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_eachstrand),
-					TRUE,
-					FALSE
-				),
+				max_num_SBScalls_eachstrand.passfilter = all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_eachstrand),
 				
 				#max_num_indelcalls_eachstrand.passfilter
-				max_num_indelcalls_eachstrand.passfilter = if_else(
-					all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_eachstrand),
-					TRUE,
-					FALSE
-				),
+				max_num_indelcalls_eachstrand.passfilter = all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_eachstrand),
 				
 				#max_num_SBScalls_stranddiff.passfilter
 				max_num_SBScalls_stranddiff.passfilter = (num_SBScalls * if_else(strand == "+",  1L, -1L)) %>%
 					sum %>%
 					abs %>%
 					#Curly braces ensure the '.' refers to the immediately preceding result
-					{if_else(. <= filtergroup_toanalyze_config$max_num_SBScalls_stranddiff, TRUE, FALSE)},
+					{. <= filtergroup_toanalyze_config$max_num_SBScalls_stranddiff},
 				
 				#max_num_indelcalls_stranddiff.passfilter
 				max_num_indelcalls_stranddiff.passfilter = (num_indelcalls * if_else(strand == "+",  1L, -1L)) %>%
 					sum %>%
 					abs %>%
-				  {if_else(. <= filtergroup_toanalyze_config$max_num_indelcalls_stranddiff, TRUE, FALSE)}
-				
-				,.groups = "drop"
-			)
-		,by = join_by(run_id,zm)
-	)
+				  {. <= filtergroup_toanalyze_config$max_num_indelcalls_stranddiff},
+
+				.groups = "drop"
+			),
+		by = join_by(run_id,zm)
+	) %>%
+	mutate(across(
+			c(
+				max_num_SBScalls_eachstrand.passfilter,
+				max_num_indelcalls_eachstrand.passfilter,
+				max_num_SBScalls_stranddiff.passfilter,
+				max_num_indelcalls_stranddiff.passfilter
+			),
+			~ . %>% replace_na(TRUE)
+	))
 				
 
 #Annotate reads for filters: max_num_SBSmutations, max_num_indelmutations
@@ -379,55 +357,47 @@ bam <- bam %>%
 			pluck("calls.gr") %>%
 			as_tibble %>%
 			
-			#Count number of SBS and indel mutations per molecule
+			#Filter for SBS and indel mutations. Not filtering on only '+' or only '-' strand since below code won't double count mutations, because it counts for each strand and those numbers will be identical for mutations on each strand of a molecule.
 			filter(
 			  seqnames %in% chroms_toanalyze,
 				call_class %in% c("SBS","indel"),
 				SBSindel_call_type == "mutation"
 				) %>%
 		  
-		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
+		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly. Fix strand levels to '+/-' to avoid expanding strand = '*'.
 		  mutate(
 		    call_class = call_class %>% factor(levels=c("SBS","indel")),
-		    SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
+		    strand = strand %>% factor(levels=strand_levels)
 		  ) %>% 
-		  count(run_id,zm,call_class,SBSindel_call_type) %>%
-		  complete(nesting(run_id,zm), call_class, SBSindel_call_type, fill = list(n=0)) %>%
+		  count(run_id,zm,strand,call_class) %>%
+		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
 			pivot_wider(
 				names_from=call_class,
 				values_from=n,
-				names_glue = "num_{call_class}mutations"
+				names_glue = "num_{call_class}mutations",
+				names_expand = TRUE #Necessary if there are no calls
 			) %>%
 			
 			#Calculate filters for each molecule
 			group_by(run_id,zm) %>%
 			summarize(
 				#max_num_SBSmutations
-				max_num_SBSmutations.passfilter = if_else(
-					num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations,
-					TRUE,
-					FALSE
-				),
+				max_num_SBSmutations.passfilter = all(num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations),
 				
 				#max_num_indelmutations
-				max_num_indelmutations.passfilter = if_else(
-				  num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations,
-				  TRUE,
-				  FALSE
-				)
+				max_num_indelmutations.passfilter = all(num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations),
 				
-				,.groups = "drop"
+				.groups = "drop"
 			)
 		,by = join_by(run_id,zm)
-	)
-
-#Replace NA with TRUE for read filters, since some molecules had no SBS or indel calls called.
-bam <- bam %>%
-  mutate(
-    across(
-      contains("passfilter"),~ replace_na(.x, TRUE)
-    )
-  )
+	) %>%
+	mutate(across(
+		c(
+			max_num_SBSmutations.passfilter,
+			max_num_indelmutations.passfilter
+		),
+		~ . %>% replace_na(TRUE)
+	))
 
 #Annotate calls with read filters
 calls <- calls %>%
@@ -521,39 +491,39 @@ bam <- bam %>%
         if_all(contains("passfilter"), ~ .x == TRUE)
       ) %>%
       
-      #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
+      #Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly. Fix strand levels to '+/-' to avoid expanding strand = '*'.
       mutate(
-        strand = strand %>% factor(levels=c("+","-")),
-        call_class = call_class %>% factor(levels=c("SBS","indel"))
+        call_class = call_class %>% factor(levels=c("SBS","indel")),
+        strand = strand %>% factor(levels=c("+","-"))
       ) %>% 
       count(run_id,zm,strand,call_class) %>%
-      complete(nesting(run_id,zm), strand, call_class, fill = list(n=0)) %>%
+      complete(run_id, zm, strand, call_class, fill = list(n=0)) %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,
-        names_glue = "num_{call_class}calls"
+        names_glue = "num_{call_class}calls",
+        names_expand = TRUE #Necessary if there are no calls
       ) %>%
       
       #Calculate filters for each molecule
       group_by(run_id,zm) %>%
       summarize(
         #max_num_SBScalls_postVCF_eachstrand
-        max_num_SBScalls_postVCF_eachstrand.passfilter = if_else(
-          all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_postVCF_eachstrand),
-          TRUE,
-          FALSE
-        ),
+        max_num_SBScalls_postVCF_eachstrand.passfilter = all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_postVCF_eachstrand),
         
         #max_num_indelcalls_postVCF_eachstrand
-        max_num_indelcalls_postVCF_eachstrand.passfilter = if_else(
-          all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_postVCF_eachstrand),
-          TRUE,
-          FALSE
-        )
+        max_num_indelcalls_postVCF_eachstrand.passfilter = all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_postVCF_eachstrand),
         ,.groups = "drop"
       )
     ,by = join_by(run_id,zm)
-  )
+  ) %>%
+	mutate(across(
+		c(
+			max_num_SBScalls_postVCF_eachstrand.passfilter,
+			max_num_indelcalls_postVCF_eachstrand.passfilter
+		),
+		~ . %>% replace_na(TRUE)
+	))
 
 
 #Annotate reads for filters: max_num_SBSmutations_postVCF, max_num_indelmutations_postVCF
@@ -571,45 +541,37 @@ bam <- bam %>%
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
       mutate(
         call_class = call_class %>% factor(levels=c("SBS","indel")),
-        SBSindel_call_type = SBSindel_call_type %>% factor(levels="mutation")
+        strand = strand %>% factor(levels=strand_levels)
       ) %>% 
-      count(run_id,zm,call_class,SBSindel_call_type) %>%
-      complete(nesting(run_id,zm), call_class, SBSindel_call_type, fill = list(n=0)) %>%
+      count(run_id,zm,strand,call_class) %>%
+      complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,
-        names_glue = "num_{call_class}mutations"
+        names_glue = "num_{call_class}mutations",
+        names_expand = TRUE #Necessary if there are no calls
       ) %>%
       
       #Calculate filters for each molecule
       group_by(run_id,zm) %>%
       summarize(
         #max_num_SBSmutations_postVCF
-        max_num_SBSmutations_postVCF.passfilter = if_else(
-          num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations_postVCF,
-          TRUE,
-          FALSE
-        ),
+        max_num_SBSmutations_postVCF.passfilter = all(num_SBSmutations <= filtergroup_toanalyze_config$max_num_SBSmutations_postVCF),
         
         #max_num_indelmutations_postVCF
-        max_num_indelmutations_postVCF.passfilter = if_else(
-          num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations_postVCF,
-          TRUE,
-          FALSE
-        )
+        max_num_indelmutations_postVCF.passfilter = all(num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations_postVCF),
         
-        ,.groups = "drop"
+        .groups = "drop"
       ),
     by = join_by(run_id,zm)
-  )
-
-#Replace NA with TRUE for read filters, since some molecules had no SBS or indel calls called.
-bam <- bam %>%
-  mutate(
-    across(
-      matches("postVCF.*passfilter"),~ replace_na(.x, TRUE)
-    )
-  )
+  )  %>%
+	mutate(across(
+		c(
+			max_num_SBSmutations_postVCF.passfilter,
+			max_num_indelmutations_postVCF.passfilter
+		),
+		~ . %>% replace_na(TRUE)
+	))
 
 #Keep only calls with call_type_toanalyze == TRUE in order to remove SBS and indel calls that were included up to this point only for max calls/mutations postVCF filters (though SBS and indel calls will be retained if relevant to this chromgroup/filtergroup chunk).
 calls <- calls %>% filter(call_type_toanalyze == TRUE)
@@ -865,7 +827,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
 		GenomicRanges::reduce(ignore.strand=TRUE) %>%
-		mutate(passfilter = FALSE)
+		mutate(passfilter = rep(FALSE,length(.))) #convoluted assignment so it works with empty GRanges
 	
 	#Subtract genome region filters from filter trackers
 	bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -983,7 +945,14 @@ min_qual.fail.gr <- bam %>%
 	PhredQuality %>%
 	as("IntegerList") %>%
 	as("RleList") %>%
-	IRanges::slice(upper=filtergroup_toanalyze_config$min_qual, includeUpper=FALSE, rangesOnly=TRUE) %>%
+	#Handle empty RleList due to empty bam
+	{
+		if(length(.) > 0){
+			IRanges::slice(., upper=filtergroup_toanalyze_config$min_qual, includeUpper=FALSE, rangesOnly=TRUE)
+		}else{
+			IRangesList()
+		}
+	} %>%
 	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
 
 #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
@@ -998,19 +967,24 @@ if(! filtergroup_toanalyze_config$min_qual_method %in% c("mean","all","any")){
 calls <- calls %>%
   mutate(min_qual.passfilter =
            if(filtergroup_toanalyze_config$min_qual_method=="mean"){
-             qual %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
-               qual.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_qual &
-               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+           	map2_lgl(qual, qual.opposite_strand, ~
+           					 	(mean(.x) >= filtergroup_toanalyze_config$min_qual) &
+           					 	(mean(.y) >= filtergroup_toanalyze_config$min_qual) &
+           					 	!(any(is.na(.y)))
+           	)
            	
            }else if(filtergroup_toanalyze_config$min_qual_method=="all"){
-             qual %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
-               qual.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_qual)}) &
-               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-           	
+           	map2_lgl(qual, qual.opposite_strand, ~
+           					 	(all(.x >= filtergroup_toanalyze_config$min_qual)) &
+           					 	(all(.y >= filtergroup_toanalyze_config$min_qual)) &
+           					 	!(any(is.na(.y)))
+           	)
            }else if(filtergroup_toanalyze_config$min_qual_method=="any"){
-             qual %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
-               qual.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_qual)}) &
-               !(qual.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+           	map2_lgl(qual, qual.opposite_strand, ~
+           					 	(all(.x >= filtergroup_toanalyze_config$min_qual)) &
+           					 	(all(.y >= filtergroup_toanalyze_config$min_qual)) &
+           					 	!(any(is.na(.y)))
+           	)
            }
   )
 
@@ -1043,11 +1017,11 @@ bam.gr.onlyranges <- bam %>%
 
 bam.gr.trim <- c(
     bam.gr.onlyranges %>%
-    mutate(
-      temp_end = start + filtergroup_toanalyze_config$read_trim_bp - 1,
-      end = if_else(temp_end < end, temp_end, end)  #prevents exceeding genome boundaries
-      ) %>%
-    select(-temp_end),
+	    mutate(
+	      temp_end = start + filtergroup_toanalyze_config$read_trim_bp - 1,
+	      end = if_else(temp_end < end, temp_end, end)  #prevents exceeding genome boundaries
+	      ) %>%
+	    select(-temp_end),
     
     bam.gr.onlyranges %>%
       mutate(
@@ -1056,7 +1030,7 @@ bam.gr.trim <- c(
       ) %>%
       select(-temp_start)
   ) %>%
-  mutate(read_trim_bp.passfilter = FALSE)
+  mutate(read_trim_bp.passfilter = rep(FALSE,length(.)))
 
 rm(bam.gr.onlyranges)
 
@@ -1257,7 +1231,7 @@ if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
       keep.extra.columns = TRUE,
       seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
     ) %>%
-    mutate(read_indel_region_filter.passfilter = FALSE)
+    mutate(read_indel_region_filter.passfilter = rep(FALSE,length(.)))
    
   #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels
   calls <- calls %>%
@@ -1338,7 +1312,7 @@ germline_bam_samtools_mpileup_filter <- tmpbw %>%
 	} %>%
 	subsetByOverlaps(genome_chromgroup.gr) %>%
 	select(-score) %>%
-	mutate(!!passfilter_label := FALSE)
+	mutate(!!passfilter_label := rep(FALSE,length(.)))
 
 file.remove(tmpbw) %>% invisible
 
@@ -1444,8 +1418,8 @@ germline_bam_bcftools_mpileup_filter <- load_vcf(
 #Annotate mpileup with variants passing filters
 germline_bam_bcftools_mpileup_filter <- germline_bam_bcftools_mpileup_filter %>%
 	mutate(
-		max_BAMVariantReads.passfilter = if_else(AD2 <= filtergroup_toanalyze_config$max_BAMVariantReads, TRUE, FALSE),
-		max_BAMVAF.passfilter = if_else(VAF <= filtergroup_toanalyze_config$max_BAMVAF, TRUE, FALSE)
+		max_BAMVariantReads.passfilter = AD2 <= filtergroup_toanalyze_config$max_BAMVariantReads,
+		max_BAMVAF.passfilter = VAF <= filtergroup_toanalyze_config$max_BAMVAF
 	)
 
 #Annotate SBS calls with germline BAM bcftools mpileup VCF filters. Then set non-SBS calls to pass these filters.
@@ -1606,19 +1580,23 @@ calls <- calls %>%
 	#Perform filtering. NA in any base on the opposite strand is assigned passfilter = FALSE.
 	mutate(min_frac_subreads_cvg.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
-				 		frac_subreads_cvg %>% sapply(mean) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_frac_subreads_cvg &
-				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(frac_subreads_cvg, frac_subreads_cvg.opposite_strand, ~
+				 						 	(mean(.x) >= filtergroup_toanalyze_config$min_frac_subreads_cvg) &
+				 						 	(mean(.y) >= filtergroup_toanalyze_config$min_frac_subreads_cvg) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
-				 		frac_subreads_cvg %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
-				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(frac_subreads_cvg, frac_subreads_cvg.opposite_strand, ~
+				 						 	(all(.x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)) &
+				 						 	(all(.y >= filtergroup_toanalyze_config$min_frac_subreads_cvg)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
-				 		frac_subreads_cvg %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
-				 			frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)}) &
-				 			!(frac_subreads_cvg.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		map2_lgl(frac_subreads_cvg, frac_subreads_cvg.opposite_strand, ~
+				 						 	(any(.x >= filtergroup_toanalyze_config$min_frac_subreads_cvg)) &
+				 						 	(any(.y >= filtergroup_toanalyze_config$min_frac_subreads_cvg)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}
 	) %>%
 	select(-c(max_sa,max_sa.opposite_strand,frac_subreads_cvg,frac_subreads_cvg.opposite_strand))
@@ -1628,19 +1606,23 @@ calls <- calls %>%
 calls <- calls %>%
 	mutate(min_num_subreads_match.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
-				 		sm %>% sapply(mean) >= filtergroup_toanalyze_config$min_num_subreads_match &
-				 			sm.opposite_strand %>% sapply(mean) >= filtergroup_toanalyze_config$min_num_subreads_match &
-				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(sm, sm.opposite_strand, ~
+				 						 	(mean(.x) >= filtergroup_toanalyze_config$min_num_subreads_match) &
+				 						 	(mean(.y) >= filtergroup_toanalyze_config$min_num_subreads_match) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
-				 		sm %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
-				 			sm.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
-				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(sm, sm.opposite_strand, ~
+				 						 	(all(.x >= filtergroup_toanalyze_config$min_num_subreads_match)) &
+				 						 	(all(.y >= filtergroup_toanalyze_config$min_num_subreads_match)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
-				 		sm %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
-				 			sm.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_num_subreads_match)}) &
-				 			!(sm.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		map2_lgl(sm, sm.opposite_strand, ~
+				 						 	(any(.x >= filtergroup_toanalyze_config$min_num_subreads_match)) &
+				 						 	(any(.y >= filtergroup_toanalyze_config$min_num_subreads_match)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}
 	)
 	
@@ -1663,19 +1645,23 @@ calls <- calls %>%
 	#Perform filtering. If any base on the call strand or opposite strand has (sm+sx) = 0, evaluate frac_subreads_match as 0. If any opposite strand base has sm or sx = NA, then assign passfilter = FALSE.
 	mutate(min_frac_subreads_match.passfilter =
 				 	if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="mean"){
-				 		frac_subreads_match %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
-				 			frac_subreads_match.opposite_strand %>% sapply(mean) %>% replace_na(0) >= filtergroup_toanalyze_config$min_frac_subreads_match &
-				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(frac_subreads_match, frac_subreads_match.opposite_strand, ~
+				 						 	((mean(.x) %>% replace_na(0)) >= filtergroup_toanalyze_config$min_frac_subreads_match) &
+				 						 	((mean(.y) %>% replace_na(0)) >= filtergroup_toanalyze_config$min_frac_subreads_match) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="all"){
-				 		frac_subreads_match %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
-				 			frac_subreads_match.opposite_strand %>% sapply(function(x){all(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
-				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
-				 		
+				 		map2_lgl(frac_subreads_match, frac_subreads_match.opposite_strand, ~
+				 						 	(all(.x >= filtergroup_toanalyze_config$min_frac_subreads_match) %>% replace_na(0)) &
+				 						 	(all(.y >= filtergroup_toanalyze_config$min_frac_subreads_match) %>% replace_na(0)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}else if(filtergroup_toanalyze_config$min_subreads_cvgmatch_method=="any"){
-				 		frac_subreads_match %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
-				 			frac_subreads_match.opposite_strand %>% sapply(function(x){any(x >= filtergroup_toanalyze_config$min_frac_subreads_match)}) %>% replace_na(0) &
-				 			!(frac_subreads_match.opposite_strand %>% sapply(function(x){any(is.na(x))}))
+				 		map2_lgl(frac_subreads_match, frac_subreads_match.opposite_strand, ~
+				 						 	(any(.x >= filtergroup_toanalyze_config$min_frac_subreads_match) %>% replace_na(0)) &
+				 						 	(any(.y >= filtergroup_toanalyze_config$min_frac_subreads_match) %>% replace_na(0)) &
+				 						 	!(any(is.na(.y)))
+				 		)
 				 	}
 	) %>%
 	select(-c(frac_subreads_match,frac_subreads_match.opposite_strand))
@@ -1704,7 +1690,7 @@ duplex_coverage.fail.gr <- c(
 		filter(strand=="-") %>%
 		GRanges_subtract_bymcols(bam.gr.filtertrack %>% filter(strand=="+"), join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 ) %>%
-	mutate(duplex_coverage.passfilter = FALSE)
+	mutate(duplex_coverage.passfilter = rep(FALSE,length(.)))
 
  #Subtract these regions from the bam.gr filter tracker
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1752,7 +1738,15 @@ max_finalcalls_eachstrand.filter <- calls %>%
 	group_by(run_id,zm,strand,call_type,SBSindel_call_type) %>%
 	summarize(num_calls = sum(passallfilters), .groups = "drop") %>%
 	group_by(run_id,zm,call_type,SBSindel_call_type) %>% #not grouping by strand so entire molecule is filtered if either strand fails
-	summarize(max_finalcalls_eachstrand.passfilter = all(num_calls <= filtergroup_toanalyze_config$max_finalcalls_eachstrand),.groups="drop")
+	summarize(
+		max_finalcalls_eachstrand.passfilter =
+			if(n() == 0){
+				TRUE
+			}else{
+				all(num_calls <= filtergroup_toanalyze_config$max_finalcalls_eachstrand)
+			},
+		.groups="drop"
+		)
 
 #Subtract filtered molecules from bam.gr.filtertrack, creating a new copy of bam.gr.filtertrack for each call_type x SBSindel_call_type combination.
 bam.gr.filtertrack <- call_types_toanalyze %>%

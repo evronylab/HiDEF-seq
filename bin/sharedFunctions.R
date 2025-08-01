@@ -21,6 +21,26 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 	)
 	)), intern=TRUE) != "0"
 	
+	if(nrow(regions) == 0){
+		return(
+			GRanges(
+				ref_plus_strand = character(),
+				alt_plus_strand = character(),
+				QUAL = numeric(),
+				FILTER = character(),
+				AD1 = integer(),
+				AD2 = integer(),
+				GT = character(),
+				GQ = numeric(),
+				Depth = integer(),
+				VAF = numeric(),
+				call_class = factor(),
+				call_type = factor(),
+				SBSindel_call_type = factor()
+			)
+		)
+	}
+	
 	#Create regions files if specified
 	if(!is.null(regions)){
 		tmpregions <- tempfile(tmpdir=getwd(),pattern=".")

@@ -727,7 +727,6 @@ process test2 {
     cpus 1
     memory '2 GB'
     time '1h'
-    container "${params.hidefseq_container}"
 
     output: path "test.txt"
 

@@ -184,8 +184,8 @@ rm(bam.df)
 # Arrange bam.gr by run id, ZMW id and strand
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 
-#Count number of remaining molecules and molecule query space and reference space bases per run
-molecule_stats <- mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
+#Count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
+molecule_stats <- bam.gr %>%
 	as_tibble %>%
 	group_by(run_id,movie_id) %>%
 	summarize(

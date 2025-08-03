@@ -226,16 +226,16 @@ bam <- extractedCalls %>%
 	as_tibble %>%
 	mutate(strand = strand %>% factor(levels=strand_levels))
 
-#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are remoevd). Mark calls with call_type in call_types_toanalyze with a new column call_type_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
+#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are removed). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
 calls <- extractedCalls %>%
 	pluck("calls.gr") %>%
   mutate(
-  	call_type_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique),
+  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique),
   	strand = strand %>% factor(strand_levels)
   	) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
-	  call_type_toanalyze == TRUE | call_class %in% c("SBS","indel")
+	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		) %>%
   as_tibble
 
@@ -283,15 +283,10 @@ bam <- bam %>%
 #Annotate reads for filters: max_num_SBScalls_eachstrand, max_num_SBScalls_stranddiff, max_num_indelcalls_eachstrand, max_num_indelcalls_stranddiff
 bam <- bam %>%
 	left_join(
-		
-		#Input all SBS and indel calls, not just call_types being analyzed in this run, as the filters being calculated are used for general molecule filters that require info on both SBS and indels
-		extractedCalls %>%
-			pluck("calls.gr") %>%
-			as_tibble %>%
 			
 			#Filter for SBS and indel calls
+			calls %>%
 			filter(
-			  seqnames %in% chroms_toanalyze,
 			  call_class %in% c("SBS","indel")
 			  ) %>%
 		  
@@ -351,15 +346,10 @@ bam <- bam %>%
 #Annotate reads for filters: max_num_SBSmutations, max_num_indelmutations
 bam <- bam %>%
 	left_join(
-		
-		#Input all calls, not just call_types being analyzed, as this is used for general molecule filters that require info on SBS and indels
-		extractedCalls %>%
-			pluck("calls.gr") %>%
-			as_tibble %>%
 			
-			#Filter for SBS and indel mutations. Not filtering on only '+' or only '-' strand since below code won't double count mutations, because it counts for each strand and those numbers will be identical for mutations on each strand of a molecule.
+			#Filter for SBS and indel mutations. Not filtering here on only '+' or only '-' strand since the below code won't double count mutations, because it counts mutations for each strand and those numbers will be identical for each strand of a molecule.
+		calls %>%
 			filter(
-			  seqnames %in% chroms_toanalyze,
 				call_class %in% c("SBS","indel"),
 				SBSindel_call_type == "mutation"
 				) %>%
@@ -573,8 +563,8 @@ bam <- bam %>%
 		~ . %>% replace_na(TRUE)
 	))
 
-#Keep only calls with call_type_toanalyze == TRUE in order to remove SBS and indel calls that were included up to this point only for max calls/mutations postVCF filters (though SBS and indel calls will be retained if relevant to this chromgroup/filtergroup chunk).
-calls <- calls %>% filter(call_type_toanalyze == TRUE)
+#Keep only calls with call_toanalyze == TRUE in order to remove SBS and indel calls that were included up to this point only for max calls/mutations postVCF filters (though SBS and indel calls will be retained if relevant to this chromgroup/filtergroup chunk).
+calls <- calls %>% filter(call_toanalyze == TRUE)
 
 #Annotate calls with new read filters
 calls <- calls %>%
@@ -583,7 +573,10 @@ calls <- calls %>%
       distinct(
         run_id,
         zm,
-        pick(matches("postVCF.*passfilter"))
+        max_num_SBScalls_postVCF_eachstrand.passfilter,
+        max_num_indelcalls_postVCF_eachstrand.passfilter,
+        max_num_SBSmutations_postVCF.passfilter,
+        max_num_indelmutations_postVCF.passfilter
       )
     ,by = join_by(run_id,zm)
   )
@@ -1189,84 +1182,73 @@ cat("DONE\n")
 ######################
 cat("## Applying read indel region filters (not applied to indels)...")
 
-if(filtergroup_toanalyze_config %>% pull(ccsindel_filter) == TRUE){
-  
-  #Extract padding configuration
-  indel_inspad <- filtergroup_toanalyze_config %>% pull(ccsindel_inspad)
-  indel_delpad <- filtergroup_toanalyze_config %>% pull(ccsindel_delpad)
-  
-  if(!is.na(indel_inspad)){
-    indel_inspad <- indel_inspad %>%
-      tibble(pad=.) %>%
-      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
-  }else{
-    indel_inspad <- tibble(m = 0, b = 0)
-  }
-  
-  if(!is.na(indel_delpad)){
-    indel_delpad <- indel_delpad %>%
-      tibble(pad=.) %>%
-      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
-  }else{
-    indel_delpad <- tibble(m = 0, b = 0)
-  }
-  
-  #Create GRanges of indels with configured padding
-  read_indel_region_filter <- calls %>%
-    filter(call_class=="indel") %>%
-    mutate(
-      padding_m = case_when(
-        call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-        call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
-      ),
-      padding_b = case_when(
-        call_type == "insertion" ~ indel_inspad$b,
-        call_type == "deletion" ~ indel_delpad$b
-      ),
-      start = start - pmax(padding_m,padding_b),
-      end = end + pmax(padding_m,padding_b)
-    ) %>%
-    select(run_id, zm, seqnames, start, end, strand,-padding_m,-padding_b) %>%
-    makeGRangesFromDataFrame(
-      keep.extra.columns = TRUE,
-      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-    ) %>%
-    mutate(read_indel_region_filter.passfilter = rep(FALSE,length(.)))
-   
-  #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels
-  calls <- calls %>%
-    left_join(
-      calls.gr %>%
-        select(run_id,zm) %>%
-        join_overlap_inner(read_indel_region_filter, suffix = c("",".filter")) %>% #strand ignored
-        filter(
-          run_id == run_id.filter,
-          zm == zm.filter
-        ) %>%
-        as_tibble %>%
-        select(-run_id.filter,-zm.filter,-width) %>%
-        distinct,
-      by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
-    ) %>%
-    mutate(
-    	read_indel_region_filter.passfilter = read_indel_region_filter.passfilter %>% replace_na(TRUE),
-    	read_indel_region_filter.passfilter = if_else(call_class == "indel", TRUE, read_indel_region_filter.passfilter)
-    	)
-  
-  #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
-  bam.gr.filtertrack <- bam.gr.filtertrack %>%
-    GRanges_subtract_bymcols(read_indel_region_filter, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
-  
-  #Record number of molecule reference space bases remaining after filters
-  molecule_stats <- molecule_stats %>%
-    left_join(
-      bam.gr.filtertrack %>%
-        as_tibble %>%
-        group_by(run_id) %>%
-        summarize(num_refspacebases_passreadindelregionfilter = sum(end-start)),
-      by = "run_id"
-    )
-}
+#Extract padding configuration
+indel_inspad <- filtergroup_toanalyze_config %>% pull(ccsindel_inspad)
+indel_delpad <- filtergroup_toanalyze_config %>% pull(ccsindel_delpad)
+
+indel_inspad <- indel_inspad %>%
+  tibble(pad=.) %>%
+  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+
+indel_delpad <- indel_delpad %>%
+  tibble(pad=.) %>%
+  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+
+#Create GRanges of indels with configured padding
+read_indel_region_filter <- calls %>%
+  filter(call_class=="indel") %>%
+  mutate(
+    padding_m = case_when(
+      call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+      call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+    ),
+    padding_b = case_when(
+      call_type == "insertion" ~ indel_inspad$b,
+      call_type == "deletion" ~ indel_delpad$b
+    ),
+    start = start - pmax(padding_m,padding_b),
+    end = end + pmax(padding_m,padding_b)
+  ) %>%
+  select(run_id, zm, seqnames, start, end, strand,-padding_m,-padding_b) %>%
+  makeGRangesFromDataFrame(
+    keep.extra.columns = TRUE,
+    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+  ) %>%
+  mutate(read_indel_region_filter.passfilter = rep(FALSE,length(.)))
+ 
+#Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels
+calls <- calls %>%
+  left_join(
+    calls.gr %>%
+      select(run_id,zm) %>%
+      join_overlap_inner(read_indel_region_filter, suffix = c("",".filter")) %>% #strand ignored
+      filter(
+        run_id == run_id.filter,
+        zm == zm.filter
+      ) %>%
+      as_tibble %>%
+      select(-run_id.filter,-zm.filter,-width) %>%
+      distinct,
+    by = join_by(run_id,zm,strand,seqnames,start,end) #ok to join by strand here since calls on both strands were annotated in the join_overlap_inner step
+  ) %>%
+  mutate(
+  	read_indel_region_filter.passfilter = read_indel_region_filter.passfilter %>% replace_na(TRUE),
+  	read_indel_region_filter.passfilter = if_else(call_class == "indel", TRUE, read_indel_region_filter.passfilter)
+  	)
+
+#Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+  GRanges_subtract_bymcols(read_indel_region_filter, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+#Record number of molecule reference space bases remaining after filters
+molecule_stats <- molecule_stats %>%
+  left_join(
+    bam.gr.filtertrack %>%
+      as_tibble %>%
+      group_by(run_id) %>%
+      summarize(num_refspacebases_passreadindelregionfilter = sum(end-start)),
+    by = "run_id"
+  )
 
 rm(read_indel_region_filter)
 

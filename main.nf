@@ -730,7 +730,7 @@ process test2 {
 
     output: path "test.txt"
 
-    storeDir "~/"
+    storeDir "test"
 
     script:
     """

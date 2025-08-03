@@ -684,85 +684,53 @@ cat("DONE\n")
 cat("## Calculating molecule filter stats...")
 molecule_stats <- molecule_stats %>%
 	bind_rows(
-		#Number of molecules passing each individual filter, each applied separately
+		#Number of molecules, query space bases, and reference space bases passing each individual filter, each applied separately
 		bam %>%
 			group_by(run_id) %>%
-			summarize(across(
-				matches("passfilter$"),
-				~ n_distinct(zm[.x]),
-				.names = "num_molecules_{.col}"
-			)) %>%
-		
-		#Number of molecules passing all the molecule filters
-		left_join(
-			bam %>%
-				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-				group_by(run_id) %>%
-				summarize(num_molecules.passallmoleculefilters = n_distinct(zm)),
-			by = "run_id"
-		) %>%
-	
-		#Number of query space bases passing each individual filter each applied separately
-		left_join(
-			bam %>%
-				group_by(run_id) %>%
-				summarize(across(
+			summarize(
+				across(
 					matches("passfilter$"),
-					~ sum(qwidth[.x]),
-					.names = "num_queryspacebases_{.col}"
-				)),
-			by = "run_id"
-		) %>%
-			
-		#Number of reference space bases passing each individual filter each applied separately
-		left_join(
-			bam %>%
-				group_by(run_id) %>%
-				summarize(across(
-					matches("passfilter$"),
-					~ sum(end[.x] - start[.x]),
-					.names = "num_refspacebases_{.col}"
-				)),
-			by = "run_id"
-		) %>%
+					list(
+						num_molecules = ~ n_distinct(zm[.x]),
+						num_queryspacebases = ~ sum(qwidth[.x]),
+						num_refspacebases = ~ sum(end[.x] - start[.x])
+					),
+					.names = "{.fn}_{.col}"
+				)
+			) %>%
 		
-		#Number of query space bases passing all the molecule filters
-		left_join(
-			bam %>%
-				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-				group_by(run_id) %>%
-				summarize(num_queryspacebases.passallmoleculefilters = sum(qwidth)),
-			by = "run_id"
-		) %>%
+			#Number of molecules, query space bases, and reference space bases passing all the molecule filters
+			left_join(
+				bam %>%
+					filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+					group_by(run_id) %>%
+					summarize(
+						num_molecules.passallmoleculefilters = n_distinct(zm),
+						num_queryspacebases.passallmoleculefilters = sum(qwidth),
+						num_refspacebases.passallmoleculefilters = sum(end-start)
+					),
+				by = "run_id"
+			) %>%
 			
-		#Number of reference space bases passing all the molecule filters
-		left_join(
-			bam %>%
-				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-				group_by(run_id) %>%
-				summarize(num_refspacebases.passallmoleculefilters = sum(end-start)),
-			by = "run_id"
-		) %>%
-		
-		#Pivot longer
-		pivot_longer(
-			-run_id,
-			names_to = "stat",
-			values_to = "value"
-		) %>%
-			
-		#Annotate extractCallsFile, chromgroup, filtergroup of this process
-		mutate(
-			chromgroup = chromgroup_toanalyze,
-			filtergroup = filtergroup_toanalyze,
-			extractCallsFile = extractCallsFile %>% basename
-		)
-	) %>%
-	
-	#Reorder columns
-	relocate(
-		c(run_id,filtergroup,extractCallsFile),
-		.after = chromgroup
+			#Pivot longer
+			pivot_longer(
+				-run_id,
+				names_to = "stat",
+				values_to = "value"
+			) %>%
+				
+			#Annotate extractCallsFile, chromgroup, filtergroup of this process
+			mutate(
+				chromgroup = chromgroup_toanalyze,
+				filtergroup = filtergroup_toanalyze,
+				extractCallsFile = extractCallsFile %>% basename
+			) %>%
+				
+			#Reorder columns
+			relocate(
+				c(chromgroup,filtergroup,extractCallsFile),
+				.after = run_id
+			)
 	)
 
 cat("DONE\n")

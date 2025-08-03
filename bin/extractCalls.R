@@ -120,7 +120,8 @@ calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_
 			stat = str_c(stat, "_", stat_label_suffix)
 		) %>%
 		select(-chroms) %>%
-		arrange(stat)
+		arrange(stat) %>%
+		relocate(run_id)
 }
 
 ######################

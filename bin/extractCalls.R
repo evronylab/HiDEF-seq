@@ -53,6 +53,26 @@ outputFile <- opt$output
 #General parameters
 strand_levels <- c("+","-")
 
+#Load chromgroups (used for calculating molecule_stats per chromgroup) and add a chromgroup that combines all chromgroups
+chroms_toanalyze <- yaml.config$chromgroups %>%
+	enframe %>%
+	unnest_wider(value) %>%
+	mutate(
+		chroms = chroms %>% map(function(x){
+				x %>% str_split_1(",") %>% str_trim
+			}
+		)
+	) %>%
+	select(-name)
+
+chroms_toanalyze <- chroms_toanalyze %>%
+	bind_rows(
+		tibble(
+			chromgroup = "all_chromgroups",
+			chroms = chroms_toanalyze %>% pull(chroms) %>% unlist %>% list
+			)
+	)
+
 #Load call types, and filter to make a table only for MDB call types
 call_types <- yaml.config$call_types %>%
   enframe(name=NULL) %>%
@@ -185,33 +205,66 @@ rm(bam.df)
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 
 #Count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
-molecule_stats <- bam.gr %>%
-	as_tibble %>%
-	group_by(run_id,movie_id) %>%
-	summarize(
-		num_molecules_initial = n_distinct(zm),
-		.groups="drop"
+molecule_stats <- chroms_toanalyze %>%
+	mutate(
+		stat = "num_molecules_initial",
+		value = chroms %>%
+			map_int(function(x){
+				bam.gr %>%
+					as_tibble %>%
+					filter(seqnames %in% x) %>%
+					group_by(run_id,movie_id) %>%
+					summarize(
+						value = n_distinct(zm),
+						.groups="drop"
+					) %>%
+					pull(value) %>%
+					{ifelse(length(.) == 0, 0, .)}
+			})
 	) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_queryspacebases_initial = sum(qwidth),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
+	select(-chroms) %>%
+	
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_queryspacebases_initial",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = sum(qwidth),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms) %>%
+	
+  bind_rows(
+  	chroms_toanalyze %>%
+  		mutate(
+  			stat = "num_refspacebases_initial",
+  			value = chroms %>%
+  				map_int(function(x){
+  					bam.gr %>%
+  						as_tibble %>%
+  						filter(seqnames %in% x) %>%
+  						group_by(run_id,movie_id) %>%
+  						summarize(
+  							value = sum(end-start),
+  							.groups="drop"
+  						) %>%
+  						pull(value) %>%
+  						{ifelse(length(.) == 0, 0, .)}
+  				})
+  		)
   ) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_refspacebases_initial = sum(end-start),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
-  )
+	select(-chroms)
 
 cat("DONE\n")
 
@@ -236,47 +289,83 @@ zmwstokeep <- bam.gr %>%
   select(run_id,zm) %>%
 	distinct
 
-bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokeep$zm,]
-rm(zmwstokeep)
+bam.gr <- bam.gr %>%
+	filter( (run_id %in% zmwstokeep$run_id) & (zm %in% zmwstokeep$zm) )
 
 # Count number of remaining molecules and query space and reference space bases per run
 molecule_stats <- molecule_stats %>%
-	left_join(
-		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
-		as_tibble %>%
-		group_by(run_id,movie_id) %>%
-		summarize(
-			num_molecules.passalignmentfilter = n_distinct(zm),
-			.groups="drop"
-		),
-		by = join_by(run_id,movie_id)
-  ) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_queryspacebases.passalignmentfilter = sum(qwidth),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
-  ) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_refspacebases.passalignmentfilter = sum(end-start),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
-  )
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_molecules.passalignmentfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = n_distinct(zm),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms) %>%
+	
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_queryspacebases.passalignmentfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = sum(qwidth),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms) %>%
+	
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_refspacebases.passalignmentfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = sum(end-start),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms)
 
 # Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal or both plus and minus strand alignments)
 
  # Extract plus and minus strand reads separately. Due to prior sorting by ZMW id and strand, these are guaranteed to have the same ZMW id order.
-bam.gr.onlyranges.plus <- bam.gr[strand(bam.gr) == "+", c("zm","run_id")]
-bam.gr.onlyranges.minus <- bam.gr[strand(bam.gr) == "-", c("zm","run_id")]
+bam.gr.onlyranges.plus <- bam.gr %>%
+	filter(strand == "+") %>%
+	select(run_id,zm)
+bam.gr.onlyranges.minus <- bam.gr %>%
+	filter(strand == "-") %>%
+	select(run_id,zm)
 
  # Confirm run id and ZMW id order is the same for plus and minus strand reads
 if(! identical(bam.gr.onlyranges.plus$zm, bam.gr.onlyranges.minus$zm) | ! identical(bam.gr.onlyranges.plus$run_id, bam.gr.onlyranges.minus$run_id) ){
@@ -297,43 +386,76 @@ zmwstokeep <- bam.gr.onlyranges.overlap %>%
 		minus_overlap_frac >= plus_overlap_frac
 	)
 
-bam.gr <- bam.gr[bam.gr$run_id %in% zmwstokeep$run_id & bam.gr$zm %in% zmwstokeep$zm,]
+bam.gr <- bam.gr %>%
+	filter( (run_id %in% zmwstokeep$run_id) & (zm %in% zmwstokeep$zm) )
 
  # Remove intermediate objects
 rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
 
 # Count number of remaining molecules and query space and reference space bases per run
 molecule_stats <- molecule_stats %>%
-	left_join(
-		mcols(bam.gr)[,c("run_id","movie_id","zm")] %>%
-			as_tibble %>%
-			group_by(run_id,movie_id) %>%
-			summarize(
-				num_molecules.passminstrandoverlapfilter = n_distinct(zm),
-				.groups="drop"
-			),
-		by = join_by(run_id,movie_id)
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_molecules.passminstrandoverlapfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = n_distinct(zm),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
 	) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_queryspacebases.passminstrandoverlapfilter = sum(qwidth),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
-  ) %>%
-  left_join(
-    bam.gr %>%
-      as_tibble %>%
-      group_by(run_id,movie_id) %>%
-      summarize(
-        num_refspacebases.passminstrandoverlapfilter = sum(end-start),
-        .groups="drop"
-      ),
-    by = join_by(run_id,movie_id)
-  )
+	select(-chroms) %>%
+	
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_queryspacebases.passminstrandoverlapfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = sum(qwidth),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms) %>%
+	
+	bind_rows(
+		chroms_toanalyze %>%
+			mutate(
+				stat = "num_refspacebases.passminstrandoverlapfilter",
+				value = chroms %>%
+					map_int(function(x){
+						bam.gr %>%
+							as_tibble %>%
+							filter(seqnames %in% x) %>%
+							group_by(run_id,movie_id) %>%
+							summarize(
+								value = sum(end-start),
+								.groups="drop"
+							) %>%
+							pull(value) %>%
+							{ifelse(length(.) == 0, 0, .)}
+					})
+			)
+	) %>%
+	select(-chroms)
 
 cat("DONE\n")
 

@@ -226,7 +226,7 @@ bam <- extractedCalls %>%
 	as_tibble %>%
 	mutate(strand = strand %>% factor(levels=strand_levels))
 
-#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters after which they are removed). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
+#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF filters and downstream sensitivity calculations). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
 calls <- extractedCalls %>%
 	pluck("calls.gr") %>%
   mutate(
@@ -239,7 +239,7 @@ calls <- extractedCalls %>%
 		) %>%
   as_tibble
 
-#Load prior molecule stats, and add annotation of the current chromgroup and filtergroup being analyzed
+#Load prior molecule stats
 molecule_stats <- extractedCalls %>%
 	pluck("molecule_stats")
 
@@ -563,9 +563,6 @@ bam <- bam %>%
 		~ . %>% replace_na(TRUE)
 	))
 
-#Keep only calls with call_toanalyze == TRUE in order to remove SBS and indel calls that were included up to this point only for max calls/mutations postVCF filters (though SBS and indel calls will be retained if relevant to this chromgroup/filtergroup chunk).
-calls <- calls %>% filter(call_toanalyze == TRUE)
-
 #Annotate calls with new read filters
 calls <- calls %>%
   left_join(
@@ -685,70 +682,88 @@ cat("DONE\n")
 ######################
 
 cat("## Calculating molecule filter stats...")
-
 molecule_stats <- molecule_stats %>%
-	#Annotate number of molecules passing each individual filter each applied separately
-	left_join(
+	bind_rows(
+		#Number of molecules passing each individual filter, each applied separately
 		bam %>%
 			group_by(run_id) %>%
 			summarize(across(
 				matches("passfilter$"),
 				~ n_distinct(zm[.x]),
 				.names = "num_molecules_{.col}"
-			)),
-		by = "run_id"
+			)) %>%
+		
+		#Number of molecules passing all the molecule filters
+		left_join(
+			bam %>%
+				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+				group_by(run_id) %>%
+				summarize(num_molecules.passallmoleculefilters = n_distinct(zm)),
+			by = "run_id"
+		) %>%
+	
+		#Number of query space bases passing each individual filter each applied separately
+		left_join(
+			bam %>%
+				group_by(run_id) %>%
+				summarize(across(
+					matches("passfilter$"),
+					~ sum(qwidth[.x]),
+					.names = "num_queryspacebases_{.col}"
+				)),
+			by = "run_id"
+		) %>%
+			
+		#Number of reference space bases passing each individual filter each applied separately
+		left_join(
+			bam %>%
+				group_by(run_id) %>%
+				summarize(across(
+					matches("passfilter$"),
+					~ sum(end[.x] - start[.x]),
+					.names = "num_refspacebases_{.col}"
+				)),
+			by = "run_id"
+		) %>%
+		
+		#Number of query space bases passing all the molecule filters
+		left_join(
+			bam %>%
+				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+				group_by(run_id) %>%
+				summarize(num_queryspacebases.passallmoleculefilters = sum(qwidth)),
+			by = "run_id"
+		) %>%
+			
+		#Number of reference space bases passing all the molecule filters
+		left_join(
+			bam %>%
+				filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+				group_by(run_id) %>%
+				summarize(num_refspacebases.passallmoleculefilters = sum(end-start)),
+			by = "run_id"
+		) %>%
+		
+		#Pivot longer
+		pivot_longer(
+			-run_id,
+			names_to = "stat",
+			values_to = "value"
+		) %>%
+			
+		#Annotate extractCallsFile, chromgroup, filtergroup of this process
+		mutate(
+			chromgroup = chromgroup_toanalyze,
+			filtergroup = filtergroup_toanalyze,
+			extractCallsFile = extractCallsFile %>% basename
+		)
 	) %>%
 	
-	#Annotate number of molecules passing all the molecule filters
-	left_join(
-		bam %>%
-			filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-			group_by(run_id) %>%
-			summarize(num_molecules.passallmoleculefilters = n_distinct(zm)),
-		by = "run_id"
-	) %>%
-  
-  #Annotate number of query space bases passing each individual filter each applied separately
-  left_join(
-    bam %>%
-      group_by(run_id) %>%
-      summarize(across(
-        matches("passfilter$"),
-        ~ sum(qwidth[.x]),
-        .names = "num_queryspacebases_{.col}"
-      )),
-    by = "run_id"
-  ) %>%
-  
-  #Annotate number of reference space bases passing each individual filter each applied separately
-  left_join(
-    bam %>%
-      group_by(run_id) %>%
-      summarize(across(
-        matches("passfilter$"),
-        ~ sum(end[.x] - start[.x]),
-        .names = "num_refspacebases_{.col}"
-      )),
-    by = "run_id"
-  ) %>%
-  
-  #Annotate number of query space bases passing all the molecule filters
-  left_join(
-    bam %>%
-      filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-      group_by(run_id) %>%
-      summarize(num_queryspacebases.passallmoleculefilters = sum(qwidth)),
-    by = "run_id"
-  ) %>%
-  
-  #Annotate number of reference space bases passing all the molecule filters
-  left_join(
-    bam %>%
-      filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-      group_by(run_id) %>%
-      summarize(num_refspacebases.passallmoleculefilters = sum(end-start)),
-    by = "run_id"
-  )
+	#Reorder columns
+	relocate(
+		c(run_id,filtergroup,extractCallsFile),
+		.after = chromgroup
+	)
 
 cat("DONE\n")
 

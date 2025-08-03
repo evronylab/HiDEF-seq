@@ -76,9 +76,7 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 				x %>% str_split_1(",") %>% str_trim
 			})
 	) %>%
-	select(-name)
-
-chroms_toanalyze <- chroms_toanalyze %>%
+	select(-name) %>%
 	bind_rows(
 		tibble(
 			chromgroup = "all_chroms",
@@ -92,65 +90,37 @@ cat("DONE\n")
 ### Define custom functions
 ######################
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
-calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix){
-	chroms_toanalyze %>%
+calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix) {
+	chroms_toanalyze.input %>%
 		mutate(
-			stat = str_c("num_molecules_",stat_label_suffix),
-			value = chroms %>%
-				map_int(function(x){
-					bam.gr.input %>%
-						as_tibble %>%
-						filter(seqnames %in% x) %>%
-						group_by(run_id,movie_id) %>%
+			stats = map(chroms, ~{
+				bam.gr.input %>%
+					as_tibble %>%
+					filter(seqnames %in% .x) %>%
+						group_by(run_id) %>%
 						summarize(
-							value = n_distinct(zm),
-							.groups="drop"
+							num_molecules       = n_distinct(zm),
+							num_queryspacebases = sum(qwidth),
+							num_refpacebases    = sum(end - start),
+							.groups = "drop"
 						) %>%
-						pull(value) %>%
-						{ifelse(length(.) == 0, 0, .)}
+					complete(run_id,fill = list(
+						num_molecules=0, num_queryspacebases=0, num_refpacebases=0
+						)
+					)
 				})
 		) %>%
-		
-		bind_rows(
-			chroms_toanalyze %>%
-				mutate(
-					stat = str_c("num_queryspacebases_",stat_label_suffix),
-					value = chroms %>%
-						map_int(function(x){
-							bam.gr.input %>%
-								as_tibble %>%
-								filter(seqnames %in% x) %>%
-								group_by(run_id,movie_id) %>%
-								summarize(
-									value = sum(qwidth),
-									.groups="drop"
-								) %>%
-								pull(value) %>%
-								{ifelse(length(.) == 0, 0, .)}
-						})
-				)
+		unnest(stats) %>%
+		pivot_longer(
+			cols      = starts_with("num_"),
+			names_to  = "stat",
+			values_to = "value"
 		) %>%
-		
-		bind_rows(
-			chroms_toanalyze %>%
-				mutate(
-					stat = str_c("num_refpacebases_",stat_label_suffix),
-					value = chroms %>%
-						map_int(function(x){
-							bam.gr.input %>%
-								as_tibble %>%
-								filter(seqnames %in% x) %>%
-								group_by(run_id,movie_id) %>%
-								summarize(
-									value = sum(end-start),
-									.groups="drop"
-								) %>%
-								pull(value) %>%
-								{ifelse(length(.) == 0, 0, .)}
-						})
-				)
+		mutate(
+			stat = str_c(stat, "_", stat_label_suffix)
 		) %>%
-		select(-chroms)
+		select(-chroms) %>%
+		arrange(stat)
 }
 
 ######################
@@ -938,7 +908,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
 
 
 #########################################
-### Loop to extract calls from each run_id/movie_id separately
+### Loop to extract calls from each run_id separately
 #########################################
 
 #Split bam.gr by run_id

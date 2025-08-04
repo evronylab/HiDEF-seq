@@ -177,7 +177,7 @@ bam <- bamFile %>%
   ) %>%
   pluck(1)
 
-#Create DataFrame of reads
+#Create DataFrame of reads. DataFrame is required to store seq and qual at smaller size, since tibble cannot store S4Vector columns.
 bam.df <- cbind(
   DataFrame(bam[names(bam) != "tag"] %>% lapply(I)),
   DataFrame(bam$tag %>% lapply(I))
@@ -904,7 +904,6 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       )
   
   return(calls.out)
-
 }
 
 
@@ -916,7 +915,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
 bam.gr <- bam.gr %>% split(bam.gr$run_id)
 
 #Create output list
-calls.df <- list()
+calls <- list()
 
 for(i in bam.gr %>% names){
 
@@ -928,7 +927,7 @@ for(i in bam.gr %>% names){
   cat("    Extracting single base substitutions...")
   
   #SBS
-  calls.df[[i]] <- extract_calls(
+  calls[[i]] <- extract_calls(
     bam.gr.input = bam.gr[[i]],
     call_class.input = "SBS",
     call_type.input = "SBS",
@@ -940,7 +939,7 @@ for(i in bam.gr %>% names){
   #Insertions
   cat("    Extracting insertions...")
   
-  calls.df[[i]] <- calls.df[[i]] %>%
+  calls[[i]] <- calls[[i]] %>%
     bind_rows(
       extract_calls(
         bam.gr.input = bam.gr[[i]],
@@ -955,7 +954,7 @@ for(i in bam.gr %>% names){
   #Deletions
   cat("    Extracting deletions...")
   
-  calls.df[[i]] <- calls.df[[i]] %>%
+  calls[[i]] <- calls[[i]] %>%
     bind_rows(
       extract_calls(
         bam.gr.input = bam.gr[[i]],
@@ -973,7 +972,7 @@ for(i in bam.gr %>% names){
     
     cat("    Extracting",call_types_MDB %>% pluck("call_type",j),"...")
     
-    calls.df[[i]] <- calls.df[[i]] %>%
+    calls[[i]] <- calls[[i]] %>%
       bind_rows(
         extract_calls(
           bam.gr.input = bam.gr[[i]],
@@ -994,19 +993,23 @@ for(i in bam.gr %>% names){
 ######################
 cat("## Further annotating calls...")
 
-#Collapse bam.gr back to a single GRanges object and remove seq data that is no longer needed
+#Collapse bam.gr back to a single GRanges object, remove seq data that is no longer needed, and convert to a tibble. Note, this transforms qual from PhredQuality to list.
 bam.gr <- bam.gr %>% unlist(use.names=F)
 bam.gr$seq <- NULL
+bam <- bam.gr %>%
+	as_tibble %>%
+	mutate(strand = strand %>% factor(levels=strand_levels))
+rm(bam.gr)
 
-#Combine call calls of all runs
-calls.df <- calls.df %>%
+#Combine calls of all runs
+calls <- calls %>%
   bind_rows(.id="run_id") %>%
   mutate(run_id=factor(run_id))
 
 #Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
-calls.df <- calls.df %>%
+calls <- calls %>%
 	left_join(
-		calls.df %>%
+		calls %>%
 			filter(call_class %in% c("SBS","MDB")) %>%
 			select(seqnames,start_refspace,end_refspace,call_class) %>%
 			distinct %>%
@@ -1045,7 +1048,7 @@ calls.df <- calls.df %>%
 	)
 
 #Annotate for each calls its ref, alt, and trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
-calls.df <- calls.df %>%
+calls <- calls %>%
 	mutate(
 		ref_minus_strand = ref_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
 		ref_synthesized_strand = if_else(strand=="+",ref_plus_strand,ref_minus_strand),
@@ -1068,7 +1071,7 @@ calls.df <- calls.df %>%
 # Whether and which MDBs were called on the same or opposite strand will be annotated later in the filterCalls step after further filtering MDBs, since filtering out an MDB won't trigger filtering of SBS and indel calls, whereas filtering an SBS or indel on any one strand will anyway cause filtering of calls on the opposite strand, so it doesn't matter if we annotate here opposite strand SBS and indel calls before filtering.
 
  #Make GRanges of calls. Swap start and end for insertions, since the subsequent join otherwise cannot join two insertions with the same coordinates (this won't affect later joining, since original start_refspace and end_refspace are used to filter the joins).
-calls.gr <- calls.df %>%
+calls.gr <- calls %>%
   mutate(
     start = if_else(call_type=="insertion",end_refspace,start_refspace),
     end = if_else(call_type=="insertion",start_refspace,end_refspace),
@@ -1137,9 +1140,9 @@ calls.gr <- calls.gr %>%
     )
   )
 
- #Join to calls.df with opposite strand information.
+ #Join to calls with opposite strand information.
  # Note that for deletions with one partially overlapping deletion on the opposite strand, alt_plus_strand.opposite_strand will still equal "" even though part of the analyzed deletion's sequence is still present in the opposite strand. Likewise for deletions with > 1 overlapping SBS, insertion, or deletion on the opposite strand, alt_plus_strand.opposite_strand will contain the sequence of one random one of these. These two issues would be difficult to fix, and are not critical for downstream analysis.
-calls.df <- calls.df %>%
+calls <- calls %>%
 	left_join(
 		calls.gr %>%
 			as_tibble %>%
@@ -1164,7 +1167,7 @@ rm(calls.gr)
   #       Y      |       Y (non-complementary change)  => "mismatch-ds"
   #       Y      |       Y (complementary change)      => "mutation"
 
-calls.df <- calls.df %>%
+calls <- calls %>%
 	mutate(SBSindel_call_type = case_when(
 			ref_plus_strand == alt_plus_strand & is.na(alt_plus_strand.opposite_strand) ~ "match",
 			ref_plus_strand == alt_plus_strand & !is.na(alt_plus_strand.opposite_strand) ~ "mismatch-os",
@@ -1193,9 +1196,9 @@ calls.df <- calls.df %>%
 
 #For mutations, reannotate each strand's qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, and sx.opposite_strand based on the opposite strand's qual, sa, sm, sx. This is more accurate than the previously calculated opposite strand data, because the prior data utilized a query space -> reference space -> opposite strand query space transformation, whereas annotated mutations reflect corresponding deletion coordinates and insertion sequences that are lost in the prior transformation. Though note that mismatches still have imperfect opposite strand qual, sa, sm, sx, and to obtain this would require aligning strands to each other which would be significantly more complex to incorporate.
 
-calls.df <- calls.df %>% left_join(
+calls <- calls %>% left_join(
   #Extract only mutations, and reverse strand orientation so that opposite strand info is annotated
-  calls.df %>%
+  calls %>%
     filter(SBSindel_call_type == "mutation") %>%
     select(
       run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand,
@@ -1226,26 +1229,20 @@ cat("DONE\n")
 ######################
 cat("## Saving output...")
 
-#Convert calls.df to GRanges
-calls.gr <- calls.df %>%
-	makeGRangesFromDataFrame(
-		seqnames.field="seqnames",
-		start.field="start_refspace",
-		end.field="end_refspace",
-		strand.field="strand",
-		keep.extra.columns=TRUE,
-		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+#In calls, change start/end_refspace to start/end for consistency with bam.
+calls <- calls %>%
+	rename(
+		start = start_refspace,
+		end = end_refspace
 	)
-
-rm(calls.df)
 
 #Save output
 qs_save(
   list(
   	run_metadata = run_metadata,
   	molecule_stats = molecule_stats,
-  	bam.gr = bam.gr,
-  	calls.gr = calls.gr
+  	bam = bam,
+  	calls = calls
   	),
   outputFile
   )

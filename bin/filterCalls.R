@@ -63,9 +63,6 @@ outputFile <- opt$output
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
-#General parameters
-strand_levels <- c("+","-")
-
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
 chroms_toanalyze <- yaml.config$chromgroups %>%
@@ -250,27 +247,21 @@ cat("## Loading reads and extracted calls...")
 #Load extractedCalls RDS file
 extractedCalls <- qs_read(extractCallsFile)
 
-#Load bam reads as tibble, keeping only reads in selected chroms_toanalyze. Note, this transforms qual from PhredQuality to list.
+#Load bam reads, keeping only reads in selected chroms_toanalyze.
 bam <- extractedCalls %>%
-	pluck("bam.gr") %>%
-	filter(
-		seqnames %in% chroms_toanalyze
-	) %>%
-	as_tibble %>%
-	mutate(strand = strand %>% factor(levels=strand_levels))
+	pluck("bam") %>%
+	filter(seqnames %in% chroms_toanalyze)
 
-#Load calls as tibble, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity calculations). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE. Also fix strand_levels back to '+/-'.
+#Load calls, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity calculations). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE.
 calls <- extractedCalls %>%
-	pluck("calls.gr") %>%
+	pluck("calls") %>%
   mutate(
-  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique),
-  	strand = strand %>% factor(strand_levels)
+  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique)
   	) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
 	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
-		) %>%
-  as_tibble
+		)
 
 #Load prior molecule stats
 molecule_stats <- extractedCalls %>%
@@ -352,11 +343,8 @@ bam <- bam %>%
 			  call_class %in% c("SBS","indel")
 			  ) %>%
 		  
-			#Change call_class to factor so that count results are listed for both SBS and indel below. Fix strand levels to '+/-' to avoid expanding strand = '*'.
-			mutate(
-				call_class = call_class %>% factor(levels=c("SBS","indel")),
-				strand = strand %>% factor(strand_levels)
-			) %>% 
+			#Change call_class to factor so that count results are listed for both SBS and indel below.
+			mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
 			
 			#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
 			count(run_id,zm,strand,call_class) %>%
@@ -415,11 +403,8 @@ bam <- bam %>%
 				SBSindel_call_type == "mutation"
 				) %>%
 		  
-		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly. Fix strand levels to '+/-' to avoid expanding strand = '*'.
-		  mutate(
-		    call_class = call_class %>% factor(levels=c("SBS","indel")),
-		    strand = strand %>% factor(levels=strand_levels)
-		  ) %>% 
+		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly.
+		  mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
 		  count(run_id,zm,strand,call_class) %>%
 		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
 			pivot_wider(
@@ -589,10 +574,7 @@ bam <- bam %>%
       ) %>%
       
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
-      mutate(
-        call_class = call_class %>% factor(levels=c("SBS","indel")),
-        strand = strand %>% factor(levels=strand_levels)
-      ) %>% 
+      mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
       count(run_id,zm,strand,call_class) %>%
       complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
       pivot_wider(
@@ -805,14 +787,20 @@ cat("## Formatting data for subsequent filters...")
 #Convert calls tibble back to GRanges
 calls.gr <- calls %>%
 	makeGRangesFromDataFrame(
-		keep.extra.columns = TRUE,
+		keep.extra.columns=TRUE,
 		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
+##DELETE
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE,
+		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+	)
+	##DELETE
+
 #Get list of columns by which to join calls to calls.gr (all original columns before filter annotations)
 calls.joincols <- extractedCalls %>%
-  pluck("calls.gr") %>%
-  as_tibble %>%
+  pluck("calls") %>%
   colnames
 
 #Create bam read GRanges to track genome region filtering, containing only molecules that have passed all filters so far
@@ -1423,6 +1411,15 @@ cat("DONE\n")
 cat("## Applying germline BAM variant read filters (only applied to SBS calls)...")
 
 #Format variant regions to VCF POS coordinates for extracting variants from germline BAM bcftools mpileup. Retrieve only SBS calls since only annotating SBS calls.
+variant_regions_bcftools_mpileup <- calls %>%
+	filter(call_class == "SBS") %>%
+	rename(
+		start_refspace = start,
+		end_refspace = end
+	) %>%
+	select(seqnames,start_refspace,end_refspace)
+
+###DELETE
 variant_regions_bcftools_mpileup <- calls.gr %>%
 	as_tibble %>%
 	filter(call_class == "SBS") %>%
@@ -1431,6 +1428,7 @@ variant_regions_bcftools_mpileup <- calls.gr %>%
 		end_refspace = end
 	) %>%
 	select(seqnames,start_refspace,end_refspace)
+###DELETE
 
 #Load germline BAM bcftools mpileup VCF
 germline_bam_bcftools_mpileup_file <- cache_dir %>%

@@ -20,7 +20,7 @@ suppressPackageStartupMessages(library(qs2))
 ######################
 ### Load custom shared functions
 ######################
-source(sharedFunctions.R)
+source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Load configuration

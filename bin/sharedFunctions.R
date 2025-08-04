@@ -21,7 +21,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 	)
 	)), intern=TRUE) != "0"
 	
-	if(nrow(regions) == 0){
+	if(!is.null(regions) && nrow(regions) == 0){
 		return(
 			GRanges(
 				ref_plus_strand = character(),
@@ -55,8 +55,8 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   
   system(paste("/bin/bash -c",shQuote(paste(
     bcftools_bin,"view",
-    if_else(GT_exists,"-i 'GT=\"alt\"'",""),
-    if_else(!is.null(regions),paste("-R",tmpregions),""),
+    if(GT_exists){"-i 'GT=\"alt\"'"},
+    if(!is.null(regions)){paste("-R",tmpregions)},
     vcf_file,"|",
     bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
     bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null >",
@@ -64,7 +64,9 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
     )
    )))
   
-  file.remove(tmpregions) %>% invisible
+  if(!is.null(regions)){
+  	file.remove(tmpregions) %>% invisible
+  }
 
   #Load vcf file
    #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry; seen in germline VCF files) and ALT = "<*>" alleles that are non-variant gVCF blocks (seen in bcftools mpileup files).
@@ -80,15 +82,15 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   
   vcf <- vcf@fix %>%
   	as_tibble %>%
-  	mutate(AD=as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE))) %>%
-  	{if(GT_exists){
-  		mutate(GT = as.character(extract.gt(vcf,element="GT",IDtoRowNames=FALSE)))
-  		}else{.}
-  	} %>%
-  	{if(GQ_exists){
-  		mutate(GQ = as.numeric(extract.gt(vcf,element="GQ",as.numeric=TRUE,IDtoRowNames=FALSE)))
-  		}else{.}
-  	} %>%
+  	mutate(
+  		AD=as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE)),
+  		GT = if(GT_exists){
+  			as.character(extract.gt(vcf,element="GT",IDtoRowNames=FALSE))
+  		}else{NULL},
+  		GQ = if(GQ_exists){
+  			as.numeric(extract.gt(vcf,element="GQ",as.numeric=TRUE,IDtoRowNames=FALSE))
+  		}else{NULL}
+  	) %>%
     filter(! ALT %in% c("*","<*>")) %>%
     separate(AD,c("AD1","AD2"),",",convert=TRUE) %>%
     mutate(Depth=AD1+AD2, VAF=AD2/Depth) %>%

@@ -12,6 +12,7 @@ cat("#### Running processGermlineVCF ####\n")
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(vcfR))
 suppressPackageStartupMessages(library(BSgenome))
+suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
@@ -70,7 +71,7 @@ vcf_files <- yaml.config$individuals %>%
 
 #Load VCF files
 cat("> Processing individual:",individual_id_toprocess,"\n")
-    
+
 germline_vcf_variants <- list()
 
 vcf_files_individual <- vcf_files %>% filter(individual_id == individual_id_toprocess)
@@ -83,10 +84,10 @@ for(i in 1:nrow(vcf_files_individual)){
   cat(">> Processing VCF file:",germline_vcf_file,"...")
   
   germline_vcf_variants[[i]] <- load_vcf(
-  	vcf_file = germline_vcf_file,
-  	genome_fasta = yaml.config$genome_fasta,
-  	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-  	bcftools_bin = yaml.config$bcftools_bin
+	  	vcf_file = germline_vcf_file,
+	  	genome_fasta = yaml.config$genome_fasta,
+	  	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	  	bcftools_bin = yaml.config$bcftools_bin
   	) %>%
   	mutate(
   		germline_vcf_file = factor(!!germline_vcf_file),

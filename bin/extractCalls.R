@@ -99,9 +99,9 @@ calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_
 					filter(seqnames %in% .x) %>%
 						group_by(run_id) %>%
 						summarize(
-							num_molecules       = n_distinct(zm),
+							num_molecules = n_distinct(zm),
 							num_queryspacebases = sum(qwidth),
-							num_refpacebases    = sum(end - start),
+							num_refpacebases = sum(end - start),
 							.groups = "drop"
 						) %>%
 					complete(run_id,fill = list(
@@ -112,12 +112,12 @@ calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_
 		) %>%
 		unnest(stats) %>%
 		pivot_longer(
-			cols      = starts_with("num_"),
-			names_to  = "stat",
+			cols = starts_with("num_"),
+			names_to = "stat",
 			values_to = "value"
 		) %>%
 		mutate(
-			stat = str_c(stat, "_", stat_label_suffix)
+			stat = str_c(stat, ".", stat_label_suffix)
 		) %>%
 		select(-chroms) %>%
 		arrange(stat) %>%
@@ -244,7 +244,7 @@ bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
 molecule_stats <- calculate_molecule_stats(
 	bam.gr.input = bam.gr,
 	chroms_toanalyze.input = chroms_toanalyze,
-	stat_label_suffix = "initial"
+	stat_label_suffix = "prefilter"
 )
 
 cat("DONE\n")

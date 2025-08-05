@@ -295,6 +295,9 @@ cat("## Loading reads and extracted calls...")
 #Load extractedCalls RDS file
 extractedCalls <- qs_read(extractCallsFile)
 
+#Load run metadata
+run_metadata <- extractedCalls %>% pluck("run_metadata")
+
 #Load bam reads, keeping only reads in selected chroms_toanalyze.
 bam <- extractedCalls %>%
 	pluck("bam") %>%
@@ -1834,7 +1837,7 @@ qs_save(
 	list(
 		config = list(
 			yaml.config = yaml.config,
-			run_metadata = extractedCalls %>% pluck("run_metadata"),
+			run_metadata = run_metadata,
 			extractCallsFile = extractCallsFile,
 			individual = individual_id_toanalyze,
 			sample_id = sample_id_toanalyze,

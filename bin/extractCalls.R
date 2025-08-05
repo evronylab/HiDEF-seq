@@ -1004,7 +1004,10 @@ rm(bam.gr)
 #Combine calls of all runs
 calls <- calls %>%
   bind_rows(.id="run_id") %>%
-  mutate(run_id=factor(run_id))
+  mutate(
+  	run_id=factor(run_id),
+  	strand = strand %>% factor(levels=strand_levels)
+  	)
 
 #Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
 calls <- calls %>%

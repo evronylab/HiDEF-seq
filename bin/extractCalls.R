@@ -183,7 +183,7 @@ bam.df <- cbind(
   DataFrame(bam$tag %>% lapply(I))
 )
 rm(bam)
-gc()
+gc(verbose=FALSE)
 
 #Add movie_ids and run_ids using run metadata, while maintaining DataFrame format
 bam.df <- bam.df %>%
@@ -212,7 +212,7 @@ bam.df$sa <- mapply(
 	)
 
 rm(sa.lengths,sa.values)
-gc()
+gc(verbose=FALSE)
 
 bam.df$sa[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sa[bam.df$strand %>% as.vector == "-"], rev)
 
@@ -238,7 +238,7 @@ bam.gr <- bam.df %>%
   )
 
 rm(bam.df)
-gc()
+gc(verbose=FALSE)
 
 # Arrange bam.gr by run id, ZMW id and strand
 bam.gr <- bam.gr[order(bam.gr$run_id,bam.gr$zm, strand(bam.gr))]
@@ -320,7 +320,7 @@ bam.gr <- bam.gr %>%
 
  # Remove intermediate objects
 rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)
-gc()
+gc(verbose=FALSE)
 
 # Calculate molecule_stats
 molecule_stats <- molecule_stats %>%
@@ -475,7 +475,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   }
   
   rm(cigar.refspace.var)
-  gc()
+  gc(verbose=FALSE)
   
   #Call REF base sequences, relative to reference plus strand
   var_refspace$ref_plus_strand <- var_refspace %>%
@@ -531,7 +531,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     cigar.queryspace.var.forqualdata <- cigar.queryspace.var.forqualdata %>% relist(.,cigar.queryspace.var)
     
     rm(deletionidx,newstart,newend)
-    gc()
+    gc(verbose=FALSE)
   }
   
   var_qual <- extractAt(bam.gr.input$qual,cigar.queryspace.var.forqualdata) %>%
@@ -570,7 +570,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     )
   
   rm(cigar.queryspace.var)
-  gc()
+  gc(verbose=FALSE)
   
   #Call base qualities in opposite strand (matched via reference space).
   #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space, or left and right flanking bases if opposite strand query space width = 0. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
@@ -658,7 +658,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     )
   
   rm(var_refspace.gr, bam.gr.input.opposite_strand.parallel_to_var_refspace)
-  gc()
+  gc(verbose=FALSE)
   
   
   #Extract sa/sm/sx tags
@@ -778,7 +778,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     )
     
     rm(var_queryspace.list, var_queryspace.opposite_strand.list, vars_queryspace.coordconversion)
-    gc()
+    gc(verbose=FALSE)
     
   }else if(call_class.input == "indel"){
     #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
@@ -834,7 +834,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     
     rm(cigar.queryspace.var.forqualdata, vars_queryspace.opposite_strand)
-    gc()
+    gc(verbose=FALSE)
     
     #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
     indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
@@ -860,11 +860,11 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       )
     
     rm(sa.input.opposite_strand, sm.input.opposite_strand, sx.input.opposite_strand)
-    gc()
+    gc(verbose=FALSE)
   }
   
   rm(sa.input, sm.input, sx.input)
-  gc()
+  gc(verbose=FALSE)
   
   #Combine call info with prior empty initialized tibble and return result
   if(call_class.input %in% c("SBS","MDB")){
@@ -1013,7 +1013,7 @@ bam <- bam.gr %>%
 	mutate(strand = strand %>% factor(levels=strand_levels))
 
 rm(bam.gr)
-gc()
+gc(verbose=FALSE)
 
 #Combine calls of all runs
 calls <- calls %>%
@@ -1175,7 +1175,7 @@ calls <- calls %>%
 	)
 
 rm(calls.gr)
-gc()
+gc(verbose=FALSE)
 
 #Annotate for each call (for all call classes: SBS, indel, MDB) its 'SBSindel_call_type'.
   #  Call strand | Opposite strand (SBS or indel) overlapping based on reference space coordinates

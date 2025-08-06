@@ -429,7 +429,7 @@ process prepareRegionFilters {
 */
 process extractCallsChunk {
     cpus 2
-    memory '64 GB'
+    memory '${params.mem_extractCallsChunk}'
     time '4h'
     tag { "Extract Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
@@ -453,7 +453,7 @@ process extractCallsChunk {
 */
 process filterCallsChunk {
     cpus 2
-    memory '64 GB'
+    memory '${params.mem_filterCallsChunk}'
     time '4h'
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"

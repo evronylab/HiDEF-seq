@@ -453,7 +453,8 @@ process extractCallsChunk {
 */
 process filterCallsChunk {
     cpus 2
-    memory "${params.mem_filterCallsChunk}"
+    memory { params.mem_filterCallsChunk * (1 + 0.5*(task.attempt - 1)) }
+    maxRetries 2
     time '4h'
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"

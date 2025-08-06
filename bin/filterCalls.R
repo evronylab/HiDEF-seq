@@ -346,7 +346,7 @@ region_genome_filter_stats <- tibble(
 	)
 
 rm(extractedCalls)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -750,7 +750,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 }
 
 rm(bam.gr.onlyranges, region_read_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 #Annotate calls with new read filters
 calls <- calls %>%
@@ -930,7 +930,7 @@ molecule_stats <- molecule_stats %>%
   )
 
 rm(region_genome_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -987,7 +987,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(region_genome_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1044,7 +1044,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(min_qual.fail.gr)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1078,7 +1078,7 @@ bam.gr.trim <- c(
   )
 
 rm(bam.gr.onlyranges)
-gc(verbose=FALSE)
+invisible(gc())
 
 #Subtract bases filtered by read_trim_bp from bam reads filter tracker, joining on run_id and zm. If a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1101,7 +1101,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(bam.gr.trim)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1208,7 +1208,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(germline_vcf_indel_region_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1269,7 +1269,7 @@ bam.gr.filtertrack.nonindelanalysis <- bam.gr.filtertrack %>%
   GRanges_subtract_bymcols(read_indel_region_filter, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
 
 rm(bam.gr.filtertrack)
-gc(verbose=FALSE)
+invisible(gc())
 
 #Record number of molecule reference space bases remaining after filters
 molecule_stats <- molecule_stats %>%
@@ -1285,7 +1285,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(read_indel_region_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1385,7 +1385,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(germline_bam_samtools_mpileup_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1446,7 +1446,7 @@ calls[["max_BAMVAF.passfilter"]] <- ! overlapsAny_bymcols(
 )
 
 rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1656,7 +1656,7 @@ calls <- calls %>%
 	select(-c(frac_subreads_match,frac_subreads_match.opposite_strand))
 	
 rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1739,7 +1739,7 @@ calls <- calls %>%
 	select(-c(duplex_coverage.indelanalysis.passfilter,duplex_coverage.nonindelanalysis.passfilter))
 
 rm(duplex_coverage.fail.indelanalysis.gr,duplex_coverage.fail.nonindelanalysis.gr)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -1815,7 +1815,7 @@ calls <- calls %>%
 	mutate(max_finalcalls_eachstrand.passfilter = max_finalcalls_eachstrand.passfilter %>% replace_na(TRUE))
 
 rm(max_finalcalls_eachstrand.filter, bam.gr.filtertrack.indelanalysis, bam.gr.filtertrack.nonindelanalysis)
-gc(verbose=FALSE)
+invisible(gc())
 
 cat("DONE\n")
 

@@ -453,7 +453,10 @@ process extractCallsChunk {
 */
 process filterCallsChunk {
     cpus 2
-    memory { params.mem_filterCallsChunk * (1 + 0.5*(task.attempt - 1)) }
+    memory { 
+      def baseMemory = params.mem_filterCallsChunk as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
     maxRetries 2
     time "${params.time_filterCallsChunk}"
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }

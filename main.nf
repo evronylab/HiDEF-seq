@@ -732,26 +732,6 @@ workflow filterCalls {
 
 }
 
-workflow test {
-  main:
-  test2()
-}
-
-process test2 {
-    cpus 1
-    memory '2 GB'
-    time '1h'
-
-    output: path "test.txt"
-
-    storeDir "test"
-
-    script:
-    """
-    ls > test.txt
-    """
-}
-
 
 /*****************************************************************
  * Main Workflow
@@ -770,10 +750,6 @@ extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
 filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
 
 workflow {
-  // test workflow
-  if( params.workflow == "test" ){
-    test()
-  }
 
   // Save copy of parameters file to logs directory
   def logsDir = file("${logs_output_dir}")
@@ -792,7 +768,7 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   //Check that selected workflow is a valid option
-  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "test"]
+  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls"]
   if(!(params.workflow in validWorkflows)){
     error "ERROR: Invalid workflow '${params.workflow}'. Valid options are: ${validWorkflows.join(', ')}"
   }

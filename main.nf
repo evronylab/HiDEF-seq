@@ -430,7 +430,7 @@ process prepareRegionFilters {
 process extractCallsChunk {
     cpus 2
     memory "${params.mem_extractCallsChunk}"
-    time '4h'
+    time "${params.time_extractCallsChunk}"
     tag { "Extract Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
@@ -455,7 +455,7 @@ process filterCallsChunk {
     cpus 2
     memory { params.mem_filterCallsChunk * (1 + 0.5*(task.attempt - 1)) }
     maxRetries 2
-    time '4h'
+    time "${params.time_filterCallsChunk}"
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     

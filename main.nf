@@ -429,8 +429,15 @@ process prepareRegionFilters {
 */
 process extractCallsChunk {
     cpus 2
-    memory "${params.mem_extractCallsChunk}"
-    time "${params.time_extractCallsChunk}"
+    memory { 
+      def baseMemory = params.mem_extractCallsChunk as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time { 
+        def baseTime = params.time_extractCallsChunk as nextflow.util.TimeUnit
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries "${params.maxRetries_extractCallsChunk}"
     tag { "Extract Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
@@ -457,8 +464,11 @@ process filterCallsChunk {
       def baseMemory = params.mem_filterCallsChunk as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
-    maxRetries 2
-    time "${params.time_filterCallsChunk}"
+    time { 
+        def baseTime = params.time_filterCallsChunk as nextflow.util.TimeUnit
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries "${params.maxRetries_filterCallsChunk}"
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     

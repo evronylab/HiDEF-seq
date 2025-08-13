@@ -482,10 +482,71 @@ process filterCallsChunk {
 
     script:
     """
-    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -f ${extractCallsFile} -g ${chromgroup} -v ${filtergroup} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2
+    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2
     """
 }
 
+/*
+  outputCallsChromgroupFiltergroup: Run outputCalls.R for each sample_id x chromgroup x filtergroup combination
+*/
+process outputCallsChromgroupFiltergroup {
+    cpus 2
+    memory '64 GB'
+    time '24h'
+    tag { "Output Calls: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
+    
+    output:
+      tuple
+        val(sample_id),
+        val(chromgroup),
+        val(filtergroup),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
+
+    storeDir "${outputCalls_output_dir}"
+
+    script:
+    """
+    outputCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(' ')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
+    """
+}
+
+/*
+  removeIntermediateFiles: Removes intermediate files to save disk space after successful completion.
+*/
+process removeIntermediateFilesProcess {
+    cpus 1
+    memory '2 GB'
+    time '2h'
+    tag "Remove intermediate files"
+    container "${params.hidefseq_container}"
+    
+    input:
+      val(outputCalls_done)
+    
+    output:
+      path "removeIntermediateFiles.log.txt"
+    
+    publishDir "${params.analysis_output_dir}/logs", mode: 'copy'
+    
+    script:
+    """
+    echo "Starting cleanup of intermediate files." > removeIntermediateFiles.log.txt
+    
+    rm -rf ${splitBAMs_output_dir}
+    rm -rf ${extractCalls_output_dir}
+    rm -rf ${filterCalls_output_dir}
+    
+    echo "Cleanup completed." >> removeIntermediateFiles.log.txt
+    """
+}
 
 /*****************************************************************
  * Individual Workflow Definitions
@@ -733,10 +794,37 @@ workflow filterCalls {
 }
 
 
+workflow outputCalls {
+
+    take:
+    filterCalls_grouped_ch
+
+    main:
+    outputCallsChromgroupFiltergroup( filterCalls_grouped_ch )
+
+    emit:
+    outputCallsChromgroupFiltergroup.out
+
+}
+
+
+workflow removeIntermediateFiles {
+
+    take:
+    outputCalls_done
+
+    main:
+    removeIntermediateFilesProcess(outputCalls_done)
+
+    emit:
+    removeIntermediateFiles.out
+
+}
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, processReads, splitBAMs, prepareFilters, extractCalls, filterCalls
+// --workflow options: all, processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputCalls, removeIntermediateFiles
 // Note: the pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
 
 import org.yaml.snakeyaml.Yaml
@@ -748,6 +836,7 @@ processReads_output_dir="${params.analysis_output_dir}/processReads"
 splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
 extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
 filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
+outputCalls_output_dir="${params.analysis_output_dir}/outputCalls"
 
 workflow {
 
@@ -768,7 +857,7 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   //Check that selected workflow is a valid option
-  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls"]
+  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "outputCalls", "removeIntermediateFiles"]
   if(!(params.workflow in validWorkflows)){
     error "ERROR: Invalid workflow '${params.workflow}'. Valid options are: ${validWorkflows.join(', ')}"
   }
@@ -847,6 +936,75 @@ workflow {
               return tuple(sample_id, extractCallsFile, chunkID)
           }
     filterCalls( extractCalls_ch.combine(chromgroups_filtergroups_ch) ) 
+  }
+
+  // Run outputCalls workflow
+  if( params.workflow=="all" ){
+    filterCalls_grouped_ch = filterCalls.out
+        .map { sample_id, filterCallsFile, chunkID, chromgroup, filtergroup ->
+            return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
+        }
+        .groupTuple(by: [0, 1, 2], sort: true) // Group by sample_id, chromgroup, filtergroup and sort by chunkID
+        .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+            return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
+        }
+    
+    outputCalls( filterCalls_grouped_ch )
+  }
+  else if ( params.workflow == "outputCalls" ){
+    filterCalls_grouped_ch = Channel.fromList(params.samples)
+          .combine(Channel.of(1..params.analysis_chunks))
+          .combine(chromgroups_filtergroups_ch)
+          .map { sample, chunkID, chromgroup_filtergroup ->
+              def sample_id = sample.sample_id
+              def chromgroup = chromgroup_filtergroup[0]
+              def filtergroup = chromgroup_filtergroup[1]
+              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2")
+              return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
+          }
+          .groupTuple(by: [0, 1, 2], sort: true) // Group and sort by chunkID
+          .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+              return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
+          }
+    
+    outputCalls( filterCalls_grouped_ch )
+  }
+
+  // Run removeIntermediateFiles workflow (conditional)
+  if( params.workflow=="all" && params.remove_intermediate_files ){
+    removeIntermediateFiles( outputCalls.out.collect().map { true } )
+  }
+  else if ( params.workflow == "removeIntermediateFiles" && params.remove_intermediate_files ){
+    // Define outputCalls output suffixes to check for each combination
+    def requiredExtensions = [
+        "####",
+        "####", 
+        "####",
+        "####",
+        "####"
+    ]
+    
+    outputCalls_done_ch = Channel.fromList(params.samples)
+          .combine(chromgroups_filtergroups_ch)
+          .flatMap { sample, chromgroup_filtergroup ->
+              def sample_id = sample.sample_id
+              def chromgroup = chromgroup_filtergroup[0]
+              def filtergroup = chromgroup_filtergroup[1]
+              
+              return requiredExtensions.collect { ext ->
+                  file("${outputCalls_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.${ext}")
+              }
+          }
+          .collect()
+          .map { files ->
+              def missingFiles = files.findAll { !it.exists() }
+              if (missingFiles.size() > 0) {
+                  error "Missing outputCalls files: ${missingFiles.collect{it.name}.join(', ')}. Run outputCalls workflow first."
+              }
+              return true
+          }
+    
+    removeIntermediateFiles( outputCalls_done_ch )
   }
 
 }

@@ -434,7 +434,7 @@ process extractCallsChunk {
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
     time { 
-        def baseTime = params.time_extractCallsChunk as nextflow.util.TimeUnit
+        def baseTime = params.time_extractCallsChunk as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
     maxRetries "${params.maxRetries_extractCallsChunk}"
@@ -465,7 +465,7 @@ process filterCallsChunk {
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
     time { 
-        def baseTime = params.time_filterCallsChunk as nextflow.util.TimeUnit
+        def baseTime = params.time_filterCallsChunk as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
     maxRetries "${params.maxRetries_filterCallsChunk}"

@@ -437,7 +437,7 @@ process extractCallsChunk {
         def baseTime = params.time_extractCallsChunk as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
-    maxRetries "${params.maxRetries_extractCallsChunk}"
+    maxRetries ${params.maxRetries_extractCallsChunk}
     tag { "Extract Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
@@ -468,7 +468,7 @@ process filterCallsChunk {
         def baseTime = params.time_filterCallsChunk as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
-    maxRetries "${params.maxRetries_filterCallsChunk}"
+    maxRetries ${params.maxRetries_filterCallsChunk}
     tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     

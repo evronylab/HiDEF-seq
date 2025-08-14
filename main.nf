@@ -487,13 +487,13 @@ process filterCallsChunk {
 }
 
 /*
-  outputCallsChromgroupFiltergroup: Run outputCalls.R for each sample_id x chromgroup x filtergroup combination
+  outputResultsChromgroupFiltergroup: Run outputResults.R for each sample_id x chromgroup x filtergroup combination
 */
-process outputCallsChromgroupFiltergroup {
+process outputResultsChromgroupFiltergroup {
     cpus 2
     memory '64 GB'
     time '24h'
-    tag { "Output Calls: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    tag { "Output Results: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -510,11 +510,11 @@ process outputCallsChromgroupFiltergroup {
         path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
         path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
 
-    storeDir "${outputCalls_output_dir}"
+    storeDir "${outputResults_output_dir}"
 
     script:
     """
-    outputCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(' ')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
     """
 }
 
@@ -529,7 +529,7 @@ process removeIntermediateFilesProcess {
     container "${params.hidefseq_container}"
     
     input:
-      val(outputCalls_done)
+      val(outputResults_done)
     
     output:
       path "removeIntermediateFiles.log.txt"
@@ -794,16 +794,16 @@ workflow filterCalls {
 }
 
 
-workflow outputCalls {
+workflow outputResults {
 
     take:
     filterCalls_grouped_ch
 
     main:
-    outputCallsChromgroupFiltergroup( filterCalls_grouped_ch )
+    outputResultsChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    outputCallsChromgroupFiltergroup.out
+    outputResultsChromgroupFiltergroup.out
 
 }
 
@@ -811,10 +811,10 @@ workflow outputCalls {
 workflow removeIntermediateFiles {
 
     take:
-    outputCalls_done
+    outputResults_done
 
     main:
-    removeIntermediateFilesProcess(outputCalls_done)
+    removeIntermediateFilesProcess(outputResults_done)
 
     emit:
     removeIntermediateFiles.out
@@ -824,7 +824,7 @@ workflow removeIntermediateFiles {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputCalls, removeIntermediateFiles
+// --workflow options: all, processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputResults, removeIntermediateFiles
 // Note: the pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
 
 import org.yaml.snakeyaml.Yaml
@@ -836,7 +836,7 @@ processReads_output_dir="${params.analysis_output_dir}/processReads"
 splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
 extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
 filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
-outputCalls_output_dir="${params.analysis_output_dir}/outputCalls"
+outputResults_output_dir="${params.analysis_output_dir}/outputResults"
 
 workflow {
 
@@ -857,7 +857,7 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   //Check that selected workflow is a valid option
-  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "outputCalls", "removeIntermediateFiles"]
+  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "outputResults", "removeIntermediateFiles"]
   if(!(params.workflow in validWorkflows)){
     error "ERROR: Invalid workflow '${params.workflow}'. Valid options are: ${validWorkflows.join(', ')}"
   }
@@ -938,7 +938,7 @@ workflow {
     filterCalls( extractCalls_ch.combine(chromgroups_filtergroups_ch) ) 
   }
 
-  // Run outputCalls workflow
+  // Run outputResults workflow
   if( params.workflow=="all" ){
     filterCalls_grouped_ch = filterCalls.out
         .map { sample_id, filterCallsFile, chunkID, chromgroup, filtergroup ->
@@ -949,9 +949,9 @@ workflow {
             return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
         }
     
-    outputCalls( filterCalls_grouped_ch )
+    outputResults( filterCalls_grouped_ch )
   }
-  else if ( params.workflow == "outputCalls" ){
+  else if ( params.workflow == "outputResults" ){
     filterCalls_grouped_ch = Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .combine(chromgroups_filtergroups_ch)
@@ -967,15 +967,15 @@ workflow {
               return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
           }
     
-    outputCalls( filterCalls_grouped_ch )
+    outputResults( filterCalls_grouped_ch )
   }
 
   // Run removeIntermediateFiles workflow (conditional)
   if( params.workflow=="all" && params.remove_intermediate_files ){
-    removeIntermediateFiles( outputCalls.out.collect().map { true } )
+    removeIntermediateFiles( outputResults.out.collect().map { true } )
   }
   else if ( params.workflow == "removeIntermediateFiles" && params.remove_intermediate_files ){
-    // Define outputCalls output suffixes to check for each combination
+    // Define outputResults output suffixes to check for each combination
     def requiredExtensions = [
         "####",
         "####", 
@@ -984,7 +984,7 @@ workflow {
         "####"
     ]
     
-    outputCalls_done_ch = Channel.fromList(params.samples)
+    outputResults_done_ch = Channel.fromList(params.samples)
           .combine(chromgroups_filtergroups_ch)
           .flatMap { sample, chromgroup_filtergroup ->
               def sample_id = sample.sample_id
@@ -992,19 +992,19 @@ workflow {
               def filtergroup = chromgroup_filtergroup[1]
               
               return requiredExtensions.collect { ext ->
-                  file("${outputCalls_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.${ext}")
+                  file("${outputResults_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.${ext}")
               }
           }
           .collect()
           .map { files ->
               def missingFiles = files.findAll { !it.exists() }
               if (missingFiles.size() > 0) {
-                  error "Missing outputCalls files: ${missingFiles.collect{it.name}.join(', ')}. Run outputCalls workflow first."
+                  error "Missing outputResults files: ${missingFiles.collect{it.name}.join(', ')}. Run outputResults workflow first."
               }
               return true
           }
     
-    removeIntermediateFiles( outputCalls_done_ch )
+    removeIntermediateFiles( outputResults_done_ch )
   }
 
 }

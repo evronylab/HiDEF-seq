@@ -28,7 +28,6 @@ suppressPackageStartupMessages(library(tidyverse))
 cat("## Loading configuration...\n")
 
 #General options
-options(datatable.showProgress = FALSE)
 options(warn=2) #Stop script for any warnings
 
 #Command line arguments

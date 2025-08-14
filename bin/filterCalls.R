@@ -296,11 +296,15 @@ bam <- extractedCalls %>%
 	pluck("bam") %>%
 	filter(seqnames %in% chroms_toanalyze)
 
-#Load calls, keeping only calls in selected chroms_toanalyze with call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze) or call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity calculations). Mark calls with call_type in call_types_toanalyze with a new column call_toanalyze = TRUE.
+#Load calls, keeping:
+# a. calls in selected chroms_toanalyze with call_type/call_class/SBSindel_call_type in call_types_toanalyze (i.e. call_types in selected chromgroup_toanalyze and filtergroup_toanalyze), and mark these with call_toanalyze = TRUE
+# b. call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity calculations).
 calls <- extractedCalls %>%
 	pluck("calls") %>%
   mutate(
-  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type) %>% unique)
+  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type)) &
+  		call_class %in% (!!call_types_toanalyze %>% pull(call_class)) &
+  		SBSindel_call_type %In% (!!call_types_toanalyze %>% pull(SBSindel_call_type))
   	) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,

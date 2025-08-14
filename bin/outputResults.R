@@ -54,7 +54,7 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
-filterCallsFiles <- opt$files %>% str_split_1(",")
+filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
 
 #Load the BSgenome reference
@@ -70,30 +70,11 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	str_split_1(",") %>%
 	str_trim
 
- #GRanges of chroms to analyze
-genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
-	get %>%
-	seqinfo %>%
-	GRanges %>%
-	unname %>%
-	filter(seqnames %in% !!chroms_toanalyze)
-
  #individual_id of this sample_id
 individual_id_toanalyze <- yaml.config$samples %>%
   bind_rows %>%
   filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
-
- #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
-call_types_toanalyze <- yaml.config$call_types %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
-  unnest_longer(SBSindel_call_types) %>%
-  unnest_wider(SBSindel_call_types) %>%
-	filter(
-		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
-		filtergroup == filtergroup_toanalyze
-		)
 
 #Display basic configuration parameters
 cat("> Processing:\n")
@@ -188,35 +169,68 @@ indelwald.to.sigfit <- function(indelwald.spectrum){
 		map(c) %>%
 		unlist %>%
 		as_tibble %>%
-		na.omit %>% ***CHECK
+		na.omit %>% ###CHECK
 		set_names("count") %>%
 		bind_cols(label=indel_labels,.) %>%
 		pivot_wider(names_from=label,values_from=count)
 }
 
 ######################
-### Combine require information from each chunk
+### Load data from filterCalls files
 ######################
+cat("## Load data from filterCalls files...\n")
 
-#yaml.config
+for(i in filterCallsFiles){
+	chunk <- i %>% str_extract("(?<=chunk)\\d+")
+	cat("> Chunk:",chunk,"\n")
+	
+	filterCallsFile <- qs_read(i)
+	
+	#Load basic configuration only from first chunk, since identical in all chunks.
+	if(chunk == 1){
+		yaml.config <- filterCallsFile %>% pluck("config","yaml.config")
+		run_metadata <- filterCallsFile %>% pluck("config","run_metadata")
+		genome_chromgroup.gr <- filterCallsFile %>% pluck("config","genome_chromgroup.gr")
+		call_types_toanalyze <- filterCallsFile %>% pluck("config","call_types")
+	}
+	
+	#Load final calls that pass all filters
+	finalCalls <- filterCallsFile %>%
+		pluck("calls") %>%
+		filter(
+			call_toanalyze == TRUE,
+			if_all(contains("passfilter"), ~ .x == TRUE)
+		)
+	
+	#Load germline calls that pass all filters
+	
+	#Number of interrogated bases and base pairs, trinucleotide counts of interrogated bases and base pairs, and coverage per genome site
+		#bam.gr.filtertrack.bytype
+	
+	#molecule_stats
+	
+	#region_genome_filter_stats
+	
+}
 
-#run_metadata
+rm(filterCallsFile)
+invisible(gc())
 
-#calls
+cat("DONE\n")
 
-#bam.gr.filtertrack.bytype
+######################
+### Output configuration parameters
+######################
+cat("> Outputting:\n")
 
-#genome_chromgroup.gr.filtertrack
+cat("    Configuration parameters...")
+#yaml.config, run_metadata
 
-#region_genome_filter_stats
-
-#molecule_stats
+cat("DONE\n")
 
 ######################
 ### Output analysis statistics
 ######################
-cat("> Outputting:\n")
-
 cat("    Analysis statistics...:")
 
 cat("DONE\n")

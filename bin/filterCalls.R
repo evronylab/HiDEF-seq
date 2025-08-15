@@ -302,9 +302,10 @@ bam <- extractedCalls %>%
 calls <- extractedCalls %>%
 	pluck("calls") %>%
   mutate(
-  	call_toanalyze = call_type %in% (!!call_types_toanalyze %>% pull(call_type)) &
-  		call_class %in% (!!call_types_toanalyze %>% pull(call_class)) &
-  		SBSindel_call_type %In% (!!call_types_toanalyze %>% pull(SBSindel_call_type))
+  	call_toanalyze = 
+  		(call_type %in% (!!call_types_toanalyze %>% pull(call_type))) &
+  		(call_class %in% (!!call_types_toanalyze %>% pull(call_class))) &
+  		(SBSindel_call_type %in% (!!call_types_toanalyze %>% pull(SBSindel_call_type)))
   	) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,

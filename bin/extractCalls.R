@@ -76,7 +76,7 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 				x %>% str_split_1(",") %>% str_trim
 			})
 	) %>%
-	select(-name) %>%
+	select(-name, -sensitivity_thresholds) %>%
 	bind_rows(
 		tibble(
 			chromgroup = "all_chroms",

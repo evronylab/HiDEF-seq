@@ -70,15 +70,23 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	str_split_1(",") %>%
 	str_trim
 
+ #sensitivity thresholds
+sensitivity_thresholds <- yaml.config$chromgroups %>%
+	enframe %>%
+	unnest_wider(value) %>%
+	filter(chromgroup == !!chromgroup_toanalyze) %>%
+	unnest_wider(sensitivity_thresholds) %>%
+	select(-name,-chroms)
+
  #individual_id of this sample_id
-individual_id_toanalyze <- yaml.config$samples %>%
+individual_id <- yaml.config$samples %>%
   bind_rows %>%
   filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
 
 #Display basic configuration parameters
 cat("> Processing:\n")
-cat("    individual_id:",individual_id_toanalyze,"\n")
+cat("    individual_id:",individual_id,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 cat("    chromgroup:",chromgroup_toanalyze,"\n")
 cat("    filtergroup:",filtergroup_toanalyze,"\n")
@@ -88,7 +96,32 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
-# Order of trinucleotide context labels
+#Function to sum two RleLists, including handling of chromosomes only present in one of the RleLists.
+sum_RleList <- function(a, b) {
+	seqs_union <- union(names(a), names(b))
+	
+	seqs_union %>%
+		map(function(nm){
+			seq_in_a <- nm %in% names(a)
+			seq_in_b <- nm %in% names(b)
+			if(seq_in_a && seq_in_b){
+				ra <- a[[nm]]
+				rb <- b[[nm]]
+				if (length(ra) != length(rb)) {
+					stop(sprintf("Length mismatch for '%s': %d vs %d", nm, length(ra), length(rb)))
+				}
+				ra + rb
+			}else if(seq_in_a){
+				a[[nm]]
+			}else{
+				b[[nm]]
+			}
+		}) %>%
+			set_names(seqs_union) %>%
+			RleList(compress=TRUE)
+}
+
+#Order of trinucleotide context labels
 trint_subs_labels <- c(
 	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
 	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
@@ -176,36 +209,98 @@ indelwald.to.sigfit <- function(indelwald.spectrum){
 }
 
 ######################
+### Create set of high-quality germline variants for sensitivity analysis
+######################
+cat("## Creating set of high-quality germline variants for sensitivity analysis...\n")
+
+#Load germline VCF variants
+germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2"))
+
+sensitivity_threshold$sensitivity_genotype
+
+sensitivity_threshold$SBS_min_Depth_quantile
+sensitivity_threshold$SBS_min_VAF
+sensitivity_threshold$SBS_max_VAF
+sensitivity_threshold$SBS_min_GQ_quantile: 0.5
+sensitivity_threshold$SBS_min_QUAL_quantile: 0.5
+
+sensitivity_threshold$indel_min_Depth_quantile: 0.5
+sensitivity_threshold$indel_min_VAF: 0.3
+sensitivity_threshold$indel_max_VAF: 0.7
+sensitivity_threshold$indel_min_GQ_quantile: 0.5
+sensitivity_threshold$indel_min_QUAL_quantile: 0.5
+
+#variants in all germline vcfs
+
+#Remove chrX and chrY
+yaml.config$sex_chromosomes
+
+Variants in gnomad_sensitivity_ref
+import(yaml.config$gnomad_sensitivity_ref)
+
+cat("DONE\n")
+
+######################
 ### Load data from filterCalls files
 ######################
-cat("## Load data from filterCalls files...\n")
+cat("## Loading data from filterCalls files...\n")
 
-for(i in filterCallsFiles){
-	chunk <- i %>% str_extract("(?<=chunk)\\d+")
-	cat("> Chunk:",chunk,"\n")
+#Load basic configuration only from first chunk, since identical in all chunks.
+yaml.config <- filterCallsFiles[1] %>% pluck("config","yaml.config")
+run_metadata <- filterCallsFiles[1] %>% pluck("config","run_metadata")
+genome_chromgroup.gr <- filterCallsFiles[1] %>% pluck("config","genome_chromgroup.gr")
+call_types_toanalyze <- filterCallsFiles[1] %>% pluck("config","call_types")
+
+#Create list for finalCalls
+finalCalls <- list()
+
+#Loop over all filterCallsFiles
+for(i in seq_along(filterCallsFiles)){
+	cat("> Chunk:",i,"\n")
 	
-	filterCallsFile <- qs_read(i)
-	
-	#Load basic configuration only from first chunk, since identical in all chunks.
-	if(chunk == 1){
-		yaml.config <- filterCallsFile %>% pluck("config","yaml.config")
-		run_metadata <- filterCallsFile %>% pluck("config","run_metadata")
-		genome_chromgroup.gr <- filterCallsFile %>% pluck("config","genome_chromgroup.gr")
-		call_types_toanalyze <- filterCallsFile %>% pluck("config","call_types")
-	}
+	filterCallsFile <- qs_read(filterCallsFiles[i])
 	
 	#Load final calls that pass all filters
-	finalCalls <- filterCallsFile %>%
+	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
 			call_toanalyze == TRUE,
 			if_all(contains("passfilter"), ~ .x == TRUE)
 		)
 	
-	#Load germline calls that pass all filters
+	#Filtered read coverage of the genome
+	if(i == 1){
+		bam.gr.filtertrack.bytype <- filterCallsFile %>%
+			pluck("bam.gr.filtertrack.bytype") %>%
+			mutate(
+				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
+			) %>%
+			select(-bam.gr.filtertrack)
+	}else{
+		bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+			left_join(
+				filterCallsFile %>%
+					pluck("bam.gr.filtertrack.bytype") %>%
+					mutate(
+						bam.gr.filtertrack.coverage_add = bam.gr.filtertrack %>% map(coverage)
+					) %>%
+					select(-bam.gr.filtertrack),
+				by = names(.) %>% setdiff("bam.gr.filtertrack.coverage")
+			) %>%
+			mutate(
+				bam.gr.filtertrack.coverage = map2(
+					bam.gr.filtertrack.coverage,
+					bam.gr.filtertrack.coverage_add,
+					function(x,y){sum_RleList(x,y)}
+				)
+			) %>%
+			select(-bam.gr.filtertrack.coverage_add)
+	}
 	
-	#Number of interrogated bases and base pairs, trinucleotide counts of interrogated bases and base pairs, and coverage per genome site
-		#bam.gr.filtertrack.bytype
+	#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-gnomad filter tracker
+	
+	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate running sensitivity
+
 	
 	#molecule_stats
 	
@@ -240,12 +335,16 @@ cat("DONE\n")
 ######################
 cat("    Coverage per genome site...")
 
+#Coverage per genome site
+
 cat("DONE\n")
 
 ######################
 ### Output trinucleotide background counts
 ######################
 cat("    Trinucleotide background counts...")
+
+#Number of trinucleotide counts of interrogated bases and base pairs
 
 cat("DONE\n")
 
@@ -258,9 +357,13 @@ cat("    Filtered calls...")
 cat("DONE\n")
 
 ######################
-### Calculate sensitivity
+### Calculate and output sensitivity
 ######################
 cat("    Sensitivity...")
+
+if sensitivity_threshold$min_sensitivity_variants or set sensitivity to 1
+
+Correct final sensitivity if used het sensitivity_threshold$sensitivity_genotype, up to max of 1.0
 
 cat("DONE\n")
 
@@ -268,6 +371,7 @@ cat("DONE\n")
 ### Output call frequencies
 ######################
 cat("    Call frequencies...")
+#Number of interrogated bases and base pairs
 #all and unique, observed vs genome corrected vs sensitivity corrected vs both corrected
 #upper and lower poisson conf int
 #Interrogated bases, Interrogated base pairs

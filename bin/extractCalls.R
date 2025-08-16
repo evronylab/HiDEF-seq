@@ -50,6 +50,9 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 outputFile <- opt$output
 
+#Load the BSgenome reference
+suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+
 #General parameters
 strand_levels <- c("+","-")
 
@@ -62,9 +65,6 @@ call_types <- yaml.config$call_types %>%
 
 call_types_MDB <- call_types %>%
   filter(call_class == "MDB")
-
-#Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load chromgroups (used for calculating molecule_stats per chromgroup) and add a chromgroup that combines all chromgroups
 chroms_toanalyze <- yaml.config$chromgroups %>%
@@ -270,11 +270,14 @@ zmwstokeep <- bam.gr %>%
     sum(strand=="-" & flag==16) == 1,
     n_distinct(seqnames) == 1
     ) %>%
-  select(run_id,zm) %>%
-	distinct
+  distinct(run_id,zm)
 
-bam.gr <- bam.gr %>%
-	filter( (run_id %in% zmwstokeep$run_id) & (zm %in% zmwstokeep$zm) )
+bam.gr <- bam.gr[
+	vctrs::vec_in(
+		bam.gr %>% mcols %>% as_tibble %>% select(run_id,zm),
+		zmwstokeep
+		)
+	]
 
 # Calculate molecule_stats
 molecule_stats <- molecule_stats %>%
@@ -313,10 +316,15 @@ zmwstokeep <- bam.gr.onlyranges.overlap %>%
 	filter(
 		plus_overlap_frac >= yaml.config$min_strand_overlap,
 		minus_overlap_frac >= plus_overlap_frac
-	)
+	) %>%
+	distinct(run_id,zm)
 
-bam.gr <- bam.gr %>%
-	filter( (run_id %in% zmwstokeep$run_id) & (zm %in% zmwstokeep$zm) )
+bam.gr <- bam.gr[
+		vctrs::vec_in(
+			bam.gr %>% mcols %>% as_tibble %>% select(run_id,zm),
+			zmwstokeep
+		)
+	]
 
  # Remove intermediate objects
 rm(bam.gr.onlyranges.plus, bam.gr.onlyranges.minus, bam.gr.onlyranges.overlap, zmwstokeep)

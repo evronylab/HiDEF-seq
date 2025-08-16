@@ -301,12 +301,13 @@ bam <- extractedCalls %>%
 # b. call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity calculations).
 calls <- extractedCalls %>%
 	pluck("calls") %>%
-  mutate(
-  	call_toanalyze = 
-  		(call_type %in% (!!call_types_toanalyze %>% pull(call_type))) &
-  		(call_class %in% (!!call_types_toanalyze %>% pull(call_class))) &
-  		(SBSindel_call_type %in% (!!call_types_toanalyze %>% pull(SBSindel_call_type)))
-  	) %>%
+	left_join(
+		call_types_toanalyze %>%
+			distinct(call_type,call_class,SBSindel_call_type) %>%
+			mutate(call_toanalyze = TRUE),
+		by = join_by(call_type,call_class,SBSindel_call_type)
+	) %>%
+  mutate(call_toanalyze = call_toanalyze %>% replace_na(FALSE)) %>%
 	filter(
 	  seqnames %in% chroms_toanalyze,
 	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
@@ -1779,13 +1780,16 @@ bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
 						call_type == y,
 						SBSindel_call_type == z,
 						max_finalcalls_eachstrand.passfilter == FALSE
-						)
+						) %>%
+					distinct(run_id,zm)
+					
+				x[
+					!vctrs::vec_in(
+						x %>% mcols %>% as_tibble %>% select(run_id,zm),
+						molecules_to_filter
+					)
+				]
 				
-				x %>%
-					filter(
-						!((run_id %in% molecules_to_filter$run_id) &
-								(zm %in% molecules_to_filter$zm))
-						)
 			}
 		)
 	)

@@ -1953,7 +1953,7 @@ molecule_stats <- molecule_stats %>%
 		bam.gr.filtertrack.bytype %>%
 			mutate(
 				numbases = pmap(
-						list(bam.gr.filtertrack,call_type, SBSindel_call_type),
+						list(bam.gr.filtertrack, call_type, SBSindel_call_type),
 						function(x,y,z){
 							calculate_molecule_stats_frombamfiltertrack(
 								bam.gr.filtertrack.input = x,
@@ -1963,7 +1963,8 @@ molecule_stats <- molecule_stats %>%
 				)
 			) %>%
 			select(numbases) %>%
-			unnest_wider(numbases) %>%
+			deframe %>%
+			bind_rows %>%
 			relocate(run_id,chromgroup,filtergroup,extractCallsFile)
 		)
 

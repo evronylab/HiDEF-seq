@@ -194,51 +194,54 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 	tabulate(qh[same_join_mcols], nbins = nq) > 0L
 }
 
-#Function to calculate number of molecules and reference space bases passing each individual filter matching a pattern, and passing all filters so far, from bam input.
-calculate_molecule_stats_frombam <- function(molecule_stats.input, bam.input, individual_filter_pattern, all_filter_suffix, chromgroup_toanalyze.input, filtergroup_toanalyze.input, extractCallsFile.input){
-	molecule_stats.input %>%
-		bind_rows(
-			#Number of molecules and reference space bases passing each basic molecule filter, each applied separately
-			bam.input %>%
-				group_by(run_id) %>%
-				summarize(
-					across(
-						matches(individual_filter_pattern),
-						list(
-							num_molecules = ~ n_distinct(zm[.x]),
-							num_refspacebases = ~ sum(end[.x] - start[.x])
-						),
-						.names = "{.fn}_individualfilter.{.col}"
-					)
-				) %>%
-				
-				#Number of molecules and reference space bases passing all the basic molecule filters
-				left_join(
-					bam.input %>%
-						filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-						group_by(run_id) %>%
-						summarize(
-							!!str_c("num_molecules_remaining.",all_filter_suffix) := n_distinct(zm),
-							!!str_c("num_refspacebases_remaining.",all_filter_suffix) := sum(end-start)
-						),
-					by = "run_id"
-				) %>%
-				complete(run_id) %>%
-				mutate(across(-run_id, ~ .x %>% replace_na(0))) %>%
-				
-				#Pivot longer
-				pivot_longer(
-					-run_id,
-					names_to = "stat",
-					values_to = "value"
-				) %>%
-				
-				#Annotate extractCallsFile, chromgroup, filtergroup of this process
-				mutate(
-					chromgroup = chromgroup_toanalyze.input,
-					filtergroup = filtergroup_toanalyze.input,
-					extractCallsFile = extractCallsFile.input %>% basename
-				)
+#Function to calculate number of molecules and reference space bases passing each individual filter matching a pattern, and passing all filters so far (if all_filter_suffix is not NULL), from bam input.
+calculate_molecule_stats_frombam <- function(bam.input, individual_filter_pattern, all_filter_suffix=NULL, chromgroup_toanalyze.input, filtergroup_toanalyze.input, extractCallsFile.input){
+	
+	#Number of molecules and reference space bases passing each basic molecule filter, each applied separately
+	filter_stats <- bam.input %>%
+		group_by(run_id) %>%
+		summarize(
+			across(
+				matches(individual_filter_pattern),
+				list(
+					num_molecules = ~ n_distinct(zm[.x]),
+					num_refspacebases = ~ sum(end[.x] - start[.x])
+				),
+				.names = "{.fn}_individualfilter.{.col}"
+			)
+		)
+	
+	#Number of molecules and reference space bases passing all the basic molecule filters
+	if(!is.null(all_filter_suffix)){
+		filter_stats <- filter_stats %>%
+			left_join(
+				bam.input %>%
+					filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
+					group_by(run_id) %>%
+					summarize(
+						!!str_c("num_molecules_remaining.",all_filter_suffix) := n_distinct(zm),
+						!!str_c("num_refspacebases_remaining.",all_filter_suffix) := sum(end-start)
+					),
+				by = "run_id"
+			)
+	}
+	
+	filter_stats %>%
+		complete(run_id) %>%
+		mutate(across(-run_id, ~ .x %>% replace_na(0))) %>%
+		
+		#Pivot longer
+		pivot_longer(
+			-run_id,
+			names_to = "stat",
+			values_to = "value"
+		) %>%
+		
+		#Annotate extractCallsFile, chromgroup, filtergroup of this process
+		mutate(
+			chromgroup = chromgroup_toanalyze.input,
+			filtergroup = filtergroup_toanalyze.input,
+			extractCallsFile = extractCallsFile.input %>% basename
 		) %>%
 		
 		#Reorder columns
@@ -558,14 +561,16 @@ calls <- calls %>%
   )
 
 #Calculate basic molecule filter stats
-molecule_stats <- calculate_molecule_stats_frombam(
-	molecule_stats.input = molecule_stats,
-	bam.input = bam,
-	individual_filter_pattern = "passfilter$",
-	all_filter_suffix = "passallbasicmoleculefilters",
-	chromgroup_toanalyze.input = chromgroup_toanalyze,
-	filtergroup_toanalyze.input = filtergroup_toanalyze,
-	extractCallsFile.input = extractCallsFile
+molecule_stats <- molecule_stats %>%
+	bind_rows(
+		calculate_molecule_stats_frombam(
+			bam.input = bam,
+			individual_filter_pattern = "passfilter$",
+			all_filter_suffix = "passallbasicmoleculefilters",
+			chromgroup_toanalyze.input = chromgroup_toanalyze,
+			filtergroup_toanalyze.input = filtergroup_toanalyze,
+			extractCallsFile.input = extractCallsFile
+		)
 	)
 
 cat("DONE\n")
@@ -727,15 +732,17 @@ bam <- bam %>%
 	))
 
 #Update molecule_stats
-molecule_stats <- calculate_molecule_stats_frombam(
-	molecule_stats.input = molecule_stats,
-	bam.input = bam,
-	individual_filter_pattern = "postVCF.*passfilter$",
-	all_filter_suffix = "passallbasicmoleculeandpostgermlineVCFfilters",
-	chromgroup_toanalyze.input = chromgroup_toanalyze,
-	filtergroup_toanalyze.input = filtergroup_toanalyze,
-	extractCallsFile.input = extractCallsFile
-)
+molecule_stats <- molecule_stats %>%
+	bind_rows(
+		calculate_molecule_stats_frombam(
+			bam.input = bam,
+			individual_filter_pattern = "postVCF.*passfilter$",
+			all_filter_suffix = "passallbasicmoleculeandpostgermlineVCFfilters",
+			chromgroup_toanalyze.input = chromgroup_toanalyze,
+			filtergroup_toanalyze.input = filtergroup_toanalyze,
+			extractCallsFile.input = extractCallsFile
+		)
+	)
 
 #Annotate calls with new read filters
 calls <- calls %>%
@@ -1720,7 +1727,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 			]
 		}
 		
-		#Update molecule stats
+		#Update molecule stats of remaining molecules and bases after each filter is added
 		molecule_stats <- molecule_stats %>%
 			bind_rows(
 				calculate_molecule_stats_frombamfiltertrack(
@@ -1737,7 +1744,20 @@ for(i in seq_len(nrow(region_read_filters_config))){
 	invisible(gc())		
 }
 
-#Update molecule stats remaining after all region read filters
+#Update molecule stats of each filter applied individually regardless of any prior filters. Note, all_filter_suffix = NULL, because can't calculate all_filter stats from bam at this point since non-molecule filters have already been applied upstream.
+molecule_stats <- molecule_stats %>%
+	bind_rows(
+		calculate_molecule_stats_frombam(
+			bam.input = bam,
+			individual_filter_pattern = "region_read_filter_.*passfilter$",
+			all_filter_suffix = NULL,
+			chromgroup_toanalyze.input = chromgroup_toanalyze,
+			filtergroup_toanalyze.input = filtergroup_toanalyze,
+			extractCallsFile.input = extractCallsFile
+		)
+	)
+
+#Update molecule stats of remaining molecules and bases after all region read filters are applied
 molecule_stats <- molecule_stats %>%
 	bind_rows(
 		calculate_molecule_stats_frombamfiltertrack(

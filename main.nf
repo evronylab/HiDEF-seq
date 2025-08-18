@@ -824,7 +824,7 @@ workflow removeIntermediateFiles {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputResults, removeIntermediateFiles
+// --workflow options: all, or one or more contiguous (in the correct order) comma-separated workflows: processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputResults, removeIntermediateFiles
 // Note: the pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
 
 import org.yaml.snakeyaml.Yaml
@@ -856,23 +856,64 @@ workflow {
   def commandLineTokens = workflow.commandLine.tokenize()
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
-  //Check that selected workflow is a valid option
+  //Extract workflows and check that selected workflows are valid.
+  def workflowsToRun = params.workflow.split(',').collect { it.trim() }
+  
+   //valid workflows in order that they can be run
   def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "outputResults", "removeIntermediateFiles"]
-  if(!(params.workflow in validWorkflows)){
-    error "ERROR: Invalid workflow '${params.workflow}'. Valid options are: ${validWorkflows.join(', ')}"
+  
+  def invalidWorkflows = workflowsToRun.findAll { !(it in validWorkflows) }
+  if(invalidWorkflows.size() > 0){
+    error "ERROR: Invalid workflow(s) '${invalidWorkflows.join(', ')}'. Valid options are: ${validWorkflows.join(', ')}"
   }
 
+  if( workflowsToRun.contains("all") && workflowsToRun.size() > 1 ) {
+    error "ERROR: 'all' cannot be combined with other workflows. Use either 'all' alone or specify individual workflows without 'all'."
+  }
+
+  if( !workflowsToRun.contains("all") ) {
+    def workflowOrder = validWorkflows.findAll { it != "all" }
+    
+    // Get indices of workflows in the order specified by the user
+    def specifiedIndices = workflowsToRun.collect { workflow ->
+      workflowOrder.indexOf(workflow)
+    }
+    
+    // Check if workflows are specified in correct order (indices should be ascending)
+    if (specifiedIndices != specifiedIndices.sort()) {
+      error "ERROR: Workflows must be specified in the correct order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
+    }
+    
+    // Check if the indices are contiguous (consecutive)
+    for (int i = 1; i < specifiedIndices.size(); i++) {
+      if (specifiedIndices[i] != specifiedIndices[i-1] + 1) {
+        error "ERROR: Workflows must be contiguous in this order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
+      }
+    }
+  }
+
+  // Helper function to check if a workflow should be run
+  def shouldRun = { workflowName -> 
+    workflowsToRun.contains("all") || workflowsToRun.contains(workflowName)
+  }
+
+  //Initialize workflow output variables
+  def processReads_out = null
+  def splitBAMs_out = null
+  def prepareFilters_out = null
+  def extractCalls_out = null
+  def filterCalls_out = null
+  def outputResults_out = null
+
   // Run processReads workflow
-  if( params.workflow == "all" || params.workflow == "processReads" ){
-    processReads()
+  if (shouldRun("processReads")) {
+    processReads_out = processReads()
   }
 
   // Run splitBAMs workflow
-  if( params.workflow == "all" ){
-    splitBAMs( processReads.out )
-  }
-  else if ( params.workflow == "splitBAMs" ){
-    alignedSamples_ch = Channel.fromList(params.samples)
+  if (shouldRun("splitBAMs")) {
+    processReads_out = processReads_out ?:
+      Channel.fromList(params.samples)
           .map { sample ->
               def sample_id = sample.sample_id
               def bamFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
@@ -880,20 +921,19 @@ workflow {
               def baiFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
               return tuple(sample_id, bamFile, pbiFile, baiFile)
           }
-    splitBAMs( alignedSamples_ch )
+
+    splitBAMs_out = splitBAMs(processReads_out)
   }
 
   // Run prepareFilters workflow
-  if( params.workflow == "all" || params.workflow == "prepareFilters"){
-    prepareFilters()
+  if (shouldRun("prepareFilters")) {
+    prepareFilters_out = prepareFilters()
   }
 
-  // Run extractCalls workflow, with dependency on prepareFilters
-  if( params.workflow=="all" ){
-    extractCalls( splitBAMs.out, prepareFilters.out )
-  }
-  else if ( params.workflow == "extractCalls" ){
-    splitBAMs_ch = Channel.fromList(params.samples)
+  // Run extractCalls workflow
+  if (shouldRun("extractCalls")) {
+    splitBAMs_out = splitBAMs_out ?:
+      Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
@@ -902,57 +942,48 @@ workflow {
               def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
               return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
-    extractCalls( splitBAMs_ch, Channel.value(true) ) // 'true' parameter assumes prepareFilters was already run
+
+    prepareFilters_out = prepareFilters_out ?: Channel.value(true)
+
+    extractCalls_out = extractCalls(splitBAMs_out, prepareFilters_out)
   }
 
   //Prepare channel with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs
   chromgroups_filtergroups_ch = Channel.fromList(params.call_types)
-          .flatMap { call_type ->
-            def chromgroup_names
-            if (call_type.analyzein_chromgroups == 'all') {
-              chromgroup_names = params.chromgroups.collect { it.chromgroup }
-            } else {
-              chromgroup_names = call_type.analyzein_chromgroups.split(',')
-            }
+    .flatMap { call_type ->
+      def chromgroup_names
+      if (call_type.analyzein_chromgroups == 'all') {
+        chromgroup_names = params.chromgroups.collect { it.chromgroup }
+      } else {
+        chromgroup_names = call_type.analyzein_chromgroups.split(',')
+      }
 
-            call_type.SBSindel_call_types.collectMany{ SBSindel_call_type ->
-              chromgroup_names.collect{ chromgroup ->
-                return tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
-              }
-            }
-          }
-          .unique()
+      call_type.SBSindel_call_types.collectMany{ SBSindel_call_type ->
+        chromgroup_names.collect{ chromgroup ->
+          return tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
+        }
+      }
+    }
+    .unique()
 
   // Run filterCalls workflow
-  if( params.workflow=="all" ){
-    filterCalls( extractCalls.out.combine(chromgroups_filtergroups_ch) )
-  }
-  else if ( params.workflow == "filterCalls" ){
-    extractCalls_ch = Channel.fromList(params.samples)
+  if (shouldRun("filterCalls")) {
+    extractCalls_out = extractCalls_out ?:
+      Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
               def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractCalls.chunk${chunkID}.qs2")
               return tuple(sample_id, extractCallsFile, chunkID)
           }
-    filterCalls( extractCalls_ch.combine(chromgroups_filtergroups_ch) ) 
+
+    filterCalls_out = filterCalls(extractCalls_out.combine(chromgroups_filtergroups_ch))
   }
 
   // Run outputResults workflow
-  if( params.workflow=="all" ){
-    filterCalls_grouped_ch = filterCalls.out
-        .map { sample_id, filterCallsFile, chunkID, chromgroup, filtergroup ->
-            return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
-        }
-        .groupTuple(by: [0, 1, 2], sort: true) // Group by sample_id, chromgroup, filtergroup and sort by chunkID
-        .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
-            return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
-        }
-    
-    outputResults( filterCalls_grouped_ch )
-  }
-  else if ( params.workflow == "outputResults" ){
-    filterCalls_grouped_ch = Channel.fromList(params.samples)
+  if (shouldRun("outputResults")) {
+    filterCalls_out = filterCalls_out ?:
+      Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chunkID, chromgroup_filtergroup ->
@@ -960,51 +991,28 @@ workflow {
               def chromgroup = chromgroup_filtergroup[0]
               def filtergroup = chromgroup_filtergroup[1]
               def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2")
-              return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
+              return tuple(sample_id, filterCallsFile, chunkID, chromgroup, filtergroup)
           }
-          .groupTuple(by: [0, 1, 2], sort: true) // Group and sort by chunkID
-          .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
-              return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
-          }
-    
-    outputResults( filterCalls_grouped_ch )
+
+    def filterCalls_grouped_ch = filterCalls_out
+      .map { sample_id, filterCallsFile, chunkID, chromgroup, filtergroup ->
+            return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
+        }
+        .groupTuple(by: [0, 1, 2], sort: true) // Group by sample_id, chromgroup, filtergroup and sort by chunkID
+        .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+            return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
+        }
+
+    outputResults_out = outputResults(filterCalls_grouped_ch)
   }
 
   // Run removeIntermediateFiles workflow (conditional)
-  if( params.workflow=="all" && params.remove_intermediate_files ){
-    removeIntermediateFiles( outputResults.out.collect().map { true } )
-  }
-  else if ( params.workflow == "removeIntermediateFiles" && params.remove_intermediate_files ){
-    // Define outputResults output suffixes to check for each combination
-    def requiredExtensions = [
-        "####",
-        "####", 
-        "####",
-        "####",
-        "####"
-    ]
-    
-    outputResults_done_ch = Channel.fromList(params.samples)
-          .combine(chromgroups_filtergroups_ch)
-          .flatMap { sample, chromgroup_filtergroup ->
-              def sample_id = sample.sample_id
-              def chromgroup = chromgroup_filtergroup[0]
-              def filtergroup = chromgroup_filtergroup[1]
-              
-              return requiredExtensions.collect { ext ->
-                  file("${outputResults_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.${ext}")
-              }
-          }
-          .collect()
-          .map { files ->
-              def missingFiles = files.findAll { !it.exists() }
-              if (missingFiles.size() > 0) {
-                  error "Missing outputResults files: ${missingFiles.collect{it.name}.join(', ')}. Run outputResults workflow first."
-              }
-              return true
-          }
-    
-    removeIntermediateFiles( outputResults_done_ch )
+  if (shouldRun("removeIntermediateFiles") && params.remove_intermediate_files) {
+    outputResults_completion = outputResults_out ?
+      outputResults_out.collect().map { true } :
+      Channel.value(true)
+
+    removeIntermediateFiles(outputResults_completion)
   }
 
 }

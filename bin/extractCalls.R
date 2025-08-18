@@ -66,7 +66,7 @@ call_types <- yaml.config$call_types %>%
 call_types_MDB <- call_types %>%
   filter(call_class == "MDB")
 
-#Load chromgroups (used for calculating molecule_stats per chromgroup) and add a chromgroup that combines all chromgroups
+#Load chromgroups (used for calculating molecule_stats per chromgroup) and add one chromgroup for all chromosomes across all chromgroups and one chromgroup for all chromosomes in the reference genome
 chroms_toanalyze <- yaml.config$chromgroups %>%
 	enframe %>%
 	unnest_wider(value) %>%
@@ -78,6 +78,10 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	) %>%
 	select(-name, -sensitivity_thresholds) %>%
 	bind_rows(
+		tibble(
+			chromgroup = "all_chromgroups",
+			chroms = .$chroms %>% unlist %>% unique %>% list
+		),
 		tibble(
 			chromgroup = "all_chroms",
 			chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames %>% list
@@ -100,12 +104,11 @@ calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_
 						group_by(run_id) %>%
 						summarize(
 							num_molecules = n_distinct(zm),
-							num_queryspacebases = sum(qwidth),
 							num_refpacebases = sum(end - start),
 							.groups = "drop"
 						) %>%
 					complete(run_id,fill = list(
-						num_molecules=0, num_queryspacebases=0, num_refpacebases=0
+						num_molecules=0, num_refpacebases=0
 						)
 					)
 				})

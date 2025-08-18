@@ -153,48 +153,7 @@ source(Sys.which("sharedFunctions.R"))
 ### Define custom functions
 ######################
 
-#Function returning a TRUE/FALSE vector signifying for each element of a query GRanges if it overlaps any element of a subject GRanges, joining on optional columns.
-overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore.strand = TRUE) {
-	
-	stopifnot(inherits(query, "GenomicRanges"), inherits(subject, "GenomicRanges"))
-	
-	nq <- length(query)
-	
-	if(nq == 0){return(logical())} #Empty query
-	if(length(subject) == 0){return(rep(FALSE, nq))} #Empty subject
-	
-	hits <- findOverlaps(query, subject, ignore.strand = ignore.strand)
-	
-	if (length(hits) == 0) return(rep(FALSE, nq)) #No overlap
-	
-	qh <- queryHits(hits)
-	sh <- subjectHits(hits)
-	
-	#Check join_mcols equality
-	if (length(join_mcols) == 0) {
-	  return(tabulate(qh, nbins = nq) > 0L) #No keys, so every hit valid
-	}
-	
-	q_mcols <- mcols(query)
-	s_mcols <- mcols(subject)
-	
-	if (!all(join_mcols %in% colnames(q_mcols)) || !all(join_mcols %in% colnames(s_mcols))){
-		stop("All `join_mcols` must exist as metadata columns in both query and subject.")
-	}
-	
-	#Find shared join_mcols; note: any NA in any join_mcols column ⇒ non-match
-	same_join_mcols <- vctrs::vec_equal(
-	  as.data.frame(q_mcols[qh, join_mcols, drop = FALSE]),
-	  as.data.frame(s_mcols[sh, join_mcols, drop = FALSE]),
-	  na_equal = FALSE
-	  )
-	same_join_mcols[is.na(same_join_mcols)] <- FALSE
-
-	#Output result
-	tabulate(qh[same_join_mcols], nbins = nq) > 0L
-}
-
-#Function to calculate number of molecules and reference space bases passing each individual filter matching a pattern, and passing all filters so far (if all_filter_suffix is not NULL), from bam input.
+#Function to calculate number of molecules and reference space bases passing each individual filter matching a pattern (starting from the upstream filtered bam of extractCalls, i.e. starting after minstrandoverlapfilter), and passing all filters so far (if all_filter_suffix is not NULL), from bam input.
 calculate_molecule_stats_frombam <- function(bam.input, individual_filter_pattern, all_filter_suffix=NULL, chromgroup_toanalyze.input, filtergroup_toanalyze.input, extractCallsFile.input){
 	
 	#Number of molecules and reference space bases passing each basic molecule filter, each applied separately
@@ -245,10 +204,7 @@ calculate_molecule_stats_frombam <- function(bam.input, individual_filter_patter
 		) %>%
 		
 		#Reorder columns
-		relocate(
-			c(filtergroup,extractCallsFile),
-			.after = chromgroup
-		)
+		relocate(run_id,chromgroup,filtergroup,extractCallsFile)
 }
 
 #Function to calculate number of molecules and refspace bases remaining in bam filtertracker.
@@ -260,7 +216,7 @@ calculate_molecule_stats_frombamfiltertrack <- function(bam.gr.filtertrack.input
 		summarize(
 			!!str_c("num_molecules_remaining.",stat_label.suffix) := n_distinct(zm),
 			!!str_c("num_refspacebases_remaining.",stat_label.suffix) := sum(end-start)
-			) %>%
+		) %>%
 		complete(run_id) %>%
 		mutate(across(-run_id, ~ .x %>% replace_na(0))) %>%
 		pivot_longer(
@@ -273,6 +229,47 @@ calculate_molecule_stats_frombamfiltertrack <- function(bam.gr.filtertrack.input
 			filtergroup = filtergroup_toanalyze,
 			extractCallsFile = extractCallsFile %>% basename
 		)
+}
+
+#Function returning a TRUE/FALSE vector signifying for each element of a query GRanges if it overlaps any element of a subject GRanges, joining on optional columns.
+overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore.strand = TRUE) {
+	
+	stopifnot(inherits(query, "GenomicRanges"), inherits(subject, "GenomicRanges"))
+	
+	nq <- length(query)
+	
+	if(nq == 0){return(logical())} #Empty query
+	if(length(subject) == 0){return(rep(FALSE, nq))} #Empty subject
+	
+	hits <- findOverlaps(query, subject, ignore.strand = ignore.strand)
+	
+	if (length(hits) == 0) return(rep(FALSE, nq)) #No overlap
+	
+	qh <- queryHits(hits)
+	sh <- subjectHits(hits)
+	
+	#Check join_mcols equality
+	if (length(join_mcols) == 0) {
+	  return(tabulate(qh, nbins = nq) > 0L) #No keys, so every hit valid
+	}
+	
+	q_mcols <- mcols(query)
+	s_mcols <- mcols(subject)
+	
+	if (!all(join_mcols %in% colnames(q_mcols)) || !all(join_mcols %in% colnames(s_mcols))){
+		stop("All `join_mcols` must exist as metadata columns in both query and subject.")
+	}
+	
+	#Find shared join_mcols; note: any NA in any join_mcols column ⇒ non-match
+	same_join_mcols <- vctrs::vec_equal(
+	  as.data.frame(q_mcols[qh, join_mcols, drop = FALSE]),
+	  as.data.frame(s_mcols[sh, join_mcols, drop = FALSE]),
+	  na_equal = FALSE
+	  )
+	same_join_mcols[is.na(same_join_mcols)] <- FALSE
+
+	#Output result
+	tabulate(qh[same_join_mcols], nbins = nq) > 0L
 }
 
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info
@@ -373,9 +370,10 @@ calls <- extractedCalls %>%
 	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		)
 
-#Load prior molecule stats
+#Load prior molecule stats for this chromgroup, for all_chromgroups, and for all_chroms
 molecule_stats <- extractedCalls %>%
-	pluck("molecule_stats")
+	pluck("molecule_stats") %>%
+	filter(chromgroup %in% c(chromgroup_toanalyze,"all_chromgroups","all_chroms"))
 
 #Create tibble to track genome region filter stats and initialize with stats for whole genome and for chromgroup.
 genome_numbases <- yaml.config$BSgenome$BSgenome_name %>%
@@ -571,7 +569,8 @@ molecule_stats <- molecule_stats %>%
 			filtergroup_toanalyze.input = filtergroup_toanalyze,
 			extractCallsFile.input = extractCallsFile
 		)
-	)
+	) %>%
+	relocate(run_id,chromgroup,filtergroup,extractCallsFile)
 
 cat("DONE\n")
 
@@ -1744,7 +1743,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 	invisible(gc())		
 }
 
-#Update molecule stats of each filter applied individually regardless of any prior filters. Note, all_filter_suffix = NULL, because can't calculate all_filter stats from bam at this point since non-molecule filters have already been applied upstream.
+#Update molecule stats of each filter applied individually regardless of any prior filters. This is possible in this case since these are molecule-level filters. Note, all_filter_suffix = NULL, because can't calculate all_filter stats from bam at this point since non-molecule filters have already been applied upstream.
 molecule_stats <- molecule_stats %>%
 	bind_rows(
 		calculate_molecule_stats_frombam(

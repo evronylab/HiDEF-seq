@@ -880,13 +880,13 @@ workflow {
     }
     
     // Check if workflows are specified in correct order (indices should be ascending)
-    if (specifiedIndices != specifiedIndices.sort()) {
+    if( specifiedIndices != specifiedIndices.sort(false) ) {
       error "ERROR: Workflows must be specified in the correct order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
     }
     
     // Check if the indices are contiguous (consecutive)
     for (int i = 1; i < specifiedIndices.size(); i++) {
-      if (specifiedIndices[i] != specifiedIndices[i-1] + 1) {
+      if( specifiedIndices[i] != specifiedIndices[i-1] + 1 ) {
         error "ERROR: Workflows must be contiguous in this order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
       }
     }

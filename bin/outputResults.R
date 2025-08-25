@@ -213,30 +213,34 @@ indelwald.to.sigfit <- function(indelwald.spectrum){
 ######################
 cat("## Creating set of high-quality germline variants for sensitivity analysis...\n")
 
-#Load germline VCF variants
-germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2"))
+#Load germline VCF variants and filter to retain high-confidence variants
+germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
+	as_tibble %>%
+	
+	#filter per sensitivity_threshold settings
+	filter(
+		(Depth >= quantile(Depth, sensitivity_thresholds$SBS_min_Depth_quantile) & call_class == "SBS") |
+			(Depth >= quantile(Depth, sensitivity_thresholds$indel_min_Depth_quantile) & call_class == "indel"),
+		(VAF >= sensitivity_thresholds$SBS_min_VAF & call_class == "SBS") |
+			(VAF >= sensitivity_thresholds$indel_min_VAF & call_class == "indel"),
+		(VAF <= sensitivity_thresholds$SBS_max_VAF & call_class == "SBS") |
+			VAF <= sensitivity_thresholds$indel_max_VAF & call_class == "indel",
+		(GQ >= sensitivity_thresholds$SBS_min_GQ_quantile & call_class == "SBS") | (GQ >= sensitivity_thresholds$indel_min_GQ_quantile & call_class == "indel"),
+		(QUAL >= sensitivity_thresholds$SBS_min_QUAL_quantile & call_class == "SBS") |
+			(QUAL >= sensitivity_thresholds$indel_min_QUAL_quantile & call_class == "indel")
+	)
 
-sensitivity_threshold$sensitivity_genotype
-
-sensitivity_threshold$SBS_min_Depth_quantile
-sensitivity_threshold$SBS_min_VAF
-sensitivity_threshold$SBS_max_VAF
-sensitivity_threshold$SBS_min_GQ_quantile: 0.5
-sensitivity_threshold$SBS_min_QUAL_quantile: 0.5
-
-sensitivity_threshold$indel_min_Depth_quantile: 0.5
-sensitivity_threshold$indel_min_VAF: 0.3
-sensitivity_threshold$indel_max_VAF: 0.7
-sensitivity_threshold$indel_min_GQ_quantile: 0.5
-sensitivity_threshold$indel_min_QUAL_quantile: 0.5
+sensitivity_thresholds$sensitivity_genotype
 
 #variants in all germline vcfs
 
 #Remove chrX and chrY
 yaml.config$sex_chromosomes
 
-Variants in gnomad_sensitivity_ref
-import(yaml.config$gnomad_sensitivity_ref)
+if is.null(gnomad_sensitivity_vcf) -> set sensitivity to 1.0
+
+Variants in gnomad_sensitivity_vcf
+ -> use load_vcf yaml.config$gnomad_sensitivity_vcf
 
 cat("DONE\n")
 

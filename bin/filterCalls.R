@@ -1279,7 +1279,7 @@ germline_bam_bcftools_mpileup_filter <- load_vcf(
 	bcftools_bin = yaml.config$bcftools_bin
 )
 
-#Annotate mpileup with variants passing filters
+#Extract variants failing filters
 germline_bam_bcftools_mpileup_BAMVariantReads_filter <- germline_bam_bcftools_mpileup_filter %>%
 	filter(AD2 > filtergroup_toanalyze_config$max_BAMVariantReads)
 

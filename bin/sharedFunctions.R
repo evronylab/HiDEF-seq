@@ -6,7 +6,14 @@
 # regions: optional tibble with columns: seqnames start_refspace end_refspace
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
 
-  #Check if GT and GQ tags exist
+  #Check if AD, GT, and GQ tags exist
+	AD_exists <- system(paste("/bin/bash -c",shQuote(paste(
+		bcftools_bin,"view -h",
+		vcf_file,"|",
+		"grep '^##FORMAT=<ID=AD' | wc -l"
+	)
+	)), intern=TRUE) != "0"
+
 	GT_exists <- system(paste("/bin/bash -c",shQuote(paste(
 		bcftools_bin,"view -h",
 		vcf_file,"|",
@@ -28,10 +35,10 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 				alt_plus_strand = character(),
 				QUAL = numeric(),
 				FILTER = character(),
-				AD1 = integer(),
-				AD2 = integer(),
 				GT = character(),
 				GQ = numeric(),
+				AD1 = integer(),
+				AD2 = integer(),
 				Depth = integer(),
 				VAF = numeric(),
 				call_class = factor(),
@@ -70,7 +77,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 
   #Load vcf file
    #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry; seen in germline VCF files) and ALT = "<*>" alleles that are non-variant gVCF blocks (seen in bcftools mpileup files).
-   #Annotate with allele depths (AD1, AD2), Depth (AD1+AD2) and VAF (AD2 / Depth).
+   #If the AD tag exists, annotate with allele depths (AD1, AD2), Depth (AD1+AD2) and VAF (AD2 / Depth).
    #Annotate SBS vs insertions vs deletions
    #For deletions, change ranges to reflect position of deletion. For insertions: change start position to the base on the right of the insertion position and end to the base on the left of the insertion position.
    #For deletions, change to: REF = deleted bases and ALT = "". For insertions, change to: REF = "" and ALT = inserted bases
@@ -83,7 +90,6 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   vcf <- vcf@fix %>%
   	as_tibble %>%
   	mutate(
-  		AD=as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE)),
   		GT = if(GT_exists){
   			as.character(extract.gt(vcf,element="GT",IDtoRowNames=FALSE))
   		}else{NULL},
@@ -91,9 +97,30 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   			as.numeric(extract.gt(vcf,element="GQ",as.numeric=TRUE,IDtoRowNames=FALSE))
   		}else{NULL}
   	) %>%
-    filter(! ALT %in% c("*","<*>")) %>%
-    separate(AD,c("AD1","AD2"),",",convert=TRUE) %>%
-    mutate(Depth=AD1+AD2, VAF=AD2/Depth) %>%
+  	(
+  		if(AD_exists){
+  			. %>%
+	  			mutate(
+	  				AD = as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE))
+					)
+  		}
+  	) %>%
+  	filter(! ALT %in% c("*","<*>")) %>%
+  	(
+  		if(AD_exists){
+  			. %>% 
+  				separate(AD,c("AD1","AD2"),",",convert=TRUE) %>%
+  				mutate(Depth=AD1+AD2, VAF=AD2/Depth)
+  		}else{
+  			. %>%
+	  			mutate(
+	  				AD1 = NULL,
+	  				AD2 = NULL,
+	  				Depth = NULL,
+	  				VAF = NULL
+	  			)
+  		}
+  	) %>%
     mutate(
       call_class = if_else(nchar(REF)==1 & nchar(ALT)==1,"SBS","indel") %>% factor,
       call_type = case_when(

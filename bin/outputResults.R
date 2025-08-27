@@ -70,6 +70,11 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	str_split_1(",") %>%
 	str_trim
 
+ #sex chromosomes
+sex_chromosomes <- yaml.config$sex_chromosomes %>%
+	str_split_1(",") %>%
+	str_trim
+
  #sensitivity thresholds
 sensitivity_thresholds <- yaml.config$chromgroups %>%
 	enframe %>%
@@ -211,38 +216,70 @@ indelwald.to.sigfit <- function(indelwald.spectrum){
 ######################
 ### Create set of high-quality germline variants for sensitivity analysis
 ######################
-cat("## Creating set of high-quality germline variants for sensitivity analysis...\n")
-
-#Load germline VCF variants and filter to retain high-confidence variants
-germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
-	as_tibble %>%
+if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
+	cat("## Creating set of high-quality germline variants for sensitivity analysis...\n")
 	
-	#filter per sensitivity_threshold settings
-	filter(
-		(Depth >= quantile(Depth, sensitivity_thresholds$SBS_min_Depth_quantile) & call_class == "SBS") |
-			(Depth >= quantile(Depth, sensitivity_thresholds$indel_min_Depth_quantile) & call_class == "indel"),
-		(VAF >= sensitivity_thresholds$SBS_min_VAF & call_class == "SBS") |
-			(VAF >= sensitivity_thresholds$indel_min_VAF & call_class == "indel"),
-		(VAF <= sensitivity_thresholds$SBS_max_VAF & call_class == "SBS") |
-			VAF <= sensitivity_thresholds$indel_max_VAF & call_class == "indel",
-		(GQ >= sensitivity_thresholds$SBS_min_GQ_quantile & call_class == "SBS") | (GQ >= sensitivity_thresholds$indel_min_GQ_quantile & call_class == "indel"),
-		(QUAL >= sensitivity_thresholds$SBS_min_QUAL_quantile & call_class == "SBS") |
-			(QUAL >= sensitivity_thresholds$indel_min_QUAL_quantile & call_class == "indel")
+	#Count number of germline VCFs for the analyzed individual
+	num_germline_vcf_files <- yaml.config$individuals %>%
+		map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
+		enframe(name=NULL) %>%
+		unnest_wider(value) %>%
+		unnest_longer(germline_vcf_files) %>%
+		unnest_wider(germline_vcf_files) %>%
+		filter(individual_id == !!individual_id) %>%
+		nrow
+	
+	#Load gnomad_sensitivity_vcf
+	gnomad_sensitivity_vcf <- load_vcf(
+		vcf_file = yaml.config$gnomad_sensitivity_vcf,
+		genome_fasta = yaml.config$genome_fasta,
+		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		bcftools_bin = yaml.config$bcftools_bin
 	)
+	
+	#Load germline VCF variants and filter to retain high-confidence variants
+	germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
+		as_tibble %>%
+		
+		#separate genotypes of each allele
+		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
+		
+		#group by germline_vcf_file so that filters are calculated separately for each germline VCF.
+		group_by(germline_vcf_file) %>% 
+		
+		#filter per sensitivity_threshold settings
+		filter(
+			(Depth >= quantile(Depth, sensitivity_thresholds$SBS_min_Depth_quantile) & call_class == "SBS") |
+				(Depth >= quantile(Depth, sensitivity_thresholds$indel_min_Depth_quantile) & call_class == "indel"),
+			(VAF >= sensitivity_thresholds$SBS_min_VAF & call_class == "SBS") |
+				(VAF >= sensitivity_thresholds$indel_min_VAF & call_class == "indel"),
+			(VAF <= sensitivity_thresholds$SBS_max_VAF & call_class == "SBS") |
+				(VAF <= sensitivity_thresholds$indel_max_VAF & call_class == "indel"),
+			(GQ >= quantile(GQ, sensitivity_thresholds$SBS_min_GQ_quantile) & call_class == "SBS") |
+				(GQ >= quantile(GQ, sensitivity_thresholds$indel_min_GQ_quantile) & call_class == "indel"),
+			(QUAL >= quantile(QUAL, sensitivity_thresholds$SBS_min_QUAL_quantile) & call_class == "SBS") |
+				(QUAL >= quantile(QUAL, sensitivity_thresholds$indel_min_QUAL_quantile) & call_class == "indel"),
+			(sensitivity_thresholds$sensitivity_genotype == "het" & ((GT1 == "1" & GT2 != "1") | (GT1 != "1" & GT2 == "1"))) |
+				(sensitivity_thresholds$sensitivity_genotype == "hom" & (GT1 == "1" & GT2 == "1"))
+		) %>%
+		ungroup %>%
+	
+		#keep variants detected in all germline vcfs
+		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
+		filter(n == num_germline_vcf_files) %>%
+		select(-n) %>%
+		
+		#keep variants in gnomad_sensitivity_vcf
+		semi_join(
+			gnomad_sensitivity_vcf,
+			by = join_by(everything())
+		)
+	
+	cat("DONE\n")
 
-sensitivity_thresholds$sensitivity_genotype
-
-#variants in all germline vcfs
-
-#Remove chrX and chrY
-yaml.config$sex_chromosomes
-
-if is.null(gnomad_sensitivity_vcf) -> set sensitivity to 1.0
-
-Variants in gnomad_sensitivity_vcf
- -> use load_vcf yaml.config$gnomad_sensitivity_vcf
-
-cat("DONE\n")
+}else{
+	cat("## Skipping creation of set of high-quality germline variants for sensitivity analysis since gnomad_sensitivity_vcf is NULL...DONE\n")
+}
 
 ######################
 ### Load data from filterCalls files
@@ -263,7 +300,7 @@ for(i in seq_along(filterCallsFiles)){
 	cat("> Chunk:",i,"\n")
 	
 	filterCallsFile <- qs_read(filterCallsFiles[i])
-	
+
 	#Load final calls that pass all filters
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
@@ -303,7 +340,7 @@ for(i in seq_along(filterCallsFiles)){
 	
 	#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-gnomad filter tracker
 	
-	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate running sensitivity
+	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate running sensitivity, or skip if gnomad_sensitivity_vcf is null, since not performing sensitivity analysis
 
 	
 	#molecule_stats
@@ -366,6 +403,10 @@ cat("DONE\n")
 cat("    Sensitivity...")
 
 if sensitivity_threshold$min_sensitivity_variants or set sensitivity to 1
+
+if is.null(gnomad_sensitivity_vcf) -> set sensitivity to 1.0
+
+Take into account sex_chromosomes
 
 Correct final sensitivity if used het sensitivity_threshold$sensitivity_genotype, up to max of 1.0
 

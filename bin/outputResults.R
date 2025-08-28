@@ -128,34 +128,34 @@ sum_RleList <- function(a, b) {
 }
 
 #Function to calculate genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
-sumcvg_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
+sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
 	
 	if(is.null(bam.gr.filtertrack2)){
 		bam.gr.filtertrack1 %>%
 			mutate(
 				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
 			) %>%
-			select(-bam.gr.filtertrack) %>%
-			return
+			select(-bam.gr.filtertrack)
+		
+	}else{
+		bam.gr.filtertrack1 %>%
+			left_join(
+				bam.gr.filtertrack2 %>%
+					mutate(
+						bam.gr.filtertrack.coverage_add = bam.gr.filtertrack %>% map(coverage)
+					) %>%
+					select(-bam.gr.filtertrack),
+				by = names(.) %>% setdiff("bam.gr.filtertrack.coverage")
+			) %>%
+			mutate(
+				bam.gr.filtertrack.coverage = map2(
+					bam.gr.filtertrack.coverage,
+					bam.gr.filtertrack.coverage_add,
+					function(x,y){sum_RleList(x,y)}
+				)
+			) %>%
+			select(-bam.gr.filtertrack.coverage_add)
 	}
-	
-	bam.gr.filtertrack1 %>%
-		left_join(
-			bam.gr.filtertrack2 %>%
-				mutate(
-					bam.gr.filtertrack.coverage_add = bam.gr.filtertrack %>% map(coverage)
-				) %>%
-				select(-bam.gr.filtertrack),
-			by = names(.) %>% setdiff("bam.gr.filtertrack.coverage")
-		) %>%
-		mutate(
-			bam.gr.filtertrack.coverage = map2(
-				bam.gr.filtertrack.coverage,
-				bam.gr.filtertrack.coverage_add,
-				function(x,y){sum_RleList(x,y)}
-			)
-		) %>%
-		select(-bam.gr.filtertrack.coverage_add)
 }
 
 #Order of trinucleotide context labels
@@ -337,69 +337,97 @@ for(i in seq_along(filterCallsFiles)){
 	
 	#Load basic configuration only from first chunk, since identical in all chunks.
 	if(i == 1){
+		#Basic configuration parameters
 		run_metadata <- filterCallsFile %>% pluck("config","run_metadata")
 		genome_chromgroup.gr <- filterCallsFile %>% pluck("config","genome_chromgroup.gr")
 		call_types_toanalyze <- filterCallsFile %>% pluck("config","call_types")
 		region_read_filters_config <- filterCallsFile %>% pluck("config","region_read_filters_config")
 		region_genome_filters_config <- filterCallsFile %>% pluck("config","region_genome_filters_config")
+		
+		#gnomad-related filters that are excluded when calculating sensitivity
+		gnomad_filters <- c(
+			"germline_vcf.passfilter",
+			str_subset(filterCallsFile %>% pluck("calls") %>% colnames, "germline_vcf_indel_region_filter"),
+			"max_BAMVariantReads.passfilter",
+			"max_BAMVAF.passfilter",
+			region_read_filters_config %>%
+				filter(is_gnomad_filter==TRUE) %>%
+				pull(region_filter_threshold_file) %>%
+				basename %>%
+				str_c("region_read_filter_",.,".passfilter"),
+			region_genome_filters_config %>%
+				filter(is_gnomad_filter==TRUE) %>%
+				pull(region_filter_threshold_file) %>%
+				basename %>%
+				str_c("region_genome_filter_",.,".passfilter")
+		)
 	}
 
-	#Load final calls that pass all filters, ignoring the gnomAD filters, since we will later also need the calls filtered only by gnomAD to calculate sensitivity
-	gnomad_filters <- c(
-		"germline_vcf.passfilter",
-		str_subset(filterCallsFile %>% pluck("calls") %>% colnames, "germline_vcf_indel_region_filter"),
-		"max_BAMVariantReads.passfilter",
-		"max_BAMVAF.passfilter",
-		region_read_filters_config %>%
-			filter(is_gnomad_filter==TRUE) %>%
-			pull(region_filter_threshold_file) %>%
-			basename %>%
-			str_c("region_read_filter_",.,".passfilter"),
-		region_genome_filters_config %>%
-			filter(is_gnomad_filter==TRUE) %>%
-			pull(region_filter_threshold_file) %>%
-			basename %>%
-			str_c("region_genome_filter_",.,".passfilter")
-		)
-	
+	#Load final calls that pass all filters, ignoring the gnomAD-related filters, since we will later also need the calls filtered only by gnomAD-related filters to calculate sensitivity
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
 			call_toanalyze == TRUE,
-			if_all(contains("passfilter") & !any_of(gnomad_filters), ~ .x == TRUE)
+			if_all(contains("passfilter") & !all_of(gnomad_filters), ~ .x == TRUE)
 		)
 	
 	#Filtered read coverage of the genome, with and without gnomad_filters
 	if(i == 1){
-		bam.gr.filtertrack.bytype <- filterCallsFile %>%
-			pluck("bam.gr.filtertrack.bytype") %>%
-			sumcvg_bam.gr.filtertracks
+		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
+			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
+		)
 		
-		bam.gr.filtertrack.except_gnomad_filters.bytype <- filterCallsFile %>%
-			pluck("bam.gr.filtertrack.except_gnomad_filters.bytype") %>%
-			sumcvg_bam.gr.filtertracks
+		bam.gr.filtertrack.except_gnomad_filters.bytype <- sum_bam.gr.filtertracks(
+			filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
+		)
 		
 	}else{
-		bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
-			sumcvg_bam.gr.filtertracks(
-				filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
-			)
+		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
+			bam.gr.filtertrack.bytype,
+			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
+		)
 		
-		bam.gr.filtertrack.except_gnomad_filters.bytype <- bam.gr.filtertrack.except_gnomad_filters.bytype %>%
-			sumcvg_bam.gr.filtertracks(
-				filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
-			)
+		bam.gr.filtertrack.except_gnomad_filters.bytype <- sum_bam.gr.filtertracks(
+			bam.gr.filtertrack.except_gnomad_filters.bytype,
+			filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
+		)
 	}
 
-	
 	#molecule_stats
+	if(i == 1){
+		molecule_stats <- sum_molecule_stats(
+			filterCallsFile %>% pluck("molecule_stats")
+		)
+		
+	}else{
+		bam.gr.filtertrack.bytype <- sum_molecule_stats(
+			molecule_stats,
+			filterCallsFile %>% pluck("molecule_stats")
+		)
+	}
 	
 	#region_genome_filter_stats
-	
+	if(i == 1){
+		region_genome_filter_stats <- sum_region_genome_filter_stats(
+			filterCallsFile %>% pluck("region_genome_filter_stats")
+		)
+		
+	}else{
+		region_genome_filter_stats <- sum_region_genome_filter_stats(
+			region_genome_filter_stats,
+			filterCallsFile %>% pluck("region_genome_filter_stats")
+		)
+	}
+
 }
 
+#Remove temp objects
 rm(filterCallsFile)
 invisible(gc())
+
+#Combine finalCalls to one tibble
+finalCalls <- bind_rows(finalCalls, .id = "chunk") %>%
+	mutate(chunk = chunk %>% as.integer)
 
 cat("DONE\n")
 

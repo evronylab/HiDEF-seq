@@ -124,7 +124,38 @@ sum_RleList <- function(a, b) {
 			}
 		}) %>%
 			set_names(seqs_union) %>%
-			RleList(compress=TRUE)
+			RleList(compress=FALSE)
+}
+
+#Function to calculate genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
+sumcvg_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
+	
+	if(is.null(bam.gr.filtertrack2)){
+		bam.gr.filtertrack1 %>%
+			mutate(
+				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
+			) %>%
+			select(-bam.gr.filtertrack) %>%
+			return
+	}
+	
+	bam.gr.filtertrack1 %>%
+		left_join(
+			bam.gr.filtertrack2 %>%
+				mutate(
+					bam.gr.filtertrack.coverage_add = bam.gr.filtertrack %>% map(coverage)
+				) %>%
+				select(-bam.gr.filtertrack),
+			by = names(.) %>% setdiff("bam.gr.filtertrack.coverage")
+		) %>%
+		mutate(
+			bam.gr.filtertrack.coverage = map2(
+				bam.gr.filtertrack.coverage,
+				bam.gr.filtertrack.coverage_add,
+				function(x,y){sum_RleList(x,y)}
+			)
+		) %>%
+		select(-bam.gr.filtertrack.coverage_add)
 }
 
 #Order of trinucleotide context labels
@@ -342,42 +373,23 @@ for(i in seq_along(filterCallsFiles)){
 	if(i == 1){
 		bam.gr.filtertrack.bytype <- filterCallsFile %>%
 			pluck("bam.gr.filtertrack.bytype") %>%
-			mutate(
-				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
-			) %>%
-			select(-bam.gr.filtertrack)
+			sumcvg_bam.gr.filtertracks
 		
 		bam.gr.filtertrack.except_gnomad_filters.bytype <- filterCallsFile %>%
 			pluck("bam.gr.filtertrack.except_gnomad_filters.bytype") %>%
-			mutate(
-				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
-			) %>%
-			select(-bam.gr.filtertrack)
+			sumcvg_bam.gr.filtertracks
 		
 	}else{
 		bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
-			left_join(
-				filterCallsFile %>%
-					pluck("bam.gr.filtertrack.bytype") %>%
-					mutate(
-						bam.gr.filtertrack.coverage_add = bam.gr.filtertrack %>% map(coverage)
-					) %>%
-					select(-bam.gr.filtertrack),
-				by = names(.) %>% setdiff("bam.gr.filtertrack.coverage")
-			) %>%
-			mutate(
-				bam.gr.filtertrack.coverage = map2(
-					bam.gr.filtertrack.coverage,
-					bam.gr.filtertrack.coverage_add,
-					function(x,y){sum_RleList(x,y)}
-				)
-			) %>%
-			select(-bam.gr.filtertrack.coverage_add)
+			sumcvg_bam.gr.filtertracks(
+				filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
+			)
+		
+		bam.gr.filtertrack.except_gnomad_filters.bytype <- bam.gr.filtertrack.except_gnomad_filters.bytype %>%
+			sumcvg_bam.gr.filtertracks(
+				filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
+			)
 	}
-	
-	#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-gnomad filter tracker
-	
-	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate running sensitivity, or skip if gnomad_sensitivity_vcf is null, since not performing sensitivity analysis
 
 	
 	#molecule_stats
@@ -442,6 +454,10 @@ cat("    Sensitivity...")
 if sensitivity_threshold$min_sensitivity_variants or set sensitivity to 1
 
 if is.null(gnomad_sensitivity_vcf) -> set sensitivity to 1.0
+
+#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate sensitivity
+
+#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-gnomad filter tracker
 
 Take into account sex_chromosomes
 

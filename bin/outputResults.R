@@ -236,7 +236,8 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 		genome_fasta = yaml.config$genome_fasta,
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin
-	)
+	) %>%
+		as_tibble
 	
 	#Load germline VCF variants and filter to retain high-confidence variants
 	germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
@@ -273,8 +274,10 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 		#keep variants in gnomad_sensitivity_vcf
 		semi_join(
 			gnomad_sensitivity_vcf,
-			by = join_by(everything())
+			by = names(.)
 		)
+	
+	rm(num_germline_vcf_files, gnomad_sensitivity_vcf)
 	
 	cat("DONE\n")
 
@@ -287,30 +290,55 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 ######################
 cat("## Loading data from filterCalls files...\n")
 
-#Load basic configuration only from first chunk, since identical in all chunks.
-yaml.config <- filterCallsFiles[1] %>% pluck("config","yaml.config")
-run_metadata <- filterCallsFiles[1] %>% pluck("config","run_metadata")
-genome_chromgroup.gr <- filterCallsFiles[1] %>% pluck("config","genome_chromgroup.gr")
-call_types_toanalyze <- filterCallsFiles[1] %>% pluck("config","call_types")
-
 #Create list for finalCalls
 finalCalls <- list()
 
 #Loop over all filterCallsFiles
 for(i in seq_along(filterCallsFiles)){
-	cat("> Chunk:",i,"\n")
 	
+	#Extract chunk number for logging in case filterCallsFiles are not supplied in order
+	chunk_num <- filterCallsFiles[i] %>% str_extract("(?<=chunk)\\d+")
+		
+	cat("> Chunk:",chunk_num,"\n")
+	
+	#Load filterCallsFile
 	filterCallsFile <- qs_read(filterCallsFiles[i])
+	
+	#Load basic configuration only from first chunk, since identical in all chunks.
+	if(i == 1){
+		run_metadata <- filterCallsFile %>% pluck("config","run_metadata")
+		genome_chromgroup.gr <- filterCallsFile %>% pluck("config","genome_chromgroup.gr")
+		call_types_toanalyze <- filterCallsFile %>% pluck("config","call_types")
+		region_read_filters_config <- filterCallsFile %>% pluck("config","region_read_filters_config")
+		region_genome_filters_config <- filterCallsFile %>% pluck("config","region_genome_filters_config")
+	}
 
-	#Load final calls that pass all filters
+	#Load final calls that pass all filters, ignoring the gnomAD filters, since we will later also need the calls filtered only by gnomAD to calculate sensitivity
+	gnomad_filters <- c(
+		"germline_vcf.passfilter",
+		str_subset(filterCallsFile %>% pluck("calls") %>% colnames, "germline_vcf_indel_region_filter"),
+		"max_BAMVariantReads.passfilter",
+		"max_BAMVAF.passfilter",
+		region_read_filters_config %>%
+			filter(is_gnomad_filter==TRUE) %>%
+			pull(region_filter_threshold_file) %>%
+			basename %>%
+			str_c("region_read_filter_",.,".passfilter"),
+		region_genome_filters_config %>%
+			filter(is_gnomad_filter==TRUE) %>%
+			pull(region_filter_threshold_file) %>%
+			basename %>%
+			str_c("region_genome_filter_",.,".passfilter")
+		)
+	
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
 			call_toanalyze == TRUE,
-			if_all(contains("passfilter"), ~ .x == TRUE)
+			if_all(contains("passfilter") & !any_of(gnomad_filters), ~ .x == TRUE)
 		)
 	
-	#Filtered read coverage of the genome
+	#Filtered read coverage of the genome, with and without gnomad_filters
 	if(i == 1){
 		bam.gr.filtertrack.bytype <- filterCallsFile %>%
 			pluck("bam.gr.filtertrack.bytype") %>%
@@ -318,6 +346,14 @@ for(i in seq_along(filterCallsFiles)){
 				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
 			) %>%
 			select(-bam.gr.filtertrack)
+		
+		bam.gr.filtertrack.except_gnomad_filters.bytype <- filterCallsFile %>%
+			pluck("bam.gr.filtertrack.except_gnomad_filters.bytype") %>%
+			mutate(
+				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
+			) %>%
+			select(-bam.gr.filtertrack)
+		
 	}else{
 		bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			left_join(

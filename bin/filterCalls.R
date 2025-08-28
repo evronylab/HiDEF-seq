@@ -801,7 +801,7 @@ region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
 	vmatchPattern("N",.) %>%
 	GenomicRanges::reduce(ignore.strand=TRUE)
 
-#Subtract genome region filters from filter trackers
+#Subtract regions from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
 	GRanges_subtract(region_genome_filter, ignore.strand=TRUE)
 
@@ -955,113 +955,6 @@ calls[["read_trim_bp.passfilter"]] <- ! overlapsAny_bymcols(
 )
 
 rm(bam.gr.trim)
-invisible(gc())
-
-cat("DONE\n")
-
-######################
-### Germline VCF indel region filters
-######################
-cat("## Applying germline VCF indel region filters...")
-
-#Split germline_vcf_variants by germline_vcf_file
-germline_vcf_variants <- germline_vcf_variants  %>%
-  group_by(germline_vcf_file) %>% 
-  nest %>%
-  deframe
-
-for(i in names(germline_vcf_variants)){
-  
-  #Construct label for the newly created filter column
-  passfilter_label <- i %>%
-    basename %>%
-    str_c("germline_vcf_indel_region_filter_",.,".passfilter")
-  
-  #Extract germline VCF type and padding configuration
-  vcf_type <- germline_vcf_variants %>% pluck(i,"germline_vcf_type",1)
-  indel_inspad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_inspad)
-  indel_delpad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_delpad)
-  
-  if(!is.na(indel_inspad)){
-    indel_inspad <- indel_inspad %>%
-      tibble(pad=.) %>%
-      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
-  }else{
-    indel_inspad <- tibble(m = 0, b = 0)
-  }
-  
-  if(!is.na(indel_delpad)){
-    indel_delpad <- indel_delpad %>%
-      tibble(pad=.) %>%
-      extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
-  }else{
-    indel_delpad <- tibble(m = 0, b = 0)
-  }
-  
-  #Create GRanges of variants to filter with configured padding
-  germline_vcf_indel_region_filter <- germline_vcf_variants %>%
-    pluck(i) %>%
-    filter(call_class == "indel") %>%
-    mutate(
-      padding_m = case_when(
-        call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-        call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
-      ),
-      padding_b = case_when(
-        call_type == "insertion" ~ indel_inspad$b,
-        call_type == "deletion" ~ indel_delpad$b
-      ),
-      start = start - pmax(padding_m,padding_b),
-      end = end + pmax(padding_m,padding_b)
-    ) %>%
-    select(-padding_m,-padding_b) %>%
-    makeGRangesFromDataFrame(
-      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-    ) %>%
-    trim %>%
-    GenomicRanges::reduce(ignore.strand=TRUE)
-  
-  #Subtract filtered regions from filter trackers
-  bam.gr.filtertrack <- bam.gr.filtertrack %>%
-    GRanges_subtract(germline_vcf_indel_region_filter, ignore.strand = TRUE)
-  
-  genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
-    GRanges_subtract(germline_vcf_indel_region_filter)
-  
-  #Annotate filtered calls. Annotates even if partial overlap (relevant for deletions).
-  calls[[passfilter_label]] <- ! overlapsAny_bymcols(
-  	calls.gr, germline_vcf_indel_region_filter,
-  	ignore.strand = TRUE
-  )
-  
-  #Record number of filtered genome bases to stats
-  region_genome_filter_stats <- region_genome_filter_stats %>%
-    bind_rows(
-      tibble(
-        filter = str_c(i %>% basename,":indelregion"),
-        binsize = NA,
-        threshold = NA,
-        padding = NA,
-        num_genomebases_individually_filtered = germline_vcf_indel_region_filter %>%
-          width %>%
-          sum,
-        num_genomebases_remaining = genome_chromgroup.gr.filtertrack %>%
-        	width %>%
-        	sum
-      )
-  )
-}
-
-#Update molecule stats
-molecule_stats <- molecule_stats %>%
-	bind_rows(
-		calculate_molecule_stats_frombamfiltertrack(
-			bam.gr.filtertrack.input = bam.gr.filtertrack,
-			stat_label.suffix = "passgermlinevcfindelregionfilters"
-		)
-	)
-
-rm(germline_vcf_indel_region_filter)
 invisible(gc())
 
 cat("DONE\n")
@@ -1597,13 +1490,127 @@ invisible(gc())
 cat("DONE\n")
 
 ######################
+### Germline VCF indel region filters
+######################
+cat("## Applying germline VCF indel region filters...")
+
+#Create a copy of the bam filter trackers from which this and subsequent gnomad-related filters will be excluded, for use in downstream sensitivity analysis
+bam.gr.filtertrack.indelanalysis.except_gnomad_filters <- bam.gr.filtertrack.indelanalysis
+bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters <- bam.gr.filtertrack.nonindelanalysis
+
+#Split germline_vcf_variants by germline_vcf_file
+germline_vcf_variants <- germline_vcf_variants  %>%
+	group_by(germline_vcf_file) %>% 
+	nest %>%
+	deframe
+
+for(i in names(germline_vcf_variants)){
+	
+	#Construct label for the newly created filter column
+	passfilter_label <- i %>%
+		basename %>%
+		str_c("germline_vcf_indel_region_filter_",.,".passfilter")
+	
+	#Extract germline VCF type and padding configuration
+	vcf_type <- germline_vcf_variants %>% pluck(i,"germline_vcf_type",1)
+	indel_inspad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_inspad)
+	indel_delpad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_delpad)
+	
+	if(!is.na(indel_inspad)){
+		indel_inspad <- indel_inspad %>%
+			tibble(pad=.) %>%
+			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+	}else{
+		indel_inspad <- tibble(m = 0, b = 0)
+	}
+	
+	if(!is.na(indel_delpad)){
+		indel_delpad <- indel_delpad %>%
+			tibble(pad=.) %>%
+			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+	}else{
+		indel_delpad <- tibble(m = 0, b = 0)
+	}
+	
+	#Create GRanges of variants to filter with configured padding
+	germline_vcf_indel_region_filter <- germline_vcf_variants %>%
+		pluck(i) %>%
+		filter(call_class == "indel") %>%
+		mutate(
+			padding_m = case_when(
+				call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+				call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+			),
+			padding_b = case_when(
+				call_type == "insertion" ~ indel_inspad$b,
+				call_type == "deletion" ~ indel_delpad$b
+			),
+			start = start - pmax(padding_m,padding_b),
+			end = end + pmax(padding_m,padding_b)
+		) %>%
+		select(-padding_m,-padding_b) %>%
+		makeGRangesFromDataFrame(
+			seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+		) %>%
+		trim %>%
+		GenomicRanges::reduce(ignore.strand=TRUE)
+	
+	#Subtract filtered regions from filter trackers
+	bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%
+		GRanges_subtract(germline_vcf_indel_region_filter, ignore.strand = TRUE)
+	
+	bam.gr.filtertrack.nonindelanalysis <- bam.gr.filtertrack.nonindelanalysis %>%
+		GRanges_subtract(germline_vcf_indel_region_filter, ignore.strand = TRUE)
+	
+	genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
+		GRanges_subtract(germline_vcf_indel_region_filter)
+	
+	#Annotate filtered calls. Annotates even if partial overlap (relevant for deletions).
+	calls[[passfilter_label]] <- ! overlapsAny_bymcols(
+		calls.gr, germline_vcf_indel_region_filter,
+		ignore.strand = TRUE
+	)
+	
+	#Record number of filtered genome bases to stats
+	region_genome_filter_stats <- region_genome_filter_stats %>%
+		bind_rows(
+			tibble(
+				filter = str_c(i %>% basename,":indelregion"),
+				binsize = NA,
+				threshold = NA,
+				padding = NA,
+				num_genomebases_individually_filtered = germline_vcf_indel_region_filter %>%
+					width %>%
+					sum,
+				num_genomebases_remaining = genome_chromgroup.gr.filtertrack %>%
+					width %>%
+					sum
+			)
+		)
+}
+
+#Update molecule stats
+molecule_stats <- molecule_stats %>%
+	bind_rows(
+		calculate_molecule_stats_frombamfiltertrack(
+			bam.gr.filtertrack.input = bam.gr.filtertrack.indelanalysis,
+			stat_label.suffix = "indelanalysis.passgermlinevcfindelregionfilters"
+		),
+		calculate_molecule_stats_frombamfiltertrack(
+			bam.gr.filtertrack.input = bam.gr.filtertrack.nonindelanalysis,
+			stat_label.suffix = "nonindelanalysis.passgermlinevcfindelregionfilters"
+		)
+	)
+
+rm(germline_vcf_indel_region_filter)
+invisible(gc())
+
+cat("DONE\n")
+
+######################
 ### Region-based molecule filters
 ######################
 cat("## Applying region-based molecule filters...")
-
-#Create a copy of the bam filter trackers in which gnomad filters will be excluded in the below region filters, for use in downstream sensitivity analysis
-bam.gr.filtertrack.indelanalysis.except_gnomad_filters <- bam.gr.filtertrack.indelanalysis
-bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters <- bam.gr.filtertrack.nonindelanalysis
 
 for(i in seq_len(nrow(region_read_filters_config))){
 	
@@ -2034,7 +2041,9 @@ qs_save(
 			chromgroup = chromgroup_toanalyze,
 			genome_chromgroup.gr = genome_chromgroup.gr,
 			filtergroup = filtergroup_toanalyze,
-			call_types = call_types_toanalyze
+			call_types = call_types_toanalyze,
+			region_read_filters_config = region_read_filters_config,
+			region_genome_filters_config = region_genome_filters_config
 		),
 		calls = calls,
 		bam.gr.filtertrack.bytype = bam.gr.filtertrack.bytype,

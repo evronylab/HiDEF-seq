@@ -95,7 +95,8 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   		}else{NULL},
   		GQ = if(GQ_exists){
   			as.numeric(extract.gt(vcf,element="GQ",as.numeric=TRUE,IDtoRowNames=FALSE))
-  		}else{NULL}
+  		}else{NULL},
+  		QUAL = if_else(QUAL == ".",NA,QUAL)
   	) %>%
   	{
   		if(AD_exists){
@@ -113,13 +114,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   				separate(.,AD,c("AD1","AD2"),",",convert=TRUE) %>%
   				mutate(Depth=AD1+AD2, VAF=AD2/Depth)
   		}else{
-	  			mutate(
-	  				.,
-	  				AD1 = NULL,
-	  				AD2 = NULL,
-	  				Depth = NULL,
-	  				VAF = NULL
-	  			)
+  			.
   		}
   	} %>%
     mutate(

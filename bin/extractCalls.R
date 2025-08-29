@@ -1056,11 +1056,11 @@ calls <- calls %>%
 			trim %>%
 			filter(width == 3) %>%
 			
-			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns.
+			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns. Also calculate trinucleotide context with central pyrimidine
 			mutate(
-				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
-				  as.character,
-				reftnc_minus_strand = reftnc_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character
+				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>% as.character,
+				reftnc_minus_strand = reftnc_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
+				reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand)
 			) %>%
 			
 			#Resize back to original start/end, and make tibble

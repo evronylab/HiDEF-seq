@@ -111,12 +111,7 @@ sum_RleList <- function(a, b) {
 			seq_in_a <- nm %in% names(a)
 			seq_in_b <- nm %in% names(b)
 			if(seq_in_a && seq_in_b){
-				ra <- a[[nm]]
-				rb <- b[[nm]]
-				if (length(ra) != length(rb)) {
-					stop(sprintf("Length mismatch for '%s': %d vs %d", nm, length(ra), length(rb)))
-				}
-				ra + rb
+				a[[nm]] + b[[nm]]
 			}else if(seq_in_a){
 				a[[nm]]
 			}else{
@@ -129,11 +124,12 @@ sum_RleList <- function(a, b) {
 
 #Function to calculate genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
 sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
-	
+
 	if(is.null(bam.gr.filtertrack2)){
 		bam.gr.filtertrack1 %>%
 			mutate(
-				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
+				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
+					map(function(x){GenomicRanges::reduce(x,ignore.strand=TRUE) %>% coverage}) #Collapse separate + and - reads
 			) %>%
 			select(-bam.gr.filtertrack)
 		
@@ -142,7 +138,8 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			left_join(
 				bam.gr.filtertrack2 %>%
 					mutate(
-						bam.gr.filtertrack.coverage = bam.gr.filtertrack %>% map(coverage)
+						bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
+							map(function(x){GenomicRanges::reduce(x,ignore.strand=TRUE) %>% coverage}) #Collapse separate + and - reads
 					) %>%
 					select(-bam.gr.filtertrack),
 				by = names(.) %>% setdiff("bam.gr.filtertrack.coverage"),
@@ -160,7 +157,7 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 }
 
 #Order of trinucleotide context labels
-trint_subs_labels <- c(
+sbs_labels <- c(
 	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
 	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
 	"ACA>AGA","ACC>AGC","ACG>AGG","ACT>AGT","CCA>CGA","CCC>CGC","CCG>CGG","CCT>CGT",
@@ -174,8 +171,6 @@ trint_subs_labels <- c(
 	"ATA>AGA","ATC>AGC","ATG>AGG","ATT>AGT","CTA>CGA","CTC>CGC","CTG>CGG","CTT>CGT",
 	"GTA>GGA","GTC>GGC","GTG>GGG","GTT>GGT","TTA>TGA","TTC>TGC","TTG>TGG","TTT>TGT"
 	)
-
-genome_freqs_labels <- str_sub(trint_subs_labels,1,3)
 
 #Order of indel context labels
 indel_labels <- c(
@@ -195,7 +190,7 @@ indel_labels <- c(
 	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5")
 
 #All possible trinucleotides
-trinucleotides_64 <- expand.grid(
+trinucleotides_64 <- expand_grid(
 	c("A","C","G","T"),
 	c("A","C","G","T"),
 	c("A","C","G","T")
@@ -203,7 +198,7 @@ trinucleotides_64 <- expand.grid(
 	unite("tri",everything(),sep="") %>%
 	pull(tri)
 
-trinucleotides_32_pyr <- expand.grid(
+trinucleotides_32_pyr <- expand_grid(
 	c("A","C","G","T"),
 	c("C","T"),
 	c("A","C","G","T")
@@ -213,25 +208,24 @@ trinucleotides_32_pyr <- expand.grid(
 
 trinucleotides_32_pur <- trinucleotides_64 %>% setdiff(trinucleotides_32_pyr)
 
-#Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is integer array with named elements that results from the trinucleotideFrequency function of Biostrings.
-trinucleotide64to32 <- function(x){
-	left_join(
-		tibble(
-			tri = trinucleotides_32_pyr,
-			count_pyr = x[trinucleotides_32_pyr]
-		),
-		tibble(
-			tri = trinucleotides_32_pur %>%
-				DNAStringSet %>%
-				reverseComplement %>%
-				as.character,
-			count_pur = x[trinucleotides_32_pur]
-		),
-		by = "tri"
+#Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
+trinucleotides_64to32 <- function(x, tri_column, count_column){
+	bind_rows(
+		x %>%
+			filter(!!sym(tri_column) %in% trinucleotides_32_pyr),
+		x %>%
+			filter(!!sym(tri_column) %in% trinucleotides_32_pur) %>%
+			mutate(
+				tri = tri %>%
+					DNAStringSet %>%
+					reverseComplement %>%
+					as.character %>%
+					factor(levels = trinucleotides_32_pyr)
+			)
 	) %>%
-		mutate(count = count_pyr + count_pur) %>%
-		select(tri,count) %>%
-		deframe
+		group_by(tri) %>%
+		summarize(count = sum(count), .groups = "drop") %>%
+		arrange(tri)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -249,19 +243,19 @@ indelwald.to.sigfit <- function(indelwald.spectrum){
 ######################
 ### Load data from filterCalls files
 ######################
-cat("## Loading data from filterCalls files...\n> chunk:")
+cat("## Loading data from filterCalls files...\n> analysis chunk:")
 
-#Create list for finalCalls and molecule_stats
+#Create lists for data loading
 finalCalls <- list()
 molecule_stats <- list()
 
 #Loop over all filterCallsFiles
 for(i in seq_along(filterCallsFiles)){
 	
-	#Extract chunk number for logging in case filterCallsFiles are not supplied in order
-	chunk_num <- filterCallsFiles[i] %>% str_extract("(?<=chunk)\\d+")
+	#Extract analysis chunk number for logging in case filterCallsFiles are not supplied in order
+	analysis_chunk_num <- filterCallsFiles[i] %>% str_extract("(?<=chunk)\\d+")
 		
-	cat(" ", chunk_num, sep="")
+	cat(" ", analysis_chunk_num, sep="")
 	
 	#Load filterCallsFile
 	filterCallsFile <- qs_read(filterCallsFiles[i])
@@ -300,10 +294,15 @@ for(i in seq_along(filterCallsFiles)){
 	#Load final calls that pass all filters, ignoring the gnomAD-related filters, since we will later also need the calls filtered only by gnomAD-related filters to calculate sensitivity
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
-		filter(
-			call_toanalyze == TRUE,
-			if_all(contains("passfilter") & !all_of(gnomad_filters), ~ .x == TRUE)
-		)
+		mutate(
+			finalCall = call_toanalyze == TRUE &
+				if_all(contains("passfilter"), ~ .x == TRUE),
+			sensitivity_variant = call_class %in% c("SBS","indel") &
+				SBSindel_call_type == "mutation" &
+				if_all(contains("passfilter") & !all_of(gnomad_filters), ~ .x == TRUE) & #All non-gnomad filters == TRUE
+				if_any(all_of(gnomad_filters), ~ .x == FALSE) #At least one gnomad FILTER == FALSE
+		) %>%
+		filter(finalCall == TRUE | sensitivity_variant == TRUE)
 	
 	#Filtered read coverage of the genome, with and without gnomad_filters
 	if(i == 1){
@@ -329,7 +328,6 @@ for(i in seq_along(filterCallsFiles)){
 
 	#molecule_stats
 	molecule_stats[[i]] <- filterCallsFile %>% pluck("molecule_stats")
-
 }
 
 #Remove temp objects
@@ -338,10 +336,10 @@ invisible(gc())
 
 #Combine finalCalls to one tibble
 finalCalls <- finalCalls %>%
-	bind_rows(.id = "chunk") %>%
-	mutate(chunk = chunk %>% as.integer)
+	bind_rows(.id = "analysis_chunk") %>%
+	mutate(analysis_chunk = analysis_chunk %>% as.integer)
 
-#Combine molecule_stats to one tibble and sum stats. Do this by left_join to molecule_stats[[1]] without value column to preserve the same stats row order in the final tibble
+#Combine molecule_stats to one tibble and sum stats. Also do a left_join to molecule_stats[[1]] without the value column to preserve the original row order of stats
 molecule_stats <- molecule_stats[[1]] %>%
 	select(run_id,chromgroup,filtergroup,stat) %>%
 	left_join(
@@ -357,56 +355,187 @@ cat(" DONE\n")
 ######################
 ### Output configuration parameters
 ######################
-cat("> Analyzing and outputting:\n")
+cat("## Outputting configuration parameters...")
 
-cat("    Configuration parameters...")
-#yaml.config, run_metadata
+opt$config %>% file.copy(str_c(output_basename,".yaml.config.tsv"))
 
-cat("DONE\n")
-
-######################
-### Output analysis statistics
-######################
-cat("    Statistics...:")
-
-molecule_stats
-
-region_genome_filter_stats
+run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
 
 cat("DONE\n")
 
 ######################
-### Output coverage per genome site
+### Output filtering statistics
 ######################
-cat("    Coverage per genome site...")
+cat("## Outputting filtering statistics...:")
 
-#Coverage per genome site
+molecule_stats %>% write_tsv(str_c(output_basename,".molecule_stats.tsv"))
+
+region_genome_filter_stats %>% write_tsv(str_c(output_basename,".region_genome_filter_stats.tsv"))
+
+cat("DONE\n")
+
+######################
+### Output coverage and reference sequences of interrogated genome bases
+######################
+cat("## Outputting coverage and reference sequences of interrogated genome bases...")
+
+#Calculate duplex coverage for final interrogated genome bases, excluding zero coverage bases
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	mutate(
+		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
+			map(
+				function(x){
+					if(length(x) == 0){return(GRanges(coverage=integer()))}
+					
+					x %>%
+						imap(
+							function(r,chr){
+								pos <- which(r != 0L) 
+								
+								if(length(pos) == 0L){return(GRanges(coverage=integer()))}
+								
+								rl <- runLength(r)
+								rv <- runValue(r)
+								nz <- rv != 0L
+								
+								GRanges(
+									seqnames = chr,
+									ranges = IRanges(start = pos, width = 1L),
+									coverage = rep.int(rv[nz], rl[nz])
+								)
+							}
+						) %>%
+						GRangesList %>%
+						unlist
+				}
+			)
+	)
+
+#Annotate trinucleotide counts for final interrogated genome bases
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	mutate(
+		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
+			map(
+				function(x){
+					x = x %>%
+						resize(width = 3, fix="center") %>%
+						
+						#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
+						trim %>%
+						filter(width == 3) %>%
+						
+						mutate(
+							reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+								as.character %>%
+								factor(levels = trinucleotides_64),
+							reftnc_minus_strand = reftnc_plus_strand %>%
+								DNAStringSet %>%
+								reverseComplement %>%
+								as.character %>%
+								factor(levels = trinucleotides_64),
+							reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand) %>%
+								factor(levels = trinucleotides_32)
+						)
+				}
+			)
+	)
+
+#Output
+for(i in 1:nrow(bam.gr.filtertrack.bytype)){
+	bam.gr.filtertrack.bytype %>%
+		pluck("bam.gr.filtertrack.coverage",i) %>%
+		mutate(name = reftnc_pyr, score = coverage) %>% #rename to to allow output by 'export'
+		export(
+			con = str_c(
+				output_basename,
+				bam.gr.filtertrack.bytype$call_class[i],
+				bam.gr.filtertrack.bytype$call_type[i],
+				bam.gr.filtertrack.bytype$SBSindel_call_type[i],
+				"bed",
+				sep="."
+			),
+			format = "bed",
+			index = TRUE
+		)
+}
 
 cat("DONE\n")
 
 ######################
 ### Output trinucleotide background counts
 ######################
-cat("    Trinucleotide background counts...")
+cat("## Outputting trinucleotide background counts...")
 
-#Number of trinucleotide counts of interrogated bases and base pairs
+#Calculate trinucleotide distributions for final interrogated genome bases
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	mutate(
+		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.coverage %>%
+			map(
+				function(x){
+					x %>%
+						as_tibble %>%
+						count(reftnc_pyr, wt = coverage, name = "count")
+				}
+			),
+		
+		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.coverage %>%
+			map(
+				function(x){
+					bind_rows(
+						x %>%
+							as_tibble %>%
+							count(reftnc_plus_strand, wt = coverage, name = "count") %>%
+							rename(reftnc_both_strands = reftnc_plus_strand),
+						x %>%
+							as_tibble %>%
+							count(reftnc_minus_strand, wt = coverage, name = "count") %>%
+							rename(reftnc_both_strands = reftnc_minus_strand)
+					) %>%
+						group_by(reftnc_both_strands) %>%
+						summarize(count = sum(count), .groups = "drop")
+				}
+			)
+		
+	)
+
+#Calculate trinucleotide distributions for the whole genome plus strand
+genome.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	getSeq %>%
+	trinucleotideFrequency(simplify.as = "collapsed") %>%
+	enframe(name = "reftnc_plus_strand", value = "count") %>%
+	mutate(reftnc_plus_strand = reftnc_plus_strand %>% factor(levels = trinucleotides_64)) %>%
+	arrange(reftnc_plus_strand)
+
+genome.reftnc_pyr <- genome.reftnc_plus_strand %>%
+	trinucleotides_64to32(tri_column = "reftnc_plus_strand", count_column = "count")
+
+#Calculate trinucleotide distributions for this chromgroup
+genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	getSeq(chroms_toanalyze) %>%
+	trinucleotideFrequency(simplify.as = "collapsed") %>%
+	enframe(name = "reftnc_plus_strand", value = "count") %>%
+	mutate(reftnc_plus_strand = reftnc_plus_strand %>% factor(levels = trinucleotides_64)) %>%
+	arrange(reftnc_plus_strand)
+	
+genome_chromgroup.reftnc_pyr <- genome_chromgroup.reftnc_plus_strand %>%
+	trinucleotides_64to32(tri_column = "reftnc_plus_strand", count_column = "count")
 
 cat("DONE\n")
 
 ######################
 ### Output filtered calls
 ######################
-cat("    Filtered calls...")
+cat("## Outputting filtered calls...")
 
-#Germline and somatic
+#Germline (germline_vcf.passfilter = FALSE) and somatic
 cat("DONE\n")
 
 ######################
 ### Calculate and output sensitivity
 ######################
-cat("    Sensitivity...\n")
-
-cat("      > Setting sensitivity to 1 since gnomad_sensitivity_vcf is NULL.\n")
+cat("## Calculating sensitivity...")
 
 #Create set of high-quality germline variants for sensitivity analysis
 if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
@@ -483,19 +612,17 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	cat("DONE\n")
 	
 }else{
-	cat("      > Setting sensitivity to 1 since gnomad_sensitivity_vcf is NULL.\n")
+	cat("Setting sensitivity to 1 since gnomad_sensitivity_vcf is NULL.\n")
 	
 	sensitivity_sbs <- 1.0
 	sensitivity_indel <- 1.0
 }
 
-cat("    DONE\n")
-
 ######################
 ### Output call frequencies
 ######################
-cat("    Call frequencies...")
-#Number of interrogated bases and base pairs
+cat("## Outputting call frequencies...")
+#Number of interrogated bases and base pairs -> calculate bases interrogated  = 2 x base pairs interrogated!
 #all and unique, observed vs genome corrected vs sensitivity corrected vs both corrected
 #upper and lower poisson conf int
 #Interrogated bases, Interrogated base pairs
@@ -505,7 +632,7 @@ cat("DONE\n")
 ######################
 ### Output call spectra
 ######################
-cat("    Call spectra...")
+cat("## Outputting call spectra...")
 #Plots and tables of observed and corrected, for all and for unique counts
 
 cat("DONE\n")
@@ -513,7 +640,32 @@ cat("DONE\n")
 ######################
 ### Output estimated mutation error rate
 ######################
-cat("    Estimated mutation error rate...")
+cat("## Outputting estimated mutation error rate...")
 #For ssDNA mismatches only, for each channel and total
+
+cat("DONE\n")
+
+######################
+### Output results in RDS file
+######################
+cat("## Outputting data in RDS file...")
+qs_save(
+	list(
+		yaml.config = yaml.config,
+		run_metadata = run_metadata,
+		individual_id = individual_id,
+		sample_id = sample_id_toanalyze,
+		chromgroup = chromgroup_toanalyze,
+		filtergroup = filtergroup_toanalyze,
+		call_types = call_types_toanalyze,
+		molecule_stats = molecule_stats,
+		region_genome_filter_stats = region_genome_filter_stats,
+		sensitivity_sbs = sensitivity_sbs,
+		sensitivity_indel = sensitivity_indel,
+		bam.gr.filtertrack.bytype = bam.gr.filtertrack.bytype,
+		
+	)
+	str_c(output_basename,".output.RDS")
+)
 
 cat("DONE\n")

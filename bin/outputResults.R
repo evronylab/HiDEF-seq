@@ -227,40 +227,31 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 		arrange(!!sym(tri_column))
 }
 
-#Function to rapidly extract trinucleotide counts of all 64 possible trinucleotides from the reference plus strand.
-# Inputs are:
+#Function to rapidly extract sequences from the reference plus strand (or minus strand if start < end).
+# Inputs:
 #   x: granges object to analyze
 #   genome_fasta: path of genome reference fasta file
 #   seqkit_bin: path of seqkit binary
-#   kmc_bindir: path of directory containing kmc binaries
-trinucleotideFrequency_kmc <- function(x, genome_fasta, seqkit_bin, kmc_bindir){
+# Output: character vector of extracted sequences in same order as x granges
+getSeq_seqkit <- function(x, genome_fasta, seqkit_bin){
 	
 	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
 	tmpfasta <- tempfile(tmpdir=getwd(),pattern=".")
-	tmpkmcout <- tempfile(tmpdir=getwd(),pattern=".")
-	tmpkmcdumpout <- tempfile(tmpdir=getwd(),pattern=".")
 	
 	x %>%
 		as_tibble %>%
 		select(seqnames,start,end) %>%
-		mutate(output = str_c(seqnames,":",start,"-",end))
+		mutate(output = str_c(seqnames,":",start,"-",end)) %>%
+		select(output) %>%
 		write_tsv(tmpregions, col_names=F)
 	
-	invisible(system(paste(seqkit_bin,"faidx","-l",tmpregions,genome_fasta,">",tmpfasta),intern=TRUE,ignore.stderr=TRUE))
+	invisible(system(paste(seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"| grep -v '^>' >",tmpfasta),intern=FALSE))
 	
-	invisible(system(paste(str_c(kmc_bindir,"/kmc"),"-k3 -b -m30 -fm -ci0 -cs9999999999999 -cx9999999999999 -hp",tmpfasta,tmpkmcout,getwd()),intern=TRUE,ignore.stdout=TRUE,ignore.stderr=TRUE))
+	seqs <- read_lines(tmpfasta)
 	
-	invisible(system(paste(str_c(kmc_bindir,"/kmc_dump"),tmpkmcout,tmpkmcdumpout),intern=TRUE))
-	kmcoutput <- read_tsv(tmpkmcdumpout,col_types=**,col_names=**,sep="\t")
+	file.remove(tmpregions,tmpfasta)
 	
-	file.remove(tmpregions,tmpfasta,str_c(tmpkmcout,"*"),tmpkmcdumpout)
-	
-	**Fix to tidy
-	result <- rep(0,length(trinucleotides_64))
-	names(result) <- trinucleotides_64
-	result[kmcoutput$V1] <- kmcoutput$V2
-	
-	return(result)
+	return(seqs)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -414,7 +405,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting coverage and reference sequences of interrogated genome bases...")
 
-#Convert duplex coverage RleList for final interrogated genome bases to GRanges for every base with 'coverage' column, excluding zero coverage bases
+#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'coverage' column, excluding zero coverage bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
@@ -453,23 +444,28 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			map(
 				function(x){
 					x = x %>%
-						resize(width = 3, fix="center") %>%
-						
-						#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
-						trim %>%
-						filter(width == 3) %>%
-						
 						mutate(
-							reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
-								as.character %>%
+							reftnc_plus_strand = 
+								getSeq_seqkit(
+									x %>%
+									resize(width = 3, fix="center") %>%
+										
+									#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
+									trim %>%
+									filter(width == 3),
+								genome_fasta = yaml.config$genome_fasta,
+								seqkit_bin = yaml.config$seqkit_bin
+							) %>%
 								factor(levels = trinucleotides_64),
+							
 							reftnc_minus_strand = reftnc_plus_strand %>%
 								DNAStringSet %>%
 								reverseComplement %>%
 								as.character %>%
 								factor(levels = trinucleotides_64),
+							
 							reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand) %>%
-								factor(levels = trinucleotides_32)
+								factor(levels = trinucleotides_32_pyr)
 						)
 				}
 			)
@@ -504,7 +500,7 @@ cat("## Outputting trinucleotide background counts...")
 #Calculate trinucleotide distributions for final interrogated genome bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
-		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.coverage %>%
+		bam.gr.filtertrack.reftnc_duplex_pyr = bam.gr.filtertrack.coverage %>%
 			map(
 				function(x){
 					x %>%
@@ -520,14 +516,34 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						x %>%
 							as_tibble %>%
 							count(reftnc_plus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc_both_strands = reftnc_plus_strand),
+							rename(reftnc = reftnc_plus_strand),
 						x %>%
 							as_tibble %>%
 							count(reftnc_minus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc_both_strands = reftnc_minus_strand)
+							rename(reftnc = reftnc_minus_strand)
 					) %>%
-						group_by(reftnc_both_strands) %>%
+						group_by(reftnc) %>%
 						summarize(count = sum(count), .groups = "drop")
+				}
+			),
+		
+		bam.gr.filtertrack.reftnc_both_strands_pyr = bam.gr.filtertrack.reftnc_both_strands %>%
+			map(
+				function(x){
+					x %>%
+						trinucleotides_64to32(
+							tri_column = "reftnc",
+							count_column = "count"
+						) %>%
+						rename(reftnc_pyr = reftnc)
+				}
+			),
+		
+		#Remove reftnc_plus_strand and reftnc_minus_strand that are no longer needed
+		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
+			map(
+				function(x){
+					x %>% select(-reftnc_plus_strand,-reftnc_minus_strand)
 				}
 			)
 		
@@ -538,24 +554,26 @@ genome.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq %>%
 	trinucleotideFrequency(simplify.as = "collapsed") %>%
-	enframe(name = "reftnc_plus_strand", value = "count") %>%
-	mutate(reftnc_plus_strand = reftnc_plus_strand %>% factor(levels = trinucleotides_64)) %>%
-	arrange(reftnc_plus_strand)
+	enframe(name = "reftnc", value = "count") %>%
+	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
+	arrange(reftnc)
 
 genome.reftnc_pyr <- genome.reftnc_plus_strand %>%
-	trinucleotides_64to32(tri_column = "reftnc_plus_strand", count_column = "count")
+	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+	rename(reftnc_pyr = reftnc)
 
 #Calculate trinucleotide distributions for this chromgroup
 genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq(chroms_toanalyze) %>%
 	trinucleotideFrequency(simplify.as = "collapsed") %>%
-	enframe(name = "reftnc_plus_strand", value = "count") %>%
-	mutate(reftnc_plus_strand = reftnc_plus_strand %>% factor(levels = trinucleotides_64)) %>%
-	arrange(reftnc_plus_strand)
+	enframe(name = "reftnc", value = "count") %>%
+	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
+	arrange(reftnc)
 	
 genome_chromgroup.reftnc_pyr <- genome_chromgroup.reftnc_plus_strand %>%
-	trinucleotides_64to32(tri_column = "reftnc_plus_strand", count_column = "count")
+	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+	rename(reftnc_pyr = reftnc)
 
 cat("DONE\n")
 

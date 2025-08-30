@@ -497,7 +497,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting trinucleotide background counts...")
 
-#Calculate trinucleotide distributions for final interrogated genome bases
+#Calculate trinucleotide counts for final interrogated genome bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_duplex_pyr = bam.gr.filtertrack.coverage %>%
@@ -505,7 +505,9 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 				function(x){
 					x %>%
 						as_tibble %>%
-						count(reftnc_pyr, wt = coverage, name = "count")
+						count(reftnc_pyr, wt = coverage, name = "count") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
+						arrange(reftnc_pyr)
 				}
 			),
 		
@@ -516,14 +518,17 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						x %>%
 							as_tibble %>%
 							count(reftnc_plus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc = reftnc_plus_strand),
+							rename(reftnc = reftnc_plus_strand) %>%
+							complete(reftnc, fill = list(count = 0)),
 						x %>%
 							as_tibble %>%
 							count(reftnc_minus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc = reftnc_minus_strand)
+							rename(reftnc = reftnc_minus_strand) %>%
+							complete(reftnc, fill = list(count = 0))
 					) %>%
 						group_by(reftnc) %>%
-						summarize(count = sum(count), .groups = "drop")
+						summarize(count = sum(count), .groups = "drop") %>%
+						arrange(reftnc)
 				}
 			),
 		
@@ -549,31 +554,76 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		
 	)
 
-#Calculate trinucleotide distributions for the whole genome plus strand
+#Calculate trinucleotide counts for the whole genome
 genome.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq %>%
 	trinucleotideFrequency(simplify.as = "collapsed") %>%
 	enframe(name = "reftnc", value = "count") %>%
-	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
-	arrange(reftnc)
+	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
 
-genome.reftnc_pyr <- genome.reftnc_plus_strand %>%
+genome.reftnc_minus_strand <- genome.reftnc_plus_strand %>%
+	mutate(
+		reftnc = reftnc %>%
+			DNAStringSet %>%
+			reverseComplement %>%
+			as.character %>%
+			factor(levels = trinucleotides_64)
+	)
+
+genome.reftnc_both_strands <- bind_rows(
+		genome.reftnc_plus_strand,
+		genome.reftnc_minus_strand
+	) %>%
+	group_by(reftnc) %>%
+	summarize(count = sum(count), .groups = "drop") %>%
+	arrange(reftnc)
+	
+genome.reftnc_duplex_pyr <- genome.reftnc_plus_strand %>%
 	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
 	rename(reftnc_pyr = reftnc)
 
-#Calculate trinucleotide distributions for this chromgroup
+rm(genome.reftnc_plus_strand,genome.reftnc_minus_strand)
+
+#Calculate trinucleotide counts for this chromgroup part of the genome
 genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq(chroms_toanalyze) %>%
 	trinucleotideFrequency(simplify.as = "collapsed") %>%
 	enframe(name = "reftnc", value = "count") %>%
-	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
+	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
+
+genome_chromgroup.reftnc_minus_strand <- genome_chromgroup.reftnc_plus_strand %>%
+	mutate(
+		reftnc = reftnc %>%
+			DNAStringSet %>%
+			reverseComplement %>%
+			as.character %>%
+			factor(levels = trinucleotides_64)
+	)
+
+genome_chromgroup.reftnc_both_strands <- bind_rows(
+	genome_chromgroup.reftnc_plus_strand,
+	genome_chromgroup.reftnc_minus_strand
+) %>%
+	group_by(reftnc) %>%
+	summarize(count = sum(count), .groups = "drop") %>%
 	arrange(reftnc)
-	
-genome_chromgroup.reftnc_pyr <- genome_chromgroup.reftnc_plus_strand %>%
+
+genome_chromgroup.reftnc_duplex_pyr <- genome_chromgroup.reftnc_plus_strand %>%
 	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
 	rename(reftnc_pyr = reftnc)
+
+rm(genome_chromgroup.reftnc_plus_strand,genome_chromgroup.reftnc_minus_strand)
+
+#Output trinucleotide counts
+bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_duplex_pyr
+bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_both_strands	
+bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_both_strands_pyr
+genome.reftnc_both_strands
+genome.reftnc_duplex_pyr
+genome_chromgroup.reftnc_both_strands
+genome_chromgroup.reftnc_duplex_pyr
 
 cat("DONE\n")
 
@@ -718,6 +768,10 @@ qs_save(
 		sensitivity_sbs = sensitivity_sbs,
 		sensitivity_indel = sensitivity_indel,
 		bam.gr.filtertrack.bytype = bam.gr.filtertrack.bytype,
+		genome.reftnc_both_strands,
+		genome.reftnc_duplex_pyr,
+		genome_chromgroup.reftnc_both_strands,
+		genome_chromgroup.reftnc_duplex_pyr,
 		
 	)
 	str_c(output_basename,".output.RDS")

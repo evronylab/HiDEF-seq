@@ -122,7 +122,7 @@ sum_RleList <- function(a, b) {
 			RleList(compress=FALSE)
 }
 
-#Function to calculate genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
+#Function to calculate duplex genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates duplex genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
 sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
 
 	if(is.null(bam.gr.filtertrack2)){
@@ -156,7 +156,7 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Order of trinucleotide context labels
+#Order of sbs trinucleotide context labels
 sbs_labels <- c(
 	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
 	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
@@ -187,7 +187,8 @@ indel_labels <- c(
 	"4:Ins:R:0","4:Ins:R:1","4:Ins:R:2","4:Ins:R:3","4:Ins:R:4","4:Ins:R:5",
 	"5:Ins:R:0","5:Ins:R:1","5:Ins:R:2","5:Ins:R:3","5:Ins:R:4","5:Ins:R:5",
 	"2:Del:M:1","3:Del:M:1","3:Del:M:2","4:Del:M:1","4:Del:M:2","4:Del:M:3",
-	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5")
+	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5"
+	)
 
 #All possible trinucleotides
 trinucleotides_64 <- expand_grid(
@@ -206,26 +207,60 @@ trinucleotides_32_pyr <- expand_grid(
 	unite("tri",everything(),sep="") %>%
 	pull(tri)
 
-trinucleotides_32_pur <- trinucleotides_64 %>% setdiff(trinucleotides_32_pyr)
-
 #Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
 trinucleotides_64to32 <- function(x, tri_column, count_column){
 	bind_rows(
 		x %>%
 			filter(!!sym(tri_column) %in% trinucleotides_32_pyr),
 		x %>%
-			filter(!!sym(tri_column) %in% trinucleotides_32_pur) %>%
+			filter(!(!!sym(tri_column) %in% trinucleotides_32_pyr)) %>%
 			mutate(
-				tri = tri %>%
+				!!sym(tri_column) := !!sym(tri_column) %>%
 					DNAStringSet %>%
 					reverseComplement %>%
 					as.character %>%
 					factor(levels = trinucleotides_32_pyr)
 			)
 	) %>%
-		group_by(tri) %>%
-		summarize(count = sum(count), .groups = "drop") %>%
-		arrange(tri)
+		group_by(!!sym(tri_column)) %>%
+		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
+		arrange(!!sym(tri_column))
+}
+
+#Function to rapidly extract trinucleotide counts of all 64 possible trinucleotides from the reference plus strand.
+# Inputs are:
+#   x: granges object to analyze
+#   genome_fasta: path of genome reference fasta file
+#   seqkit_bin: path of seqkit binary
+#   kmc_bindir: path of directory containing kmc binaries
+trinucleotideFrequency_kmc <- function(x, genome_fasta, seqkit_bin, kmc_bindir){
+	
+	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
+	tmpfasta <- tempfile(tmpdir=getwd(),pattern=".")
+	tmpkmcout <- tempfile(tmpdir=getwd(),pattern=".")
+	tmpkmcdumpout <- tempfile(tmpdir=getwd(),pattern=".")
+	
+	x %>%
+		as_tibble %>%
+		select(seqnames,start,end) %>%
+		mutate(output = str_c(seqnames,":",start,"-",end))
+		write_tsv(tmpregions, col_names=F)
+	
+	invisible(system(paste(seqkit_bin,"faidx","-l",tmpregions,genome_fasta,">",tmpfasta),intern=TRUE,ignore.stderr=TRUE))
+	
+	invisible(system(paste(str_c(kmc_bindir,"/kmc"),"-k3 -b -m30 -fm -ci0 -cs9999999999999 -cx9999999999999 -hp",tmpfasta,tmpkmcout,getwd()),intern=TRUE,ignore.stdout=TRUE,ignore.stderr=TRUE))
+	
+	invisible(system(paste(str_c(kmc_bindir,"/kmc_dump"),tmpkmcout,tmpkmcdumpout),intern=TRUE))
+	kmcoutput <- read_tsv(tmpkmcdumpout,col_types=**,col_names=**,sep="\t")
+	
+	file.remove(tmpregions,tmpfasta,str_c(tmpkmcout,"*"),tmpkmcdumpout)
+	
+	**Fix to tidy
+	result <- rep(0,length(trinucleotides_64))
+	names(result) <- trinucleotides_64
+	result[kmcoutput$V1] <- kmcoutput$V2
+	
+	return(result)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -379,7 +414,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting coverage and reference sequences of interrogated genome bases...")
 
-#Calculate duplex coverage for final interrogated genome bases, excluding zero coverage bases
+#Convert duplex coverage RleList for final interrogated genome bases to GRanges for every base with 'coverage' column, excluding zero coverage bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
@@ -633,7 +668,7 @@ cat("DONE\n")
 ### Output call spectra
 ######################
 cat("## Outputting call spectra...")
-#Plots and tables of observed and corrected, for all and for unique counts
+#Plots and tables of observed and corrected, only for unique counts
 
 cat("DONE\n")
 
@@ -642,6 +677,8 @@ cat("DONE\n")
 ######################
 cat("## Outputting estimated mutation error rate...")
 #For ssDNA mismatches only, for each channel and total
+
+- review Nanoseq code for calculating error rate again and update HiDEF-seq accordingly. See https://github.com/cancerit/NanoSeq/issues/92 and https://github.com/cancerit/NanoSeq/blob/4136d3ca943b96b2cf9013ac14183f098b8234be/R/nanoseq_results_plotter.R#L730. Specifically, do I need to divide the interrogated ssDNA bases by 2 in the denominator, since the two false positive calls must happen in opposite strands. But think about it carefully. Not sure about this.
 
 cat("DONE\n")
 

@@ -102,6 +102,77 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
+#Order of sbs trinucleotide context labels
+sbs_labels <- c(
+	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
+	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
+	"ACA>AGA","ACC>AGC","ACG>AGG","ACT>AGT","CCA>CGA","CCC>CGC","CCG>CGG","CCT>CGT",
+	"GCA>GGA","GCC>GGC","GCG>GGG","GCT>GGT","TCA>TGA","TCC>TGC","TCG>TGG","TCT>TGT",
+	"ACA>ATA","ACC>ATC","ACG>ATG","ACT>ATT","CCA>CTA","CCC>CTC","CCG>CTG","CCT>CTT",
+	"GCA>GTA","GCC>GTC","GCG>GTG","GCT>GTT","TCA>TTA","TCC>TTC","TCG>TTG","TCT>TTT",
+	"ATA>AAA","ATC>AAC","ATG>AAG","ATT>AAT","CTA>CAA","CTC>CAC","CTG>CAG","CTT>CAT",
+	"GTA>GAA","GTC>GAC","GTG>GAG","GTT>GAT","TTA>TAA","TTC>TAC","TTG>TAG","TTT>TAT",
+	"ATA>ACA","ATC>ACC","ATG>ACG","ATT>ACT","CTA>CCA","CTC>CCC","CTG>CCG","CTT>CCT",
+	"GTA>GCA","GTC>GCC","GTG>GCG","GTT>GCT","TTA>TCA","TTC>TCC","TTG>TCG","TTT>TCT",
+	"ATA>AGA","ATC>AGC","ATG>AGG","ATT>AGT","CTA>CGA","CTC>CGC","CTG>CGG","CTT>CGT",
+	"GTA>GGA","GTC>GGC","GTG>GGG","GTT>GGT","TTA>TGA","TTC>TGC","TTG>TGG","TTT>TGT"
+)
+
+#Order of indel context labels
+indel_labels <- c(
+	"1:Del:C:0","1:Del:C:1","1:Del:C:2","1:Del:C:3","1:Del:C:4","1:Del:C:5",
+	"1:Del:T:0","1:Del:T:1","1:Del:T:2","1:Del:T:3","1:Del:T:4","1:Del:T:5",
+	"1:Ins:C:0","1:Ins:C:1","1:Ins:C:2","1:Ins:C:3","1:Ins:C:4","1:Ins:C:5",
+	"1:Ins:T:0","1:Ins:T:1","1:Ins:T:2","1:Ins:T:3","1:Ins:T:4","1:Ins:T:5",
+	"2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5",
+	"3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5",
+	"4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5",
+	"5:Del:R:0","5:Del:R:1","5:Del:R:2","5:Del:R:3","5:Del:R:4","5:Del:R:5",
+	"2:Ins:R:0","2:Ins:R:1","2:Ins:R:2","2:Ins:R:3","2:Ins:R:4","2:Ins:R:5",
+	"3:Ins:R:0","3:Ins:R:1","3:Ins:R:2","3:Ins:R:3","3:Ins:R:4","3:Ins:R:5",
+	"4:Ins:R:0","4:Ins:R:1","4:Ins:R:2","4:Ins:R:3","4:Ins:R:4","4:Ins:R:5",
+	"5:Ins:R:0","5:Ins:R:1","5:Ins:R:2","5:Ins:R:3","5:Ins:R:4","5:Ins:R:5",
+	"2:Del:M:1","3:Del:M:1","3:Del:M:2","4:Del:M:1","4:Del:M:2","4:Del:M:3",
+	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5"
+)
+
+#All possible trinucleotides
+trinucleotides_64 <- expand_grid(
+	c("A","C","G","T"),
+	c("A","C","G","T"),
+	c("A","C","G","T")
+) %>%
+	unite("tri",everything(),sep="") %>%
+	pull(tri)
+
+trinucleotides_32_pyr <- expand_grid(
+	c("A","C","G","T"),
+	c("C","T"),
+	c("A","C","G","T")
+) %>%
+	unite("tri",everything(),sep="") %>%
+	pull(tri)
+
+#Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
+trinucleotides_64to32 <- function(x, tri_column, count_column){
+	bind_rows(
+		x %>%
+			filter(!!sym(tri_column) %in% trinucleotides_32_pyr),
+		x %>%
+			filter(!(!!sym(tri_column) %in% trinucleotides_32_pyr)) %>%
+			mutate(
+				!!sym(tri_column) := !!sym(tri_column) %>%
+					DNAStringSet %>%
+					reverseComplement %>%
+					as.character %>%
+					factor(levels = trinucleotides_32_pyr)
+			)
+	) %>%
+		group_by(!!sym(tri_column)) %>%
+		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
+		arrange(!!sym(tri_column))
+}
+
 #Function to sum two RleLists, including handling of chromosomes only present in one of the RleLists.
 sum_RleList <- function(a, b) {
 	seqs_union <- union(names(a), names(b))
@@ -156,89 +227,27 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Order of sbs trinucleotide context labels
-sbs_labels <- c(
-	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
-	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
-	"ACA>AGA","ACC>AGC","ACG>AGG","ACT>AGT","CCA>CGA","CCC>CGC","CCG>CGG","CCT>CGT",
-	"GCA>GGA","GCC>GGC","GCG>GGG","GCT>GGT","TCA>TGA","TCC>TGC","TCG>TGG","TCT>TGT",
-	"ACA>ATA","ACC>ATC","ACG>ATG","ACT>ATT","CCA>CTA","CCC>CTC","CCG>CTG","CCT>CTT",
-	"GCA>GTA","GCC>GTC","GCG>GTG","GCT>GTT","TCA>TTA","TCC>TTC","TCG>TTG","TCT>TTT",
-	"ATA>AAA","ATC>AAC","ATG>AAG","ATT>AAT","CTA>CAA","CTC>CAC","CTG>CAG","CTT>CAT",
-	"GTA>GAA","GTC>GAC","GTG>GAG","GTT>GAT","TTA>TAA","TTC>TAC","TTG>TAG","TTT>TAT",
-	"ATA>ACA","ATC>ACC","ATG>ACG","ATT>ACT","CTA>CCA","CTC>CCC","CTG>CCG","CTT>CCT",
-	"GTA>GCA","GTC>GCC","GTG>GCG","GTT>GCT","TTA>TCA","TTC>TCC","TTG>TCG","TTT>TCT",
-	"ATA>AGA","ATC>AGC","ATG>AGG","ATT>AGT","CTA>CGA","CTC>CGC","CTG>CGG","CTT>CGT",
-	"GTA>GGA","GTC>GGC","GTG>GGG","GTT>GGT","TTA>TGA","TTC>TGC","TTG>TGG","TTT>TGT"
-	)
-
-#Order of indel context labels
-indel_labels <- c(
-	"1:Del:C:0","1:Del:C:1","1:Del:C:2","1:Del:C:3","1:Del:C:4","1:Del:C:5",
-	"1:Del:T:0","1:Del:T:1","1:Del:T:2","1:Del:T:3","1:Del:T:4","1:Del:T:5",
-	"1:Ins:C:0","1:Ins:C:1","1:Ins:C:2","1:Ins:C:3","1:Ins:C:4","1:Ins:C:5",
-	"1:Ins:T:0","1:Ins:T:1","1:Ins:T:2","1:Ins:T:3","1:Ins:T:4","1:Ins:T:5",
-	"2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5",
-	"3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5",
-	"4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5",
-	"5:Del:R:0","5:Del:R:1","5:Del:R:2","5:Del:R:3","5:Del:R:4","5:Del:R:5",
-	"2:Ins:R:0","2:Ins:R:1","2:Ins:R:2","2:Ins:R:3","2:Ins:R:4","2:Ins:R:5",
-	"3:Ins:R:0","3:Ins:R:1","3:Ins:R:2","3:Ins:R:3","3:Ins:R:4","3:Ins:R:5",
-	"4:Ins:R:0","4:Ins:R:1","4:Ins:R:2","4:Ins:R:3","4:Ins:R:4","4:Ins:R:5",
-	"5:Ins:R:0","5:Ins:R:1","5:Ins:R:2","5:Ins:R:3","5:Ins:R:4","5:Ins:R:5",
-	"2:Del:M:1","3:Del:M:1","3:Del:M:2","4:Del:M:1","4:Del:M:2","4:Del:M:3",
-	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5"
-	)
-
-#All possible trinucleotides
-trinucleotides_64 <- expand_grid(
-	c("A","C","G","T"),
-	c("A","C","G","T"),
-	c("A","C","G","T")
-) %>%
-	unite("tri",everything(),sep="") %>%
-	pull(tri)
-
-trinucleotides_32_pyr <- expand_grid(
-	c("A","C","G","T"),
-	c("C","T"),
-	c("A","C","G","T")
-) %>%
-	unite("tri",everything(),sep="") %>%
-	pull(tri)
-
-#Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
-trinucleotides_64to32 <- function(x, tri_column, count_column){
-	bind_rows(
-		x %>%
-			filter(!!sym(tri_column) %in% trinucleotides_32_pyr),
-		x %>%
-			filter(!(!!sym(tri_column) %in% trinucleotides_32_pyr)) %>%
-			mutate(
-				!!sym(tri_column) := !!sym(tri_column) %>%
-					DNAStringSet %>%
-					reverseComplement %>%
-					as.character %>%
-					factor(levels = trinucleotides_32_pyr)
-			)
-	) %>%
-		group_by(!!sym(tri_column)) %>%
-		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
-		arrange(!!sym(tri_column))
-}
-
-#Function to rapidly extract sequences from the reference plus strand (or minus strand if start < end).
-# Inputs:
-#   x: granges object to analyze
-#   genome_fasta: path of genome reference fasta file
-#   seqkit_bin: path of seqkit binary
-# Output: character vector of extracted sequences in same order as x granges
-getSeq_seqkit <- function(x, genome_fasta, seqkit_bin){
+#Function to add trinucleotide sequences to each 1 bp position in every bam.gr.filtertrack.coverage of a bam.gr.filtertrack.bytype.input. For efficiency, perform this by first combining the positions to annotate across all bam.gr.filtertrack.coverage objects and then annotating them with joins.
+addtnc_bam.gr.filtertracks <- function(bam.gr.filtertrack.bytype.input, new_column, genome_fasta, BSgenome_name, seqkit_bin){
 	
+	#Extract all regions for which to obtain sequence
+	regions_to_getseq<- bam.gr.filtertrack.bytype.input %>%
+		pull(bam.gr.filtertrack.coverage) %>%
+		GRangesList %>%
+		unlist %>%
+		sort %>%
+		unique %>%
+		resize(width = 3, fix="center") %>%
+		
+		#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
+		trim %>%
+		filter(width == 3)
+	
+	#Extract reference sequences
 	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
 	tmpfasta <- tempfile(tmpdir=getwd(),pattern=".")
 	
-	x %>%
+	regions_to_getseq %>%
 		as_tibble %>%
 		select(seqnames,start,end) %>%
 		mutate(output = str_c(seqnames,":",start,"-",end)) %>%
@@ -247,11 +256,35 @@ getSeq_seqkit <- function(x, genome_fasta, seqkit_bin){
 	
 	invisible(system(paste(seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"| grep -v '^>' >",tmpfasta),intern=FALSE))
 	
-	seqs <- read_lines(tmpfasta)
+	regions_to_getseq <- regions_to_getseq %>%
+		mutate(reftnc = read_lines(tmpfasta)) %>%
+		resize(width = 1, fix="center") %>%
+		as_tibble %>%
+		select(seqnames,start,end,reftnc)
 	
 	file.remove(tmpregions,tmpfasta)
 	
-	return(seqs)
+	#Join back to each bam.gr.filtertrack.coverage (do joins on tibbles for speed)
+	bam.gr.filtertrack.bytype.input <- bam.gr.filtertrack.bytype.input %>%
+		mutate(
+			bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
+				map(
+					function(x){
+						x %>%
+							as_tibble %>%
+							left_join(
+								regions_to_getseq,
+								by = join_by(seqnames,start,end)
+							) %>%
+							makeGRangesFromDataFrame(
+								keep.extra.columns = TRUE,
+								seqinfo=BSgenome_name %>% get %>% seqinfo
+							)
+					}
+				)
+		)
+	
+	return(bam.gr.filtertrack.bytype.input)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -439,25 +472,18 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 
 #Annotate trinucleotide counts for final interrogated genome bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	addtnc_bam.gr.filtertracks(
+		new_column = "reftnc_plus_strand",
+		genome_fasta = yaml.config$genome_fasta,
+		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		seqkit_bin = yaml.config$seqkit_bin
+	) %>%
 	mutate(
 		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
 			map(
 				function(x){
 					x = x %>%
 						mutate(
-							reftnc_plus_strand = 
-								getSeq_seqkit(
-									x %>%
-									resize(width = 3, fix="center") %>%
-										
-									#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
-									trim %>%
-									filter(width == 3),
-								genome_fasta = yaml.config$genome_fasta,
-								seqkit_bin = yaml.config$seqkit_bin
-							) %>%
-								factor(levels = trinucleotides_64),
-							
 							reftnc_minus_strand = reftnc_plus_strand %>%
 								DNAStringSet %>%
 								reverseComplement %>%

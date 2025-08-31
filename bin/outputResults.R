@@ -142,21 +142,26 @@ trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
 #central pyrimidine trinucleotides
 trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
 
+#List named with trinucleotides_32_pyr sequences, each containing the corresponding trinucleotides_64 sequences
+trinucleotides_64_32_pyr_list <- split(
+	trinucleotides_64,
+	ifelse(
+		substr(trinucleotides_64, 2, 2) %in% c("C","T"),
+		trinucleotides_64,
+		trinucleotides_64 %>% DNAStringSet %>% reverseComplement %>% as.character
+	) %>%
+		factor(levels = trinucleotides_32_pyr)
+)
+
 #Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
 trinucleotides_64to32 <- function(x, tri_column, count_column){
-	bind_rows(
-		x %>%
-			filter(!!sym(tri_column) %in% trinucleotides_32_pyr),
-		x %>%
-			filter(!(!!sym(tri_column) %in% trinucleotides_32_pyr)) %>%
-			mutate(
-				!!sym(tri_column) := !!sym(tri_column) %>%
-					DNAStringSet %>%
-					reverseComplement %>%
-					as.character %>%
-					factor(levels = trinucleotides_32_pyr)
-			)
-	) %>%
+	x %>%
+		mutate(
+			!!sym(tri_column) := !!sym(tri_column) %>%
+				factor(levels = trinucleotides_64) %>%
+				fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
+				factor(levels = trinucleotides_32_pyr)
+		)%>%
 		group_by(!!sym(tri_column)) %>%
 		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
 		arrange(!!sym(tri_column))
@@ -216,84 +221,6 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Function to add trinucleotide sequences to each 1 bp position in every bam.gr.filtertrack.coverage of a bam.gr.filtertrack.bytype.input. For efficiency, perform this by first combining the positions to annotate across all bam.gr.filtertrack.coverage objects and then annotating them with joins.
-addtnc_bam.gr.filtertracks <- function(bam.gr.filtertrack.bytype.input, new_column, genome_fasta, BSgenome_name, seqkit_bin){
-	
-	#Extract all regions for which to obtain sequence
-	regions_to_getseq <- bam.gr.filtertrack.bytype.input %>%
-		pull(bam.gr.filtertrack.coverage) %>%
-		GRangesList %>%
-		unlist(use.names = FALSE) %>%
-		sort %>%
-		unique %>%
-		resize(width = 3, fix="center") %>%
-		
-		#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3)
-		trim %>%
-		filter(width == 3)
-	
-	#Extract reference sequences
-	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
-	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
-	
-	str_c(
-		regions_to_getseq %>% seqnames %>% as.character,
-		":", regions_to_getseq %>% start,
-		"-", regions_to_getseq %>% end
-	) %>%
-		write_lines(tmpregions)
-	
-	invisible(system(paste(
-		seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"|",
-		seqkit_bin,"seq -u |", #convert to upper case
-		seqkit_bin,"fx2tab -Q |",
-		"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
-		tmpseqs
-		),intern=FALSE))
-	
-	seqkit_seqs <- tmpseqs %>%
-		read_tsv(
-			col_names=c("seqnames","start","end","reftnc"),
-			col_types = cols(
-				seqnames = col_factor(),
-				start = col_integer(),
-				end = col_integer(),
-				reftnc = col_factor(levels = trinucleotides_64)
-			),
-		) %>%
-		makeGRangesFromDataFrame(
-			keep.extra.columns = TRUE,
-			seqinfo = BSgenome_name %>% get %>% seqinfo
-		)
-	
-	file.remove(tmpregions,tmpseqs)
-	
-	hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
-	regions_to_getseq$reftnc <- factor(NA_character_, levels = trinucleotides_64)
-	regions_to_getseq$reftnc[queryHits(hits)] <- seqkit_seqs$reftnc[subjectHits(hits)]
-	
-	rm(seqkit_seqs)
-	invisible(gc())
-	
-	regions_to_getseq <- regions_to_getseq %>%
-		resize(width = 1, fix = "center")
-	
-	#Join back to each bam.gr.filtertrack.coverage
-	for(i in 1:nrow(bam.gr.filtertrack.bytype.input)){
-		h <- findOverlaps(
-			bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]],
-			regions_to_getseq,
-			type = "equal"
-		)
-		
-		mcols(bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]])[[new_column]] <- factor(NA_character_, levels = trinucleotides_64)
-		
-		mcols(bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]])[[new_column]][queryHits(h)] <- regions_to_getseq$reftnc[subjectHits(h)]
-	}
-	
-	return(bam.gr.filtertrack.bytype.input)
-}
-
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
 indelwald.to.sigfit <- function(indelwald.spectrum){
 	indelwald.spectrum %>%
@@ -313,6 +240,7 @@ cat("## Loading data from filterCalls files...\n> analysis chunk:")
 
 #Create lists for data loading
 finalCalls <- list()
+germlineVariantCalls <- list()
 molecule_stats <- list()
 
 #Loop over all filterCallsFiles
@@ -360,15 +288,19 @@ for(i in seq_along(filterCallsFiles)){
 	#Load final calls that pass all filters, ignoring the gnomAD-related filters, since we will later also need the calls filtered only by gnomAD-related filters to calculate sensitivity
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
-		mutate(
-			finalCall = call_toanalyze == TRUE &
-				if_all(contains("passfilter"), ~ .x == TRUE),
-			sensitivity_variant = call_class %in% c("SBS","indel") &
+		filter(
+			call_toanalyze == TRUE &
+				if_all(contains("passfilter"), ~ .x == TRUE)
+		)
+	
+	germlineVariantCalls[[i]] <- filterCallsFile %>%
+		pluck("calls") %>%
+		filter(
+			germlineCall = call_class %in% c("SBS","indel") &
 				SBSindel_call_type == "mutation" &
 				if_all(contains("passfilter") & !all_of(gnomad_filters), ~ .x == TRUE) & #All non-gnomad filters == TRUE
-				if_any(all_of(gnomad_filters), ~ .x == FALSE) #At least one gnomad FILTER == FALSE
-		) %>%
-		filter(finalCall == TRUE | sensitivity_variant == TRUE)
+				germline_vcf.passfilter == FALSE #Detected in any of the germline VCFs
+		)
 	
 	#Filtered read coverage of the genome, with and without gnomad_filters
 	if(i == 1){
@@ -400,10 +332,16 @@ for(i in seq_along(filterCallsFiles)){
 rm(filterCallsFile)
 invisible(gc())
 
-#Combine finalCalls to one tibble
+#Combine finalCalls and germlineVariantCalls each to one tibble
 finalCalls <- finalCalls %>%
 	bind_rows(.id = "analysis_chunk") %>%
-	mutate(analysis_chunk = analysis_chunk %>% as.integer)
+	mutate(analysis_chunk = analysis_chunk %>% as.integer) %>%
+	select(-call_toanalyze)
+
+germlineVariantCalls <- germlineVariantCalls %>%
+	bind_rows(.id = "analysis_chunk") %>%
+	mutate(analysis_chunk = analysis_chunk %>% as.integer) %>%
+	select(-call_toanalyze)
 
 #Combine molecule_stats to one tibble and sum stats. Also do a left_join to molecule_stats[[1]] without the value column to preserve the original row order of stats
 molecule_stats <- molecule_stats[[1]] %>%
@@ -488,35 +426,99 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			)
 	)
 
-#Annotate trinucleotide counts for final interrogated genome bases
-bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
-	addtnc_bam.gr.filtertracks(
-		new_column = "reftnc_plus_strand",
-		genome_fasta = yaml.config$genome_fasta,
-		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-		seqkit_bin = yaml.config$seqkit_bin
+#Annotate trinucleotide reference sequences for final interrogated genome bases
+
+ #Extract all regions for which to obtain sequence
+regions_to_getseq <- bam.gr.filtertrack.bytype %>%
+	pull(bam.gr.filtertrack.coverage) %>%
+	GRangesList %>%
+	unlist(use.names = FALSE) %>%
+	select(-coverage) %>%
+	sort %>%
+	unique %>%
+	resize(width = 3, fix="center") %>%
+	trim %>% #Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3)
+	filter(width == 3)
+
+ #Extract reference sequences with seqkit (faster than R getSeq)
+tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
+tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
+
+str_c(
+	regions_to_getseq %>% seqnames %>% as.character,
+	":", regions_to_getseq %>% start,
+	"-", regions_to_getseq %>% end
+) %>%
+	write_lines(tmpregions)
+
+invisible(system(paste(
+	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"|",
+	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
+	yaml.config$seqkit_bin,"fx2tab -Q |",
+	"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
+	tmpseqs
+),intern=FALSE))
+
+seqkit_seqs <- tmpseqs %>%
+	read_tsv(
+		col_names=c("seqnames","start","end","reftnc_plus_strand"),
+		col_types = cols(
+			seqnames = col_factor(),
+			start = col_integer(),
+			end = col_integer(),
+			reftnc_plus_strand = col_factor(levels = trinucleotides_64)
+		),
 	) %>%
-	mutate(
-		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
-			map(
-				function(x){
-					x = x %>%
-						mutate(
-							reftnc_minus_strand = reftnc_plus_strand %>%
-								DNAStringSet %>%
-								reverseComplement %>%
-								as.character %>%
-								factor(levels = trinucleotides_64),
-							
-							reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand) %>%
-								factor(levels = trinucleotides_32_pyr)
-						)
-				}
-			)
+	makeGRangesFromDataFrame(
+		keep.extra.columns = TRUE,
+		seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
+file.remove(tmpregions,tmpseqs)
+
+hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
+regions_to_getseq$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
+regions_to_getseq$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
+
+rm(seqkit_seqs, hits)
+invisible(gc())
+
+regions_to_getseq <- regions_to_getseq %>%
+	resize(width = 1, fix = "center")
+
+ #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. 'for' loop uses less memory than 'map'
+for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
+	h <- findOverlaps(
+		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]],
+		regions_to_getseq,
+		type = "equal"
+	)
+	
+	mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
+	
+	mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand[queryHits(h)] <- regions_to_getseq$reftnc_plus_strand[subjectHits(h)]
+	
+	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
+		mutate(
+			reftnc_minus_strand = reftnc_plus_strand %>%
+				fct_relabel(
+					function(x){
+						x %>% DNAStringSet %>% reverseComplement %>% as.character
+					}
+				) %>%
+				fct_relevel(trinucleotides_64),
+			
+			reftnc_pyr = reftnc_plus_strand %>%
+				fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
+				factor(levels = trinucleotides_32_pyr)
+		)
+}
+
+rm(regions_to_getseq, h)
+invisible(gc())
+
 #Output
-for(i in 1:nrow(bam.gr.filtertrack.bytype)){
+for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 	bam.gr.filtertrack.bytype %>%
 		pluck("bam.gr.filtertrack.coverage",i) %>%
 		mutate(name = reftnc_pyr, score = coverage) %>% #rename to to allow output by 'export'
@@ -596,7 +598,6 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 					x %>% select(-reftnc_plus_strand,-reftnc_minus_strand)
 				}
 			)
-		
 	)
 
 #Calculate trinucleotide counts for the whole genome
@@ -632,7 +633,7 @@ genome.reftnc_duplex_pyr <- genome.reftnc_plus_strand %>%
 
 rm(genome.reftnc_plus_strand,genome.reftnc_minus_strand)
 
-#Calculate trinucleotide counts for this chromgroup part of the genome
+#Calculate trinucleotide counts for the analyzed chromgroup
 genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq(chroms_toanalyze) %>%
@@ -661,13 +662,14 @@ genome_chromgroup.reftnc_both_strands <- bind_rows(
 genome_chromgroup.reftnc_duplex_pyr <- genome_chromgroup.reftnc_plus_strand %>%
 	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
 	rename(reftnc_pyr = reftnc) %>%
-	filter(!is.na(reftnc)_pyr)
+	filter(!is.na(reftnc_pyr))
 
 rm(genome_chromgroup.reftnc_plus_strand,genome_chromgroup.reftnc_minus_strand)
 
 #Output trinucleotide counts
-for(i in 1:nrow(bam.gr.filtertrack.bytype)){
-	for(j in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
+ #bam.gr.filtertracks
+for(j in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
+	for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 		bam.gr.filtertrack.bytype %>%
 			pluck(j,i) %>%
 			write_tsv(
@@ -684,6 +686,7 @@ for(i in 1:nrow(bam.gr.filtertrack.bytype)){
 	}
 }
 
+ #genome
 for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chromgroup.reftnc_both_strands","genome_chromgroup.reftnc_duplex_pyr")){
 	i %>%
 		get %>%
@@ -693,11 +696,62 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 cat("DONE\n")
 
 ######################
-### Output filtered calls
+### Output final calls and germline variant calls
 ######################
-cat("## Outputting filtered calls...")
 
-#Germline (germline_vcf.passfilter = FALSE) and somatic
+cat("## Outputting final calls and detected germline variants...")
+
+#Final calls
+ #Extract final calls, split by type, and format list columns to comma-delimited
+finalCalls.out <- call_types_toanalyze %>%
+	distinct(call_type, call_class, SBSindel_call_type) %>%
+	nest_join(
+		finalCalls %>%
+			mutate(
+				across(
+					where(is.list),
+					function(x){map_chr(x, function(v){str_c(v, collapse = ",")})}
+				)
+			),
+		by = join_by(call_type, call_class, SBSindel_call_type),
+		name = "finalCalls"
+	)
+
+ #Output final calls to tsv, separately for each combination of call_class, call_type, SBSindel_call_type
+finalCalls.out %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			x$finalCalls %>%
+				write_tsv(
+					str_c(output_basename,x$call_class,x$call_type,x$SBSindel_call_type,"finalCalls","tsv",sep=".")
+					)
+		}
+	)
+
+ #Output final calls to vcf, separately for each combination of call_class, call_type, SBSindel_call_type
+finalCalls.out
+
+#Germline variant calls
+ #Extract germline variant calls and format list columns to comma-delimited
+germlineVariantCalls.out <- germlineVariantCalls %>%
+	mutate(
+		across(
+			where(is.list),
+			function(x){map_chr(x, function(v){str_c(v, collapse = ",")})}
+		)
+	)
+
+ #Output germline variants to tsv
+germlineVariantCalls.out %>%
+	write_tsv(
+		str_c(output_basename,"germlineVariantCalls","tsv",sep=".")
+	)
+
+#Output germline variants to vcf
+germlineVariantCalls.out
+
 cat("DONE\n")
 
 ######################
@@ -767,7 +821,8 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	
 	rm(num_germline_vcf_files, gnomad_sensitivity_vcf)
 	
-	if sensitivity_threshold$min_sensitivity_variants or set sensitivity to 1
+	if sensitivity_threshold$SBS_min_variants or set sensitivity to 1
+	if sensitivity_threshold$indel_min_variants or set sensitivity to 1
 	
 	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate sensitivity
 	
@@ -833,10 +888,12 @@ qs_save(
 		sensitivity_sbs = sensitivity_sbs,
 		sensitivity_indel = sensitivity_indel,
 		bam.gr.filtertrack.bytype = bam.gr.filtertrack.bytype,
-		genome.reftnc_both_strands,
-		genome.reftnc_duplex_pyr,
-		genome_chromgroup.reftnc_both_strands,
-		genome_chromgroup.reftnc_duplex_pyr,
+		genome.reftnc_both_strands = genome.reftnc_both_strands,
+		genome.reftnc_duplex_pyr = genome.reftnc_duplex_pyr,
+		genome_chromgroup.reftnc_both_strands = genome_chromgroup.reftnc_both_strands,
+		genome_chromgroup.reftnc_duplex_pyr = genome_chromgroup.reftnc_duplex_pyr,
+		finalCalls = finalCalls,
+		germlineVariantCalls = germlineVariantCalls,
 		
 	)
 	str_c(output_basename,".output.RDS")

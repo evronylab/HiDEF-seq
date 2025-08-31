@@ -137,21 +137,10 @@ indel_labels <- c(
 )
 
 #All possible trinucleotides
-trinucleotides_64 <- expand_grid(
-	c("A","C","G","T"),
-	c("A","C","G","T"),
-	c("A","C","G","T")
-) %>%
-	unite("tri",everything(),sep="") %>%
-	pull(tri)
+trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
 
-trinucleotides_32_pyr <- expand_grid(
-	c("A","C","G","T"),
-	c("C","T"),
-	c("A","C","G","T")
-) %>%
-	unite("tri",everything(),sep="") %>%
-	pull(tri)
+#central pyrimidine trinucleotides
+trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
 
 #Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
 trinucleotides_64to32 <- function(x, tri_column, count_column){
@@ -231,58 +220,76 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 addtnc_bam.gr.filtertracks <- function(bam.gr.filtertrack.bytype.input, new_column, genome_fasta, BSgenome_name, seqkit_bin){
 	
 	#Extract all regions for which to obtain sequence
-	regions_to_getseq<- bam.gr.filtertrack.bytype.input %>%
+	regions_to_getseq <- bam.gr.filtertrack.bytype.input %>%
 		pull(bam.gr.filtertrack.coverage) %>%
 		GRangesList %>%
-		unlist %>%
+		unlist(use.names = FALSE) %>%
 		sort %>%
 		unique %>%
 		resize(width = 3, fix="center") %>%
 		
-		#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
+		#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3)
 		trim %>%
 		filter(width == 3)
 	
 	#Extract reference sequences
 	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
-	tmpfasta <- tempfile(tmpdir=getwd(),pattern=".")
+	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
 	
-	regions_to_getseq %>%
-		as_tibble %>%
-		select(seqnames,start,end) %>%
-		mutate(output = str_c(seqnames,":",start,"-",end)) %>%
-		select(output) %>%
-		write_tsv(tmpregions, col_names=F)
+	str_c(
+		regions_to_getseq %>% seqnames %>% as.character,
+		":", regions_to_getseq %>% start,
+		"-", regions_to_getseq %>% end
+	) %>%
+		write_lines(tmpregions)
 	
-	invisible(system(paste(seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"| grep -v '^>' >",tmpfasta),intern=FALSE))
+	invisible(system(paste(
+		seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"|",
+		seqkit_bin,"seq -u |", #convert to upper case
+		seqkit_bin,"fx2tab -Q |",
+		"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
+		tmpseqs
+		),intern=FALSE))
+	
+	seqkit_seqs <- tmpseqs %>%
+		read_tsv(
+			col_names=c("seqnames","start","end","reftnc"),
+			col_types = cols(
+				seqnames = col_factor(),
+				start = col_integer(),
+				end = col_integer(),
+				reftnc = col_factor(levels = trinucleotides_64)
+			),
+		) %>%
+		makeGRangesFromDataFrame(
+			keep.extra.columns = TRUE,
+			seqinfo = BSgenome_name %>% get %>% seqinfo
+		)
+	
+	file.remove(tmpregions,tmpseqs)
+	
+	hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
+	regions_to_getseq$reftnc <- factor(NA_character_, levels = trinucleotides_64)
+	regions_to_getseq$reftnc[queryHits(hits)] <- seqkit_seqs$reftnc[subjectHits(hits)]
+	
+	rm(seqkit_seqs)
+	invisible(gc())
 	
 	regions_to_getseq <- regions_to_getseq %>%
-		mutate(reftnc = read_lines(tmpfasta)) %>%
-		resize(width = 1, fix="center") %>%
-		as_tibble %>%
-		select(seqnames,start,end,reftnc)
+		resize(width = 1, fix = "center")
 	
-	file.remove(tmpregions,tmpfasta)
-	
-	#Join back to each bam.gr.filtertrack.coverage (do joins on tibbles for speed)
-	bam.gr.filtertrack.bytype.input <- bam.gr.filtertrack.bytype.input %>%
-		mutate(
-			bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
-				map(
-					function(x){
-						x %>%
-							as_tibble %>%
-							left_join(
-								regions_to_getseq,
-								by = join_by(seqnames,start,end)
-							) %>%
-							makeGRangesFromDataFrame(
-								keep.extra.columns = TRUE,
-								seqinfo=BSgenome_name %>% get %>% seqinfo
-							)
-					}
-				)
+	#Join back to each bam.gr.filtertrack.coverage
+	for(i in 1:nrow(bam.gr.filtertrack.bytype.input)){
+		h <- findOverlaps(
+			bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]],
+			regions_to_getseq,
+			type = "equal"
 		)
+		
+		mcols(bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]])[[new_column]] <- factor(NA_character_, levels = trinucleotides_64)
+		
+		mcols(bam.gr.filtertrack.bytype.input$bam.gr.filtertrack.coverage[[i]])[[new_column]][queryHits(h)] <- regions_to_getseq$reftnc[subjectHits(h)]
+	}
 	
 	return(bam.gr.filtertrack.bytype.input)
 }
@@ -444,14 +451,24 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
 			map(
 				function(x){
-					if(length(x) == 0){return(GRanges(coverage=integer()))}
+					if(length(x) == 0){
+						return(GRanges(
+							coverage=integer(),
+							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+							))
+						}
 					
 					x %>%
 						imap(
 							function(r,chr){
 								pos <- which(r != 0L) 
 								
-								if(length(pos) == 0L){return(GRanges(coverage=integer()))}
+								if(length(pos) == 0L){
+									return(GRanges(
+										coverage=integer(),
+										seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+										))
+									}
 								
 								rl <- runLength(r)
 								rv <- runValue(r)
@@ -460,12 +477,13 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 								GRanges(
 									seqnames = chr,
 									ranges = IRanges(start = pos, width = 1L),
-									coverage = rep.int(rv[nz], rl[nz])
+									coverage = rep.int(rv[nz], rl[nz]),
+									seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 								)
 							}
 						) %>%
 						GRangesList %>%
-						unlist
+						unlist(use.names = FALSE)
 				}
 			)
 	)
@@ -533,7 +551,8 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						as_tibble %>%
 						count(reftnc_pyr, wt = coverage, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
-						arrange(reftnc_pyr)
+						arrange(reftnc_pyr) %>%
+						filter(!is.na(reftnc_pyr))
 				}
 			),
 		
@@ -544,17 +563,17 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						x %>%
 							as_tibble %>%
 							count(reftnc_plus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc = reftnc_plus_strand) %>%
-							complete(reftnc, fill = list(count = 0)),
+							rename(reftnc = reftnc_plus_strand),
 						x %>%
 							as_tibble %>%
 							count(reftnc_minus_strand, wt = coverage, name = "count") %>%
-							rename(reftnc = reftnc_minus_strand) %>%
-							complete(reftnc, fill = list(count = 0))
+							rename(reftnc = reftnc_minus_strand)
 					) %>%
 						group_by(reftnc) %>%
 						summarize(count = sum(count), .groups = "drop") %>%
-						arrange(reftnc)
+						complete(reftnc, fill = list(count = 0)) %>%
+						arrange(reftnc) %>%
+						filter(!is.na(reftnc))
 				}
 			),
 		
@@ -603,11 +622,13 @@ genome.reftnc_both_strands <- bind_rows(
 	) %>%
 	group_by(reftnc) %>%
 	summarize(count = sum(count), .groups = "drop") %>%
-	arrange(reftnc)
+	arrange(reftnc) %>%
+	filter(!is.na(reftnc))
 	
 genome.reftnc_duplex_pyr <- genome.reftnc_plus_strand %>%
 	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-	rename(reftnc_pyr = reftnc)
+	rename(reftnc_pyr = reftnc) %>%
+	filter(!is.na(reftnc_pyr))
 
 rm(genome.reftnc_plus_strand,genome.reftnc_minus_strand)
 
@@ -634,22 +655,40 @@ genome_chromgroup.reftnc_both_strands <- bind_rows(
 ) %>%
 	group_by(reftnc) %>%
 	summarize(count = sum(count), .groups = "drop") %>%
-	arrange(reftnc)
+	arrange(reftnc) %>%
+	filter(!is.na(reftnc))
 
 genome_chromgroup.reftnc_duplex_pyr <- genome_chromgroup.reftnc_plus_strand %>%
 	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-	rename(reftnc_pyr = reftnc)
+	rename(reftnc_pyr = reftnc) %>%
+	filter(!is.na(reftnc)_pyr)
 
 rm(genome_chromgroup.reftnc_plus_strand,genome_chromgroup.reftnc_minus_strand)
 
 #Output trinucleotide counts
-bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_duplex_pyr
-bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_both_strands	
-bam.gr.filtertrack.bytype -> bam.gr.filtertrack.reftnc_both_strands_pyr
-genome.reftnc_both_strands
-genome.reftnc_duplex_pyr
-genome_chromgroup.reftnc_both_strands
-genome_chromgroup.reftnc_duplex_pyr
+for(i in 1:nrow(bam.gr.filtertrack.bytype)){
+	for(j in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
+		bam.gr.filtertrack.bytype %>%
+			pluck(j,i) %>%
+			write_tsv(
+				file = str_c(
+					output_basename,
+					bam.gr.filtertrack.bytype$call_class[i],
+					bam.gr.filtertrack.bytype$call_type[i],
+					bam.gr.filtertrack.bytype$SBSindel_call_type[i],
+					j,
+					"tsv",
+					sep="."
+				)
+			)
+	}
+}
+
+for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chromgroup.reftnc_both_strands","genome_chromgroup.reftnc_duplex_pyr")){
+	i %>%
+		get %>%
+		write_tsv(str_c(output_basename,i,"tsv",sep="."))
+}
 
 cat("DONE\n")
 

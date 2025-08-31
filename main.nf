@@ -852,6 +852,21 @@ workflow {
   def timestamp = new Date().format('yyyy_MMdd_HHmm')
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
 
+  // Save copy of run information
+  file("${logsDir}/runInfo.${timestamp}.txt").text = """
+  Repository: ${workflow.repository ?: 'N/A'}
+  Revision/Tag: ${workflow.revision ?: 'N/A'}
+  Commit ID: ${workflow.commitId ?: 'N/A'}
+  Run Name: ${workflow.runName}
+  Session ID: ${workflow.sessionId}
+  Start Time: ${workflow.start}
+  Command Line: ${workflow.commandLine}
+  Project Directory: ${workflow.projectDir}
+  Launch Directory: ${workflow.launchDir}
+  Nextflow Version: ${workflow.nextflow.version}
+  Nextflow Build: ${workflow.nextflow.build}
+  """.stripIndent()
+
   //Get path of parameters file
   def commandLineTokens = workflow.commandLine.tokenize()
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]

@@ -18,6 +18,7 @@ suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(sigfit))
+suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
@@ -219,6 +220,127 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			) %>%
 			select(-bam.gr.filtertrack.coverage.2)
 	}
+}
+
+#Function to re-anchor indels to VCF style where REF contains the base preceding the indel
+normalize_indels_for_vcf <- function(df, BSgenome_name) {
+	
+	#Identify deletions and insertions
+	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
+	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
+	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
+	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
+	ins_or_del <- ins | del
+	
+	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
+	if(any(ins_or_del)){
+		df$start[ins_or_del] <- df$start[ins_or_del] - 1
+		
+		gr <- GRanges(
+			df$seqnames[ins_or_del],
+			IRanges(df$start[ins_or_del],	width = 1),
+			seqinfo = BSgenome_name %>% get %>% seqinfo
+		)
+		
+		start_base_ref <- df %>% nrow %>% character
+		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
+	}
+
+	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
+	if(any(ins)){
+		df$ref_plus_strand[ins] <- start_base_ref[ins]
+		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
+	}
+	
+	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
+	if(any(del)){
+		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
+		df$alt_plus_strand[del] <- start_base_ref[del]
+	}
+	
+	#Remove 'end' column that is not needed for vcf, to avoid confusion
+	df$end <- NULL
+	
+	return(df)
+}
+
+#Function to write vcf from finalCalls/germlineCalls
+write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
+	
+	#Fixed fields
+	CHROM <- calls$seqnames
+	POS <- calls$start
+	REF <- calls$ref_plus_strand %>% DNAStringSet
+	ALT <- calls$alt_plus_strand %>% DNAStringSet
+	QUAL <- rep(NA_real_, nrow(calls))
+	FILTER <- rep("PASS", nrow(calls))
+	
+	# Row ranges; width from REF (>=1)
+	calls.gr <- GRanges(
+		seqnames = CHROM,
+		ranges = IRanges(start = POS, width = REF %>% as.character %>% nchar),
+		strand = "*",
+		seqinfo = BSgenome_name %>% get %>% seqinfo
+		)
+	
+	fixed <- DataFrame(REF = REF, ALT = ALT, QUAL = QUAL, FILTER = FILTER)
+	
+	# INFO: everything except the basic VCF columns and fields you want to drop
+	info_cols <- names(calls) %>%
+		setdiff(c("seqnames","start","ref_plus_strand","alt_plus_strand","qual","strand")) %>%
+		str_subset("passfilter$", negate=TRUE)
+	
+	#Convert factor columns to character
+	info_df <- calls %>%
+		select(all_of(info_cols)) %>%
+		mutate(across(where(is.factor), as.character)) %>%
+		as.data.frame %>%
+		DataFrame
+	
+	#Sort by seqnames, start, end
+	calls.order <- order(
+		calls.gr %>% seqnames %>% as.integer,
+		calls.gr %>% start
+	)
+	calls.gr <- calls.gr[calls.order]
+	fixed <- fixed[calls.order, , drop=FALSE]
+	info_df <- info_df[calls.order, , drop=FALSE]
+	
+	#INFO header
+	number_map <- function(x){
+		if(is.logical(x)){0L}else{1L}
+	}
+	
+	type_map <- function(x){
+		if(is.logical(x)){return("Flag")}
+		if(is.integer(x)){return("Integer")}
+		if(is.double(x)){return("Float")}
+		"String"
+	}
+	
+	info_header <- DataFrame(
+		Number = vapply(info_df, number_map, integer(1)),
+		Type = vapply(info_df, type_map, character(1)),
+		Description = info_cols,
+		row.names = info_cols
+	)
+	
+	# Build header (fileformat/source/reference/contigs via Seqinfo)
+	hdr <- VariantAnnotation::VCFHeader()
+	info(hdr) <- info_header
+	meta(hdr)$fileformat <- DataFrame(Value = "VCFv4.3", row.names = "fileformat")
+	meta(hdr)$source <- DataFrame(Value = "HiDEF-seq", row.names = "source")
+	meta(hdr)$reference <- DataFrame(Value = BSgenome_name, row.names = "reference")
+	
+	vcf <- VariantAnnotation::VCF(
+		rowRanges = calls.gr,
+		fixed = fixed,
+		info = info_df,
+		collapsed = FALSE
+	)
+	header(vcf) <- hdr
+	
+	VariantAnnotation::writeVcf(vcf, filename = out_vcf, index = TRUE)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -731,7 +853,21 @@ finalCalls.out %>%
 	)
 
  #Output final calls to vcf, separately for each combination of call_class, call_type, SBSindel_call_type
-finalCalls.out
+finalCalls.out %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			x$finalCalls %>%
+				normalize_indels_for_vcf(
+					BSgenome_name = yaml.config$BSgenome$BSgenome_name
+				) %>%
+				write_vcf_from_calls(
+					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+					out_vcf = str_c(output_basename,x$call_class,x$call_type,x$SBSindel_call_type,"finalCalls","vcf",sep=".")
+				)
+		}
+	)
 
 #Germline variant calls
  #Extract germline variant calls and format list columns to comma-delimited
@@ -743,19 +879,26 @@ germlineVariantCalls.out <- germlineVariantCalls %>%
 		)
 	)
 
- #Output germline variants to tsv
+ #Output germline variant calls to tsv
 germlineVariantCalls.out %>%
 	write_tsv(
 		str_c(output_basename,"germlineVariantCalls","tsv",sep=".")
 	)
 
-#Output germline variants to vcf
-germlineVariantCalls.out
+ #Output germline variant calls to vcf
+germlineVariantCalls.out %>% 
+	normalize_indels_for_vcf(
+		BSgenome_name = yaml.config$BSgenome$BSgenome_name
+	) %>%
+	write_vcf_from_calls(
+		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		out_vcf = str_c(output_basename,"germlineVariantCalls","vcf",sep=".")
+	)
 
 cat("DONE\n")
 
 ######################
-### Calculate and output sensitivity
+### Calculate sensitivity
 ######################
 cat("## Calculating sensitivity...")
 

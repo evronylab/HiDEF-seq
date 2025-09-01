@@ -1076,7 +1076,7 @@ germline_bam_samtools_mpileup_filter <- tmpbw %>%
 	} %>%
 	select(-score)
 
-file.remove(tmpbw) %>% invisible
+invisible(file.remove(tmpbw))
 
 #Subtract filtered regions from filter trackers
 bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%

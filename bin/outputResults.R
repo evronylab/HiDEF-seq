@@ -411,17 +411,17 @@ for(i in seq_along(filterCallsFiles)){
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
-			call_toanalyze == TRUE &
-				if_all(contains("passfilter"), ~ .x == TRUE)
+			call_toanalyze == TRUE,
+			if_all(contains("passfilter"), ~ .x == TRUE)
 		)
 	
 	germlineVariantCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
-			call_class %in% c("SBS","indel") &
-				SBSindel_call_type == "mutation" &
-				if_all(contains("passfilter") & !all_of(germline_filters), ~ .x == TRUE) & #All non-germline filters == TRUE
-				germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
+			call_class %in% c("SBS","indel"),
+			SBSindel_call_type == "mutation",
+			if_all(contains("passfilter") & !all_of(germline_filters), ~ .x == TRUE), #All non-germline filters == TRUE
+			germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
 		)
 	
 	#Filtered read coverage of the genome, with and without germline_filters
@@ -574,7 +574,7 @@ str_c(
 	write_lines(tmpregions)
 
 invisible(system(paste(
-	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,genome_fasta,"|",
+	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,yaml.config$genome_fasta,"|",
 	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
 	yaml.config$seqkit_bin,"fx2tab -Q |",
 	"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
@@ -596,7 +596,7 @@ seqkit_seqs <- tmpseqs %>%
 		seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
 
-file.remove(tmpregions,tmpseqs)
+invisible(file.remove(tmpregions,tmpseqs))
 
 hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
 regions_to_getseq$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)

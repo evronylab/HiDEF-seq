@@ -1494,9 +1494,9 @@ cat("DONE\n")
 ######################
 cat("## Applying germline VCF indel region filters...")
 
-#Create a copy of the bam filter trackers from which this and subsequent gnomad-related filters will be excluded, for use in downstream sensitivity analysis
-bam.gr.filtertrack.indelanalysis.except_gnomad_filters <- bam.gr.filtertrack.indelanalysis
-bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters <- bam.gr.filtertrack.nonindelanalysis
+#Create a copy of the bam filter trackers from which this and subsequent germline-related filters will be excluded, for use in downstream sensitivity analysis
+bam.gr.filtertrack.indelanalysis.except_germline_filters <- bam.gr.filtertrack.indelanalysis
+bam.gr.filtertrack.nonindelanalysis.except_germline_filters <- bam.gr.filtertrack.nonindelanalysis
 
 #Split germline_vcf_variants by germline_vcf_file
 germline_vcf_variants <- germline_vcf_variants  %>%
@@ -1706,11 +1706,11 @@ for(i in seq_len(nrow(region_read_filters_config))){
 			)
 		]
 		
-		#Remove filtered molecules from bam.gr.filtertrack.except_gnomad_filters only if it is a non-gnomad filter
-		if(region_read_filters_config %>% pluck("is_gnomad_filter",i) == FALSE){
-			bam.gr.filtertrack.indelanalysis.except_gnomad_filters <- bam.gr.filtertrack.indelanalysis.except_gnomad_filters[
+		#Remove filtered molecules from bam.gr.filtertrack.except_germline_filters only if it is a non-germline filter
+		if(region_read_filters_config %>% pluck("is_germline_filter",i) == FALSE){
+			bam.gr.filtertrack.indelanalysis.except_germline_filters <- bam.gr.filtertrack.indelanalysis.except_germline_filters[
 				!vctrs::vec_in(
-					bam.gr.filtertrack.indelanalysis.except_gnomad_filters %>%
+					bam.gr.filtertrack.indelanalysis.except_germline_filters %>%
 						mcols %>%
 						as_tibble %>%
 						select(run_id,zm),
@@ -1720,9 +1720,9 @@ for(i in seq_len(nrow(region_read_filters_config))){
 				)
 			]
 			
-			bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters <- bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters[
+			bam.gr.filtertrack.nonindelanalysis.except_germline_filters <- bam.gr.filtertrack.nonindelanalysis.except_germline_filters[
 				!vctrs::vec_in(
-					bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters %>%
+					bam.gr.filtertrack.nonindelanalysis.except_germline_filters %>%
 						mcols %>%
 						as_tibble %>%
 						select(run_id,zm),
@@ -1830,12 +1830,12 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	bam.gr.filtertrack.nonindelanalysis <- bam.gr.filtertrack.nonindelanalysis %>%
 		GRanges_subtract(region_genome_filter, ignore.strand=TRUE)
 	
-	#Remove filtered regions from bam.gr.filtertrack.except_gnomad_filters only if it is a non-gnomad filter
-	if(region_genome_filters_config %>% pluck("is_gnomad_filter",i) == FALSE){
-		bam.gr.filtertrack.indelanalysis.except_gnomad_filters <- bam.gr.filtertrack.indelanalysis.except_gnomad_filters %>%
+	#Remove filtered regions from bam.gr.filtertrack.except_germline_filters only if it is a non-germline filter
+	if(region_genome_filters_config %>% pluck("is_germline_filter",i) == FALSE){
+		bam.gr.filtertrack.indelanalysis.except_germline_filters <- bam.gr.filtertrack.indelanalysis.except_germline_filters %>%
 			GRanges_subtract(region_genome_filter, ignore.strand=TRUE)
 		
-		bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters <- bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters %>%
+		bam.gr.filtertrack.nonindelanalysis.except_germline_filters <- bam.gr.filtertrack.nonindelanalysis.except_germline_filters %>%
 			GRanges_subtract(region_genome_filter, ignore.strand=TRUE)
 	}
 	
@@ -1914,7 +1914,7 @@ max_finalcalls_eachstrand.filter <- calls %>%
 		.groups="drop"
 	)
 
-#Subtract filtered molecules from bam.gr.filtertrack, creating a new bam.gr.filtertrack.bytype for each call_type x SBSindel_call_type combination being analyzed. Perform for both standard and 'except_gnomad_filters' filter trackers.
+#Subtract filtered molecules from bam.gr.filtertrack, creating a new bam.gr.filtertrack.bytype for each call_type x SBSindel_call_type combination being analyzed. Perform for both standard and 'except_germline_filters' filter trackers.
 bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
 	mutate(
 		bam.gr.filtertrack = if_else(
@@ -1944,12 +1944,12 @@ bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
 		)
 	)
 
-bam.gr.filtertrack.except_gnomad_filters.bytype <- call_types_toanalyze %>%
+bam.gr.filtertrack.except_germline_filters.bytype <- call_types_toanalyze %>%
 	mutate(
 		bam.gr.filtertrack = if_else(
 			call_class == "indel",
-			bam.gr.filtertrack.indelanalysis.except_gnomad_filters %>% list,
-			bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters %>% list
+			bam.gr.filtertrack.indelanalysis.except_germline_filters %>% list,
+			bam.gr.filtertrack.nonindelanalysis.except_germline_filters %>% list
 		),
 		bam.gr.filtertrack = pmap(
 			list(bam.gr.filtertrack, call_type, SBSindel_call_type),
@@ -2002,7 +2002,7 @@ calls <- calls %>%
 	) %>%
 	mutate(max_finalcalls_eachstrand.passfilter = max_finalcalls_eachstrand.passfilter %>% replace_na(TRUE))
 
-rm(max_finalcalls_eachstrand.filter, bam.gr.filtertrack.indelanalysis, bam.gr.filtertrack.nonindelanalysis, bam.gr.filtertrack.indelanalysis.except_gnomad_filters, bam.gr.filtertrack.nonindelanalysis.except_gnomad_filters)
+rm(max_finalcalls_eachstrand.filter, bam.gr.filtertrack.indelanalysis, bam.gr.filtertrack.nonindelanalysis, bam.gr.filtertrack.indelanalysis.except_germline_filters, bam.gr.filtertrack.nonindelanalysis.except_germline_filters)
 invisible(gc())
 
 cat("DONE\n")
@@ -2047,7 +2047,7 @@ qs_save(
 		),
 		calls = calls,
 		bam.gr.filtertrack.bytype = bam.gr.filtertrack.bytype,
-		bam.gr.filtertrack.except_gnomad_filters.bytype = bam.gr.filtertrack.except_gnomad_filters.bytype,
+		bam.gr.filtertrack.except_germline_filters.bytype = bam.gr.filtertrack.except_germline_filters.bytype,
 		genome_chromgroup.gr.filtertrack = genome_chromgroup.gr.filtertrack,
 		region_genome_filter_stats = region_genome_filter_stats,
 		molecule_stats = molecule_stats

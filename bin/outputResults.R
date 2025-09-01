@@ -222,7 +222,7 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Function to re-anchor indels to VCF style where REF contains the base preceding the indel
+#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
 normalize_indels_for_vcf <- function(df, BSgenome_name) {
 	
 	#Identify deletions and insertions
@@ -385,19 +385,19 @@ for(i in seq_along(filterCallsFiles)){
 		region_read_filters_config <- filterCallsFile %>% pluck("config","region_read_filters_config")
 		region_genome_filters_config <- filterCallsFile %>% pluck("config","region_genome_filters_config")
 		
-		#gnomad-related filters that are excluded when calculating sensitivity
-		gnomad_filters <- c(
+		#germline-related filters that are excluded when calculating sensitivity
+		germline_filters <- c(
 			"germline_vcf.passfilter",
 			str_subset(filterCallsFile %>% pluck("calls") %>% colnames, "germline_vcf_indel_region_filter"),
 			"max_BAMVariantReads.passfilter",
 			"max_BAMVAF.passfilter",
 			region_read_filters_config %>%
-				filter(is_gnomad_filter==TRUE) %>%
+				filter(is_germline_filter==TRUE) %>%
 				pull(region_filter_threshold_file) %>%
 				basename %>%
 				str_c("region_read_filter_",.,".passfilter"),
 			region_genome_filters_config %>%
-				filter(is_gnomad_filter==TRUE) %>%
+				filter(is_germline_filter==TRUE) %>%
 				pull(region_filter_threshold_file) %>%
 				basename %>%
 				str_c("region_genome_filter_",.,".passfilter")
@@ -407,7 +407,7 @@ for(i in seq_along(filterCallsFiles)){
 		region_genome_filter_stats <- filterCallsFile %>% pluck("region_genome_filter_stats")
 	}
 
-	#Load final calls that pass all filters, ignoring the gnomAD-related filters, since we will later also need the calls filtered only by gnomAD-related filters to calculate sensitivity
+	#Load final calls that pass all filters, ignoring the germline filters, since we will later also need the calls filtered by germline filters to calculate sensitivity
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
@@ -418,20 +418,20 @@ for(i in seq_along(filterCallsFiles)){
 	germlineVariantCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
-			germlineCall = call_class %in% c("SBS","indel") &
+			call_class %in% c("SBS","indel") &
 				SBSindel_call_type == "mutation" &
-				if_all(contains("passfilter") & !all_of(gnomad_filters), ~ .x == TRUE) & #All non-gnomad filters == TRUE
-				germline_vcf.passfilter == FALSE #Detected in any of the germline VCFs
+				if_all(contains("passfilter") & !all_of(germline_filters), ~ .x == TRUE) & #All non-germline filters == TRUE
+				germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
 		)
 	
-	#Filtered read coverage of the genome, with and without gnomad_filters
+	#Filtered read coverage of the genome, with and without germline_filters
 	if(i == 1){
 		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
 			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
 		)
 		
-		bam.gr.filtertrack.except_gnomad_filters.bytype <- sum_bam.gr.filtertracks(
-			filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
+		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
+			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
 		)
 		
 	}else{
@@ -440,9 +440,9 @@ for(i in seq_along(filterCallsFiles)){
 			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
 		)
 		
-		bam.gr.filtertrack.except_gnomad_filters.bytype <- sum_bam.gr.filtertracks(
-			bam.gr.filtertrack.except_gnomad_filters.bytype,
-			filterCallsFile %>% pluck("bam.gr.filtertrack.except_gnomad_filters.bytype")
+		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
+			bam.gr.filtertrack.except_germline_filters.bytype,
+			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
 		)
 	}
 
@@ -969,7 +969,7 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	
 	#Load germline calls that pass all filters and intersect with sensitivity variant set to calculate sensitivity
 	
-	#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-gnomad filter tracker
+	#Count how many opportunities there was to detect each sensitivity variant set in this chunk's non-germline filter tracker
 	
 	Take into account sex_chromosomes
 	

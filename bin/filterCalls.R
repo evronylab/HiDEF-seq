@@ -94,12 +94,13 @@ germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value)
 
- #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
+ #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze, and remove MDB configuration parameters that are not needed here)
 call_types_toanalyze <- yaml.config$call_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
   unnest_longer(SBSindel_call_types) %>%
   unnest_wider(SBSindel_call_types) %>%
+	select(-starts_with("MDB")) %>%
 	filter(
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze

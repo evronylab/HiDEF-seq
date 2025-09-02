@@ -487,13 +487,13 @@ process filterCallsChunk {
 }
 
 /*
-  outputResultsChromgroupFiltergroup: Run outputResults.R for each sample_id x chromgroup x filtergroup combination
+  calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
-process outputResultsChromgroupFiltergroup {
+process calculateBurdensChromgroupFiltergroup {
     cpus 2
     memory '64 GB'
     time '24h'
-    tag { "Output Results: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -510,11 +510,41 @@ process outputResultsChromgroupFiltergroup {
         path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
         path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
 
+    storeDir "${calculateBurdens_output_dir}"
+
+    script:
+    """
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
+    """
+}
+
+/*
+  outputResultsSample: Run outputResults.R for each sample_id
+*/
+process outputResultsSample {
+    cpus 2
+    memory '32 GB'
+    time '2h'
+    tag { "Output results: ${sample_id}" }
+    container "${params.hidefseq_container}"
+    
+    input:
+      tuple val(sample_id), **path(calculateBurdensFiles)**
+    
+    output:
+      tuple
+        val(sample_id),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
+        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
+
     storeDir "${outputResults_output_dir}"
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -r ${calculateBurdensFiles.join(',')}
     """
 }
 
@@ -529,7 +559,7 @@ process removeIntermediateFilesProcess {
     container "${params.hidefseq_container}"
     
     input:
-      val(outputResults_done)
+      val(outputResults_out)
     
     output:
       path "removeIntermediateFiles.log.txt"
@@ -543,6 +573,7 @@ process removeIntermediateFilesProcess {
     rm -rf ${splitBAMs_output_dir}
     rm -rf ${extractCalls_output_dir}
     rm -rf ${filterCalls_output_dir}
+    rm -rf ${calculateBurdens_output_dir}
     
     echo "Cleanup completed." >> removeIntermediateFiles.log.txt
     """
@@ -794,27 +825,39 @@ workflow filterCalls {
 }
 
 
-workflow outputResults {
+workflow calculateBurdens {
 
     take:
     filterCalls_grouped_ch
 
     main:
-    outputResultsChromgroupFiltergroup( filterCalls_grouped_ch )
+    calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    outputResultsChromgroupFiltergroup.out
+    calculateBurdensChromgroupFiltergroup.out
 
 }
 
+workflow outputResults {
+
+    take:
+    calculateBurdens_out
+
+    main:
+    outputResultsSample(calculateBurdens_out)
+
+    emit:
+    outputResults.out
+
+}
 
 workflow removeIntermediateFiles {
 
     take:
-    outputResults_done
+    outputResults_out
 
     main:
-    removeIntermediateFilesProcess(outputResults_done)
+    removeIntermediateFilesProcess(outputResults_out)
 
     emit:
     removeIntermediateFiles.out
@@ -824,7 +867,7 @@ workflow removeIntermediateFiles {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, or one or more contiguous (in the correct order) comma-separated workflows: processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, outputResults, removeIntermediateFiles
+// --workflow options: all, or one or more contiguous (in the correct order) comma-separated workflows: processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, calculateBurdens, outputResults, removeIntermediateFiles
 // Note: the pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
 
 import org.yaml.snakeyaml.Yaml
@@ -836,6 +879,7 @@ processReads_output_dir="${params.analysis_output_dir}/processReads"
 splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
 extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
 filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
+calculateBurdens_output_dir="${params.analysis_output_dir}/calculateBurdens"
 outputResults_output_dir="${params.analysis_output_dir}/outputResults"
 
 workflow {
@@ -875,7 +919,7 @@ workflow {
   def workflowsToRun = params.workflow.split(',').collect { it.trim() }
   
    //valid workflows in order that they can be run
-  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "outputResults", "removeIntermediateFiles"]
+  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "calculateBurdens", "outputResults", "removeIntermediateFiles"]
   
   def invalidWorkflows = workflowsToRun.findAll { !(it in validWorkflows) }
   if(invalidWorkflows.size() > 0){
@@ -918,6 +962,7 @@ workflow {
   def prepareFilters_out = null
   def extractCalls_out = null
   def filterCalls_out = null
+  def calculateBurdens_out = null
   def outputResults_out = null
 
   // Run processReads workflow
@@ -995,8 +1040,8 @@ workflow {
     filterCalls_out = filterCalls(extractCalls_out.combine(chromgroups_filtergroups_ch))
   }
 
-  // Run outputResults workflow
-  if (shouldRun("outputResults")) {
+  // Run calculateBurdens workflow
+  if (shouldRun("calculateBurdens")) {
     filterCalls_out = filterCalls_out ?:
       Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
@@ -1018,16 +1063,24 @@ workflow {
             return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
         }
 
-    outputResults_out = outputResults(filterCalls_grouped_ch)
+    calculateBurdens_out = calculateBurdens(filterCalls_grouped_ch)
+  }
+
+  // Run outputResults workflow
+  if (shouldRun("outputResults")) {
+    calculateBurdens_completion = calculateBurdens_out ?
+      *** for each sample
+
+    outputResults_out = outputResults(**)
   }
 
   // Run removeIntermediateFiles workflow (conditional)
   if (shouldRun("removeIntermediateFiles") && params.remove_intermediate_files) {
-    outputResults_completion = outputResults_out ?
+    outputResults_out = outputResults_out ?
       outputResults_out.collect().map { true } :
       Channel.value(true)
 
-    removeIntermediateFiles(outputResults_completion)
+    removeIntermediateFiles(outputResults_out)
   }
 
 }

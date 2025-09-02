@@ -544,7 +544,7 @@ process outputResultsSample {
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -r ${calculateBurdensFiles.join(',')}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')}
     """
 }
 

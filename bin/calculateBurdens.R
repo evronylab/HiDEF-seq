@@ -77,6 +77,9 @@ sex_chromosomes <- yaml.config$sex_chromosomes %>%
 	str_split_1(",") %>%
 	str_trim
 
+#mitochondrial chromosome
+mitochondrial_chromosome <- yaml.config$mitochondrial_chromosome
+
 #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
 call_types_toanalyze <- yaml.config$call_types %>%
 	enframe(name=NULL) %>%
@@ -89,12 +92,9 @@ call_types_toanalyze <- yaml.config$call_types %>%
 	)
 
  #sensitivity thresholds
-sensitivity_thresholds <- yaml.config$chromgroups %>%
+sensitivity_parameters <- yaml.config$sensitivity_parameters %>%
 	enframe %>%
-	unnest_wider(value) %>%
-	filter(chromgroup == !!chromgroup_toanalyze) %>%
-	unnest_wider(sensitivity_thresholds) %>%
-	select(-name,-chroms)
+	unnest_wider(value)
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
@@ -675,12 +675,11 @@ cat("DONE\n")
 ######################
 ### Calculate SBS and indel sensitivity
 ######################
-cat("## Calculating SBS and indel sensitivity...")
 
 #Create sensitivity tibble, set default sensitivity to 1 and source to 'default' for all call_types, except for call_class == 'MDB' whose source is set to 'yaml.config' and sensitivity is set per the yaml.config.
 sensitivity <- call_types_toanalyze %>%
 	mutate(
-		source = if_else(call_class == "MDB", "yaml.config", "default"),
+		sensitivity_source = if_else(call_class == "MDB", "yaml.config", "default"),
 		sensitivity = if("MDB_sensitivity" %in% names(.)){
 			if_else(call_class == "MDB", MDB_sensitivity, 1, ptype = numeric())
 		}else{
@@ -689,8 +688,10 @@ sensitivity <- call_types_toanalyze %>%
 	) %>%
 	select(-starts_with("MDB"))
 
-#Create set of high-quality germline variants for sensitivity analysis
-if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
+#Create set of high-quality germline variants for sensitivity analysis if use_chromgroup is defined and is the current chromgroup
+if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup == chromgroup_toanalyze){
+	
+	cat("## Calculating SBS and indel sensitivity...")
 	
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
@@ -715,38 +716,42 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	high_confidence_germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
 		as_tibble %>%
 		
-		#separate genotypes of each allele
+		#Separate genotypes of each allele
 		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
 		
-		#group by germline_vcf_file so that filters are calculated separately for each germline VCF.
+		#Group by germline_vcf_file so that filters are calculated separately for each germline VCF.
 		group_by(germline_vcf_file) %>% 
 		
-		#filter per sensitivity_threshold settings
+		#Filter per sensitivity_threshold settings
 		filter(
-			(Depth >= quantile(Depth, sensitivity_thresholds$SBS_min_Depth_quantile) & call_class == "SBS") |
-				(Depth >= quantile(Depth, sensitivity_thresholds$indel_min_Depth_quantile) & call_class == "indel"),
-			(VAF >= sensitivity_thresholds$SBS_min_VAF & call_class == "SBS") |
-				(VAF >= sensitivity_thresholds$indel_min_VAF & call_class == "indel"),
-			(VAF <= sensitivity_thresholds$SBS_max_VAF & call_class == "SBS") |
-				(VAF <= sensitivity_thresholds$indel_max_VAF & call_class == "indel"),
-			(GQ >= quantile(GQ, sensitivity_thresholds$SBS_min_GQ_quantile) & call_class == "SBS") |
-				(GQ >= quantile(GQ, sensitivity_thresholds$indel_min_GQ_quantile) & call_class == "indel"),
-			(QUAL >= quantile(QUAL, sensitivity_thresholds$SBS_min_QUAL_quantile) & call_class == "SBS") |
-				(QUAL >= quantile(QUAL, sensitivity_thresholds$indel_min_QUAL_quantile) & call_class == "indel"),
-			(sensitivity_thresholds$sensitivity_genotype == "het" & ((GT1 == "1" & GT2 != "1") | (GT1 != "1" & GT2 == "1"))) |
-				(sensitivity_thresholds$sensitivity_genotype == "hom" & (GT1 == "1" & GT2 == "1"))
+			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile) & call_class == "SBS") |
+				(Depth >= quantile(Depth, sensitivity_parameters$indel_min_Depth_quantile) & call_class == "indel"),
+			(VAF >= sensitivity_parameters$SBS_min_VAF & call_class == "SBS") |
+				(VAF >= sensitivity_parameters$indel_min_VAF & call_class == "indel"),
+			(VAF <= sensitivity_parameters$SBS_max_VAF & call_class == "SBS") |
+				(VAF <= sensitivity_parameters$indel_max_VAF & call_class == "indel"),
+			(GQ >= quantile(GQ, sensitivity_parameters$SBS_min_GQ_quantile) & call_class == "SBS") |
+				(GQ >= quantile(GQ, sensitivity_parameters$indel_min_GQ_quantile) & call_class == "indel"),
+			(QUAL >= quantile(QUAL, sensitivity_parameters$SBS_min_QUAL_quantile) & call_class == "SBS") |
+				(QUAL >= quantile(QUAL, sensitivity_parameters$indel_min_QUAL_quantile) & call_class == "indel"),
+			(sensitivity_parameters$genotype == "heterozygous" & ((GT1 == "1" & GT2 != "1") | (GT1 != "1" & GT2 == "1"))) |
+				(sensitivity_parameters$genotype == "homozygous" & (GT1 == "1" & GT2 == "1"))
 		) %>%
 		ungroup %>%
 		
-		#keep variants detected in all germline vcfs
+		#Keep variants detected in all germline vcfs
 		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
 		filter(n == !!num_germline_vcf_files) %>%
 		select(-n) %>%
 		
-		#keep variants in chromgroup
-		filter(seqnames %in% chroms_toanalyze) %>%
+		#Keep variants in chromgroup, and exclude variants in sex chromosomes and mitochondrial chromosome
+		filter(
+			seqnames %in% chroms_toanalyze,
+			! seqnames %in% sex_chromosomes,
+			! seqnames %in% mitochondrial_chromosome
+		) %>%
 		
-		#keep variants in gnomad_sensitivity_vcf
+		#Keep variants in gnomad_sensitivity_vcf
 		semi_join(
 			gnomad_sensitivity_vcf,
 			by = names(.)
@@ -814,86 +819,46 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	
 	rm(high_confidence_germline_vcf_variants, high_confidence_germline_vcf_variants.gr, bam.gr.filtertrack.except_germline_filters.bytype)
 	
-	#Sum number of high confidence germline VCF variant detections and coverage, separately for autosomes and sex chromosomes
+	#Sum number of high confidence germline VCF variant detections and coverage
 	sensitivity <- sensitivity %>%
 		mutate(
-			
-			#Sum number of detections in autosomes
-			high_confidence_germline_vcf_variants_n_detected_autosomes = map2(
-				high_confidence_germline_vcf_variants.annotated,
-				call_class,
-				function(x,y){
-					x %>%
-						filter(call_class == y, ! seqnames %in% sex_chromosomes) %>%
-						pull(n_detected) %>%
-						sum(na.rm = TRUE)
-				}
-			),
-			
-			#Sum number of detections in sex chromosomes
-			high_confidence_germline_vcf_variants_n_detected_sexchromosomes = map2(
-				high_confidence_germline_vcf_variants.annotated,
-				call_class,
-				function(x,y){
-					x %>%
-						filter(call_class == y, seqnames %in% sex_chromosomes) %>%
-						pull(n_detected) %>%
-						sum(na.rm = TRUE)
-				}
-			),
-			
-			#Sum coverage in autosomes
-			high_confidence_germline_vcf_variants_coverage_autosomes = map2(
-				high_confidence_germline_vcf_variants.annotated,
-				call_class,
-				function(x,y){
-					x %>%
-						filter(call_class == y, ! seqnames %in% sex_chromosomes) %>%
-						pull(coverage) %>%
-						sum
-				}
-			),
-			
-			#Sum coverage in sex chromosomes
-			high_confidence_germline_vcf_variants_coverage_sexchromosomes = map2(
-				high_confidence_germline_vcf_variants.annotated,
-				call_class,
-				function(x,y){
-					x %>%
-						filter(call_class == y, seqnames %in% sex_chromosomes) %>%
-						pull(coverage) %>%
-						sum
-				}
-			)
+			high_confidence_germline_vcf_variants_sumdetections = high_confidence_germline_vcf_variants.annotated %>%
+				map( x$n_detected %>% sum(na.rm = TRUE) ),
+			high_confidence_germline_vcf_variants_sumcoverage = high_confidence_germline_vcf_variants.annotated %>%
+				map( x$coverage %>% sum(na.rm = TRUE) )
 		)
-	
-	**Configure at top extraction of individual_sex
 	
 	#Calculate sensitivity.
 		#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 
-		#If sensitivity_genotype = 'hom' (i.e. used onlyhomozygous variants for sensitivity calculation): calculate sensitivity as (n_detected_autosomes + n_detected_sexchromosomes) / (coverage_autosomes + coverage_sexchromosomes)
-		#If sensitivity_genotype = 'het', calculate sensitivity as 2 X the above formula for females and as ** for males.
-		#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'het' correction and edge cases. 
-	
-	*** Update documentation that sex chroms are EXCLUDED, and for mito always extracted as homozygous (and treated as such in calculations) and fix code for this. Also need a variable for mito chroms. Best to update coverage based on chatGPT formula (0.5 for het sites, 1.0 otherwise), and then do a sum across all variants of detection / corrected coverage for each variant to get sensitivity.
-	
+		#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(n_detected) / sum(coverage)
+		#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(n_detected) / sum(coverage).
+		#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases. 
 	sensitivity <- sensitivity %>% 
 		mutate(
+			calculate_SBS_sensitivity = call_class == "SBS" &
+				high_confidence_germline_vcf_variants_sumdetections >= sensitivity_parameters$SBS_min_variant_detections &
+				high_confidence_germline_vcf_variants_sumcoverage > 0,
+			
+			calculate_indel_sensitivity = call_class == "indel" &
+				high_confidence_germline_vcf_variants_sumdetections >= sensitivity_parameters$indel_min_variant_detections &
+				high_confidence_germline_vcf_variants_sumcoverage > 0,
+			
 			sensitivity = case_when(
-				call_class == "SBS" &
-					(high_confidence_germline_vcf_variants_n_detected_autosomes + high_confidence_germline_vcf_variants_n_detected_sexchromosomes) >= sensitivity_thresholds$SBS_min_variant_detections ~
-					***
-					,
+				(calculate_SBS_sensitivity | calculate_indel_sensitivity) & sensitivity_parameters$genotype == "homozygous" ~
+					high_confidence_germline_vcf_variants_sumdetections / high_confidence_germline_vcf_variants_sumcoverage,
 				
-				call_class == "indel" &
-					(high_confidence_germline_vcf_variants_n_detected_autosomes + high_confidence_germline_vcf_variants_n_detected_sexchromosomes) >= sensitivity_thresholds$indel_min_variant_detections ~
-					***,
+				(calculate_SBS_sensitivity | calculate_indel_sensitivity) & sensitivity_parameters$genotype == "heterozygous" ~
+					2 * (high_confidence_germline_vcf_variants_sumdetections / high_confidence_germline_vcf_variants_sumcoverage),
 				
 				.default = sensitivity
 			),
 			
-			sensitivity = min(1, sensitivity)
-		)
+			sensitivity = min(1, sensitivity),
+			
+			sensitivity_source = if_else(calculate_SBS_sensitivity | calculate_indel_sensitivity, "calculated", sensitivity_source)
+			
+		) %>%
+		select(-calculate_SBS_sensitivity,calculate_indel_sensitivity)
 	
 	#Change sensitivity to sqrt(sensitivity) for SBSindel_call_type = 'mismatch-ss'. Otherwise keep the same for 'mutation' and 'mismatch-ds' since these involve detection in both strands. SBSindel_call_type = 'mismatch-os' and 'match' are also not changed since these are for type MDB that is set in the yaml.config
 	sensitivity <- sensitivity %>%
@@ -907,8 +872,11 @@ if(!is.null(yaml.config$gnomad_sensitivity_vcf)){
 	
 	cat("DONE\n")
 	
-}else{
-	cat("All sensitivities set to 1 since gnomad_sensitivity_vcf is NULL.\n")
+}else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){{
+	cat("Skipping sensitivity calculation since use_chromgroup not in currently analyzed chromgroup.\n")
+	sensitivity <- NULL #Remove sensitivity tibble so it is not used.
+}else if(is.null(sensitivity_parameters$use_chromgroup)){{
+	cat("All sensitivities set to 1 since use_chromgroup not defined.\n")
 }
 
 ######################

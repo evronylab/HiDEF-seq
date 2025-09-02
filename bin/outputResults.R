@@ -412,8 +412,10 @@ cat("DONE\n")
 ####
 Output Sensitivity
 
-#Call burdens
 
+#Call burdens
+ -> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)
+	
 #Call spectra
 
 #Estimated mutation error rate

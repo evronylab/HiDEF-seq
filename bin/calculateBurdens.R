@@ -94,8 +94,7 @@ call_types_toanalyze <- yaml.config$call_types %>%
 
  #sensitivity thresholds
 sensitivity_parameters <- yaml.config$sensitivity_parameters %>%
-	enframe %>%
-	unnest_wider(value)
+	as_tibble
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
@@ -680,12 +679,12 @@ cat("DONE\n")
 #Create sensitivity tibble, set default sensitivity to 1 and source to 'default' for all call_types, except for call_class == 'MDB' whose source is set to 'yaml.config' and sensitivity is set per the yaml.config.
 sensitivity <- call_types_toanalyze %>%
 	mutate(
-		sensitivity_source = if_else(call_class == "MDB", "yaml.config", "default"),
 		sensitivity = if("MDB_sensitivity" %in% names(.)){
 			if_else(call_class == "MDB", MDB_sensitivity, 1, ptype = numeric())
 		}else{
 			1
-		}
+		},
+		sensitivity_source = if_else(call_class == "MDB", "yaml.config", "default")
 	) %>%
 	select(-starts_with("MDB"))
 
@@ -706,7 +705,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	
 	#Load gnomad_sensitivity_vcf
 	gnomad_sensitivity_vcf <- load_vcf(
-		vcf_file = yaml.config$gnomad_sensitivity_vcf,
+		vcf_file = sensitivity_parameters$gnomad_sensitivity_vcf,
 		genome_fasta = yaml.config$genome_fasta,
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin

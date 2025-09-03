@@ -835,7 +835,7 @@ workflow outputResults {
     outputResultsSample(calculateBurdens_out)
 
     emit:
-    outputResults.out
+    outputResultsSample.out
 
 }
 
@@ -1065,7 +1065,7 @@ workflow {
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
-        .groupTuple(by: [0]) // Group by sample_id
+        .groupTuple(by: 0) // Group by sample_id
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }

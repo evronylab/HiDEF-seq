@@ -445,13 +445,13 @@ process extractCallsChunk {
       tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
+      tuple val(sample_id), val(chunkID), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
 
     storeDir "${extractCalls_output_dir}"
 
     script:
     """
-    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractCalls.chunk${chunkID}.qs2
+    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -476,13 +476,13 @@ process filterCallsChunk {
       tuple val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2"), val(chunkID), val(chromgroup), val(filtergroup)
+      tuple val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
     storeDir "${filterCalls_output_dir}"
 
     script:
     """
-    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2
+    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -500,21 +500,13 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple
-        val(sample_id),
-        val(chromgroup),
-        val(filtergroup),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir "${calculateBurdens_output_dir}"
 
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 
@@ -529,22 +521,18 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), **path(calculateBurdensFiles)**
+      tuple val(sample_id), path(calculateBurdensFiles)
     
     output:
       tuple
         val(sample_id),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####"),
-        path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.####")
+        ***
 
     storeDir "${outputResults_output_dir}"
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${sample_id}
     """
 }
 
@@ -1033,7 +1021,7 @@ workflow {
           .combine(Channel.of(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
-              def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.extractCalls.chunk${chunkID}.qs2")
+              def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
               return tuple(sample_id, extractCallsFile, chunkID)
           }
 
@@ -1050,14 +1038,11 @@ workflow {
               def sample_id = sample.sample_id
               def chromgroup = chromgroup_filtergroup[0]
               def filtergroup = chromgroup_filtergroup[1]
-              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.filterCalls.chunk${chunkID}.${chromgroup}.${filtergroup}.qs2")
-              return tuple(sample_id, filterCallsFile, chunkID, chromgroup, filtergroup)
+              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
+              return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
           }
 
     def filterCalls_grouped_ch = filterCalls_out
-      .map { sample_id, filterCallsFile, chunkID, chromgroup, filtergroup ->
-            return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
-        }
         .groupTuple(by: [0, 1, 2], sort: true) // Group by sample_id, chromgroup, filtergroup and sort by chunkID
         .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
             return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
@@ -1068,10 +1053,21 @@ workflow {
 
   // Run outputResults workflow
   if (shouldRun("outputResults")) {
-    calculateBurdens_completion = calculateBurdens_out ?
-      *** for each sample
+    calculateBurdens_out = calculateBurdens_out ?:
+      Channel.fromList(params.samples)
+          .combine(chromgroups_filtergroups_ch)
+          .map { sample, chromgroup_filtergroup ->
+              def sample_id = sample.sample_id
+              def chromgroup = chromgroup_filtergroup[0]
+              def filtergroup = chromgroup_filtergroup[1]
+              def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+              return tuple(sample_id, calculateBurdensFile)
+          }
 
-    outputResults_out = outputResults(**)
+    def calculateBurdens_grouped_ch = calculateBurdens_out
+        .groupTuple(by: [0]) // Group by sample_id
+
+    outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }
 
   // Run removeIntermediateFiles workflow (conditional)

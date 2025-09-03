@@ -1,7 +1,8 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #calculateBurdens.R:
-# Calculate burdens
+# Calculate burdens.
+	#Calculates non-sensitivity-corrected burdens and the sensitivity values (if sensitivity analysis is configured). The calculated sensitivity values are then used to calculate sensitivity-corrected burdens in the outputResults script rather than in this script, since this script operates per chromgroup x filtergroup whereas the sensitivity correction uses for each filtergroup the sensitivity value of one chromgroup (specified in sensitivity_parameters$use_chromgroup) for sensitivity-correction of all chromgroups.
 
 cat("#### Running calculateBurdens ####\n")
 
@@ -42,13 +43,13 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-		make_option(c("-o", "--output_basename"), type = "character", default=NULL,
-							help="output basename")
+		make_option(c("-o", "--output"), type = "character", default=NULL,
+							help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$sample_id_toanalyze) | is.na(opt$chromgroup_toanalyze) | is.na(opt$filtergroup_toanalyze) | is.na(opt$files) | is.na(opt$output_basename) ){
+if(is.na(opt$config) | is.na(opt$sample_id_toanalyze) | is.na(opt$chromgroup_toanalyze) | is.na(opt$filtergroup_toanalyze) | is.na(opt$files) | is.na(opt$output) ){
 	stop("Missing input parameter(s)!")
 }
 
@@ -57,7 +58,7 @@ sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
-output_basename <- opt$output_basename
+outputFile <- opt$output
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -920,7 +921,7 @@ qs_save(
 		sample_id = sample_id_toanalyze,
 		chromgroup = chromgroup_toanalyze,
 		filtergroup = filtergroup_toanalyze,
-		call_types = call_types_toanalyze %>% select(-starts_with("MDB")), #Remove unecessary MDB configuration parameters
+		call_types = call_types_toanalyze
 		molecule_stats_by_run_id = molecule_stats_by_run_id,
 		molecule_stats_by_analysis_id = molecule_stats_by_analysis_id
 		region_genome_filter_stats = region_genome_filter_stats,
@@ -934,8 +935,8 @@ qs_save(
 		sensitivity = sensitivity,
 		callBurdens = callBurdens,
 		callSpectra = callSpectra
-	)
-	str_c(output_basename,".calculateBurdens.RDS")
+	),
+	outputFile
 )
 
 cat("DONE\n")

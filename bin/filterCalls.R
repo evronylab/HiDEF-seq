@@ -94,13 +94,12 @@ germline_vcf_types_config <- yaml.config$germline_vcf_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value)
 
- #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze, and remove MDB configuration parameters that are not needed here)
+ #call types (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze
 call_types_toanalyze <- yaml.config$call_types %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
   unnest_longer(SBSindel_call_types) %>%
   unnest_wider(SBSindel_call_types) %>%
-	select(-starts_with("MDB")) %>%
 	filter(
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
@@ -1917,6 +1916,7 @@ max_finalcalls_eachstrand.filter <- calls %>%
 
 #Subtract filtered molecules from bam.gr.filtertrack, creating a new bam.gr.filtertrack.bytype for each call_type x SBSindel_call_type combination being analyzed. Perform for both standard and 'except_germline_filters' filter trackers.
 bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
+	select(-starts_with("MDB")) %>% #remove MDB configuration parameters that are not needed here
 	mutate(
 		bam.gr.filtertrack = if_else(
 			call_class == "indel",
@@ -1946,6 +1946,7 @@ bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
 	)
 
 bam.gr.filtertrack.except_germline_filters.bytype <- call_types_toanalyze %>%
+	select(-starts_with("MDB")) %>% #remove MDB configuration parameters that are not needed here
 	mutate(
 		bam.gr.filtertrack = if_else(
 			call_class == "indel",

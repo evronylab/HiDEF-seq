@@ -1,7 +1,8 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #outputResults.R:
-# Output results
+# Output results.
+	#Also calculates sensitivity-corrected burdens.
 
 cat("#### Running outputResults ####\n")
 
@@ -36,18 +37,21 @@ option_list = list(
 	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
 							help="sample_id to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
-							help="comma-separated calculateBurdens qs2 files")
+							help="comma-separated calculateBurdens qs2 files"),
+	make_option(c("-o", "--output_basename"), type = "character", default=NULL,
+							help="output basename")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$sample_id_toanalyze) | is.na(opt$files) ){
+if(is.na(opt$config) | is.na(opt$sample_id_toanalyze) | is.na(opt$files) | is.na(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
+output_basename <- opt$output_basename
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))

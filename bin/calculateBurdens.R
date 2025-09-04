@@ -400,6 +400,7 @@ molecule_stats_by_analysis_id <- molecule_stats[[1]] %>%
 	relocate(analysis_id)
 
 rm(molecule_stats)
+invisible(gc())
 
 cat(" DONE\n")
 
@@ -416,7 +417,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 				function(x){
 					if(length(x) == 0){
 						return(GRanges(
-							coverage=integer(),
+							duplex_coverage=integer(),
 							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 							))
 						}
@@ -428,7 +429,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 								
 								if(length(pos) == 0L){
 									return(GRanges(
-										coverage=integer(),
+										duplex_coverage=integer(),
 										seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 										))
 									}
@@ -440,7 +441,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 								GRanges(
 									seqnames = chr,
 									ranges = IRanges(start = pos, width = 1L),
-									coverage = rep.int(rv[nz], rl[nz]),
+									duplex_coverage = rep.int(rv[nz], rl[nz]),
 									seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 								)
 							}
@@ -458,7 +459,7 @@ regions_to_getseq <- bam.gr.filtertrack.bytype %>%
 	pull(bam.gr.filtertrack.coverage) %>%
 	GRangesList %>%
 	unlist(use.names = FALSE) %>%
-	select(-coverage) %>%
+	select(-duplex_coverage) %>%
 	sort %>%
 	unique %>%
 	resize(width = 3, fix="center") %>%
@@ -555,7 +556,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 				function(x){
 					x %>%
 						as_tibble %>%
-						count(reftnc_pyr, wt = coverage, name = "count") %>%
+						count(reftnc_pyr, wt = duplex_coverage, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
 						arrange(reftnc_pyr) %>%
 						filter(!is.na(reftnc_pyr))
@@ -568,11 +569,11 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 					bind_rows(
 						x %>%
 							as_tibble %>%
-							count(reftnc_plus_strand, wt = coverage, name = "count") %>%
+							count(reftnc_plus_strand, wt = duplex_coverage, name = "count") %>%
 							rename(reftnc = reftnc_plus_strand),
 						x %>%
 							as_tibble %>%
-							count(reftnc_minus_strand, wt = coverage, name = "count") %>%
+							count(reftnc_minus_strand, wt = duplex_coverage, name = "count") %>%
 							rename(reftnc = reftnc_minus_strand)
 					) %>%
 						group_by(reftnc) %>%
@@ -636,6 +637,7 @@ genome.reftnc_duplex_pyr <- genome.reftnc_plus_strand %>%
 	filter(!is.na(reftnc_pyr))
 
 rm(genome.reftnc_plus_strand,genome.reftnc_minus_strand)
+invisible(gc())
 
 #Calculate trinucleotide counts for the analyzed chromgroup
 genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
@@ -669,6 +671,7 @@ genome_chromgroup.reftnc_duplex_pyr <- genome_chromgroup.reftnc_plus_strand %>%
 	filter(!is.na(reftnc_pyr))
 
 rm(genome_chromgroup.reftnc_plus_strand,genome_chromgroup.reftnc_minus_strand)
+invisible(gc())
 
 cat("DONE\n")
 
@@ -758,6 +761,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		)
 	
 	rm(num_germline_vcf_files, gnomad_sensitivity_vcf)
+	invisible(gc())
 	
 	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected. 
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
@@ -768,43 +772,45 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				) %>%
 				count(
 					across(all_of(names(high_confidence_germline_vcf_variants))),
-					name = "n_detected"
+					name = "num_zm_detected"
 				),
 			by = names(high_confidence_germline_vcf_variants)
-		)
+		) %>%
+		mutate(num_zm_detected = num_zm_detected %>% replace_na(0))
 	
-	#Annotate duplex coverage of high_confidence_germline_vcf_variants for each non-germline filter tracker. For insertions and deletions, annotate the minimum coverage (more stringent) for the left and right bases immediately flanking the insertion site/deleted bases.
-	 #For high_confidence_germline_vcf_variants, change insertion and deletion ranges to span immediately flanking bases and convert to GRanges
+	#Annotate duplex coverage of high_confidence_germline_vcf_variants for each non-germline filter tracker. For insertions and deletions, annotate the minimum coverage at the left and right bases immediately flanking the insertion site/deleted bases.
+	 #For high_confidence_germline_vcf_variants, change insertion and deletion ranges to span immediately flanking bases
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
 		mutate(
 			start = if_else(call_class == "indel", start - 1, start),
 			end = if_else(call_class == "indel", end + 1, end)
-		) %>%
-		makeGRangesFromDataFrame(
-			seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 		)
 	
 	 #Get coverage for start and end positions so that coverage is calculated for those bases specifically, and then set coverage to the minimum between these.
 	bam.gr.filtertrack.except_germline_filters.bytype <- bam.gr.filtertrack.except_germline_filters.bytype %>%
+		nest_join(high_confidence_germline_vcf_variants, by = "call_type") %>%
 		mutate(
-			high_confidence_germline_vcf_variants.annotated = map2(
-				call_type,
+			high_confidence_germline_vcf_variants = map2(
+				high_confidence_germline_vcf_variants,
 				bam.gr.filtertrack.coverage,
 				function(x,y){
 					
-					gr <- high_confidence_germline_vcf_variants %>%
-						filter(call_type == x)
+					gr <- x %>%
+						makeGRangesFromDataFrame(
+							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+						)
 					
-					gr$coverage <- pmin(
-						gr %>%
-							resize(width = 1, fix = "start") %>%
-							gr_1bp_cov(y),
-						gr %>%
-							resize(width = 1, fix = "end") %>%
-							gr_1bp_cov(y)
-					)
-					
-					return(gr)
+					x %>%
+						mutate(
+							duplex_coverage = pmin(
+								gr %>%
+									resize(width = 1, fix = "start") %>%
+									gr_1bp_cov(y),
+								gr %>%
+									resize(width = 1, fix = "end") %>%
+									gr_1bp_cov(y)
+							)
+						)
 				}
 			)
 		)
@@ -814,53 +820,54 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
 				select(-bam.gr.filtertrack.coverage),
-			by = join_by(everything())
+			by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
 		)
 	
-	rm(high_confidence_germline_vcf_variants, high_confidence_germline_vcf_variants.gr, bam.gr.filtertrack.except_germline_filters.bytype)
+	rm(high_confidence_germline_vcf_variants, bam.gr.filtertrack.except_germline_filters.bytype)
+	invisible(gc())
 	
 	#Sum number of high confidence germline VCF variant detections and coverage
 	sensitivity <- sensitivity %>%
 		mutate(
-			high_confidence_germline_vcf_variants_sumdetections = high_confidence_germline_vcf_variants.annotated %>%
-				map( x$n_detected %>% sum(na.rm = TRUE) ),
-			high_confidence_germline_vcf_variants_sumcoverage = high_confidence_germline_vcf_variants.annotated %>%
-				map( x$coverage %>% sum(na.rm = TRUE) )
+			high_confidence_germline_vcf_variants_sum_zm_detected = high_confidence_germline_vcf_variants %>%
+				map_int( function(x){x$num_zm_detected %>% sum} ),
+			high_confidence_germline_vcf_variants_sum_duplex_coverage = high_confidence_germline_vcf_variants %>%
+				map_int( function(x){x$duplex_coverage %>% sum} )
 		)
 	
 	#Calculate sensitivity.
 		#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 
-		#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(n_detected) / sum(coverage)
-		#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(n_detected) / sum(coverage).
+		#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(num_zm_detected) / sum(duplex_coverage)
+		#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(num_zm_detected) / sum(duplex_coverage).
 		#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases. 
 	sensitivity <- sensitivity %>% 
 		mutate(
-			calculate_SBS_sensitivity = call_class == "SBS" &
-				high_confidence_germline_vcf_variants_sumdetections >= sensitivity_parameters$SBS_min_variant_detections &
-				high_confidence_germline_vcf_variants_sumcoverage > 0,
+			calculate_sensitivity = (call_class == "SBS" &
+				high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$SBS_min_variant_detections &
+				high_confidence_germline_vcf_variants_sum_duplex_coverage > 0) |
 			
-			calculate_indel_sensitivity = call_class == "indel" &
-				high_confidence_germline_vcf_variants_sumdetections >= sensitivity_parameters$indel_min_variant_detections &
-				high_confidence_germline_vcf_variants_sumcoverage > 0,
+			(calculate_indel_sensitivity = call_class == "indel" &
+				high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$indel_min_variant_detections &
+				high_confidence_germline_vcf_variants_sum_duplex_coverage > 0),
 			
 			sensitivity = case_when(
-				(calculate_SBS_sensitivity | calculate_indel_sensitivity) & sensitivity_parameters$genotype == "homozygous" ~
-					high_confidence_germline_vcf_variants_sumdetections / high_confidence_germline_vcf_variants_sumcoverage,
+				calculate_sensitivity & sensitivity_parameters$genotype == "homozygous" ~
+					high_confidence_germline_vcf_variants_sum_zm_detected / high_confidence_germline_vcf_variants_sum_duplex_coverage,
 				
-				(calculate_SBS_sensitivity | calculate_indel_sensitivity) & sensitivity_parameters$genotype == "heterozygous" ~
-					2 * (high_confidence_germline_vcf_variants_sumdetections / high_confidence_germline_vcf_variants_sumcoverage),
+				calculate_sensitivity & sensitivity_parameters$genotype == "heterozygous" ~
+					2 * (high_confidence_germline_vcf_variants_sum_zm_detected / high_confidence_germline_vcf_variants_sum_duplex_coverage),
 				
 				.default = sensitivity
 			),
 			
-			sensitivity = min(1, sensitivity),
+			sensitivity = pmin(1, sensitivity),
 			
-			sensitivity_source = if_else(calculate_SBS_sensitivity | calculate_indel_sensitivity, "calculated", sensitivity_source)
+			sensitivity_source = if_else(calculate_sensitivity, "calculated", sensitivity_source)
 			
 		) %>%
-		select(-calculate_SBS_sensitivity,calculate_indel_sensitivity)
+		select(-calculate_sensitivity)
 	
-	#Change sensitivity to sqrt(sensitivity) for SBSindel_call_type = 'mismatch-ss'. Otherwise keep the same for 'mutation' and 'mismatch-ds' since these involve detection in both strands. SBSindel_call_type = 'mismatch-os' and 'match' are also not changed since these are for type MDB that is set in the yaml.config
+	#Change sensitivity to sqrt(sensitivity) for SBSindel_call_type = 'mismatch-ss'. Do not do this transformation for SBSindel_call_type = 'mutation' or 'mismatch-ds' since these involve detection in both strands. SBSindel_call_type = 'mismatch-os' and 'match' are also not changed since these are for type MDB that is set in the yaml.config.
 	sensitivity <- sensitivity %>%
 		mutate(
 			sensitivity = if_else(
@@ -883,10 +890,80 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 ### Calculate call burdens
 ######################
 cat("## Calculating call burdens...")
-#Number of interrogated bases and base pairs -> calculate bases interrogated  = 2 x base pairs interrogated!
-#all and unique, observed vs genome corrected vs sensitivity corrected vs both corrected
-#upper and lower poisson conf int
-#Interrogated bases, Interrogated base pairs
+	
+#Calculate number of interrogated base pairs (SBSindel_call_type = mutation or mismatch-ds) or bases (mismatch-ss, mismatch-os, match), for each call_type to analyze
+callBurdens <- call_types_toanalyze %>%
+	select(-starts_with("MDB")) %>%
+	left_join(
+		bam.gr.filtertrack.bytype %>%
+			mutate(
+				interrogated_bases_or_bp = if_else(
+					SBSindel_call_type %in% c("mutation","mismatch-ds"),
+					bam.gr.filtertrack.coverage %>%
+						map_dbl(
+							function(x){
+								x %>% mcols %>% with(duplex_coverage) %>% sum
+							}
+						),
+					bam.gr.filtertrack.coverage %>%
+						map_dbl(
+							function(x){
+								2 * (x %>% mcols %>% with(duplex_coverage) %>% sum)
+							}
+						)
+				)
+			) %>%
+			select(names(call_types_toanalyze),interrogated_bases_or_bp),
+		by = names(call_types_toanalyze)
+	)
+
+#Calculate number of all and unique calls, for each call_type to analyze, and Poisson 95% confidence intervals for these
+callBurdens <- callBurdens %>%
+	left_join(
+		call_types_toanalyze %>%
+			nest_join(
+				finalCalls,
+				by = join_by(call_class, call_type, SBSindel_call_type)
+			) %>%
+			mutate(
+				num_calls = finalCalls %>% map_dbl(
+					function(x){
+						x %>%
+							distinct(run_id,zm,seqnames,start,end,**)
+					}
+				),
+				num_calls_unique = map(
+					function(x){
+						x %>%
+							distinct(seqnames,start,end,**)
+					}
+				)
+			) %>%
+			select(-finalCalls),
+		by = names(call_types_toanalyze)
+	) %>%
+	
+	mutate(
+		ci = num_calls %>% map( function(x){poisson.test(x)$conf.int} ),
+		ci_unique = num_calls_unique %>% map( function(x){poisson.test(x)$conf.int} ),
+		num_calls_lci = map_dbl(ci,1),
+		num_calls_uci = map_dbl(ci,2),
+		num_calls_unique_lci = map_dbl(ci_unique,1),
+		num_calls_unique_uci = map_dbl(ci_unique,2)
+	) %>%
+	select(-ci, -ci_unique)
+
+#Calculate burdens for all calls and unique calls, with Poisson 95% confidence intervals
+callBurdens <- callBurdens %>%
+	mutate(
+		burden_calls = num_calls / interrogated_bases_or_bp,
+		burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
+		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp,
+		
+		burden_calls_unique = num_calls_unique / interrogated_bases_or_bp,
+		burden_calls_unique_lci = num_calls_unique_lci / interrogated_bases_or_bp,
+		burden_calls_unique_uci = num_calls_unique_uci / interrogated_bases_or_bp
+	)
 
 cat("DONE\n")
 
@@ -894,6 +971,8 @@ cat("DONE\n")
 ### Calculate call spectra
 ######################
 cat("## Calculating call spectra...")
+
+callSpectra
 #Plots and tables of observed and corrected, only for unique counts
 
 cat("DONE\n")
@@ -902,6 +981,9 @@ cat("DONE\n")
 ### Calculate estimated mutation error rate
 ######################
 cat("## Calculating estimated mutation error rate...")
+
+estimatedMutationErrorRate
+
 #For ssDNA mismatches only, for each channel and total
 
 - review Nanoseq code for calculating error rate again and update HiDEF-seq accordingly. See https://github.com/cancerit/NanoSeq/issues/92 and https://github.com/cancerit/NanoSeq/blob/4136d3ca943b96b2cf9013ac14183f098b8234be/R/nanoseq_results_plotter.R#L730. Specifically, do I need to divide the interrogated ssDNA bases by 2 in the denominator, since the two false positive calls must happen in opposite strands. But think about it carefully. Not sure about this.
@@ -933,7 +1015,8 @@ qs_save(
 		germlineVariantCalls = germlineVariantCalls,
 		sensitivity = sensitivity,
 		callBurdens = callBurdens,
-		callSpectra = callSpectra
+		callSpectra = callSpectra,
+		estimatedMutationErrorRate = estimatedMutationErrorRate
 	),
 	outputFile
 )

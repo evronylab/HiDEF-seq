@@ -625,7 +625,8 @@ calls <- calls %>%
       summarize(
         germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),
         germline_vcf_files_detected = str_c(germline_vcf_file,collapse=","),
-        .groups="drop") %>%
+        .groups="drop"
+      ) %>%
       mutate(germline_vcf.passfilter = FALSE),
     by = join_by(seqnames,start,end,ref_plus_strand,alt_plus_strand)
   ) %>%
@@ -991,7 +992,7 @@ read_indel_region_filter <- calls %>%
     start = start - pmax(padding_m,padding_b),
     end = end + pmax(padding_m,padding_b)
   ) %>%
-  select(run_id, zm, seqnames, start, end, strand,-padding_m,-padding_b) %>%
+  select(run_id, zm, seqnames, start, end, strand, -padding_m, -padding_b) %>%
   makeGRangesFromDataFrame(
     keep.extra.columns = TRUE,
     seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo

@@ -156,7 +156,8 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	#Sort by seqnames, start, end
 	calls.order <- order(
 		calls.gr %>% seqnames %>% as.integer,
-		calls.gr %>% start
+		calls.gr %>% start,
+		calls.gr %>% end
 	)
 	calls.gr <- calls.gr[calls.order]
 	fixed <- fixed[calls.order, , drop=FALSE]
@@ -419,7 +420,9 @@ Output Sensitivity
 
 #Call burdens
  -> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)
+ - calculate for uncorrected and tnc_corrected burdens
 	
 #Call spectra
+ #plots
 
 #Estimated mutation error rate

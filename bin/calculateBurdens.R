@@ -683,6 +683,7 @@ invisible(gc())
 cat("DONE\n")
 
 #Calculate ratio of trinucleotide fractions of final interrogated genome bases to the trinucleotide fractions of the whole genome and the genome in the analyzed chromgroup
+##TODO
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.reftnc_both_strands %>%
@@ -703,7 +704,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			),
 		
 		across(
-			c(bam.gr.filtertrack.reftnc_both_strands_pyr,bam.gr.filtertrack.reftnc_duplex_pyr),
+			c(bam.gr.filtertrack.reftnc_both_strands_pyr, bam.gr.filtertrack.reftnc_duplex_pyr),
 			function(x){
 				x %>%
 					map(
@@ -725,7 +726,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		),
 		
 		across(
-			start_with("bam.gr.filtertrack.reftnc"),
+			starts_with("bam.gr.filtertrack.reftnc"),
 			function(x){
 				x %>%
 					map(
@@ -741,16 +742,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			}
 		)
 	)
-	
-	bam.gr.filtertrack.reftnc_both_strands -> reftnc, fraction
-	bam.gr.filtertrack.reftnc_both_strands_pyr -> reftnc_pyr, fraction
-	bam.gr.filtertrack.reftnc_duplex_pyr -> reftnc_pyr, fraction
-	
-	genome.reftnc_both_strands -> reftnc, fraction
-	genome_chromgroup.reftnc_both_strands -> reftnc, fraction
-	genome.reftnc_duplex_pyr  -> reftnc_pyr, fraction
-	genome_chromgroup.reftnc_duplex_pyr -> reftnc_pyr, fraction
-	
+
 ######################
 ### Calculate SBS and indel sensitivity
 ######################
@@ -965,6 +957,23 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 }
 
 ######################
+### Calculate call spectra
+######################
+cat("## Calculating call spectra...")
+	##TODO
+callSpectra <- finalCalls.for_burdens_and_spectra %>%
+	
+	
+	pyr for muts for all and unique
+64 for everything except muts
+pyr for everything except muts
+
+rm(finalCalls.for_burdens_and_spectra)
+invisible(gc())
+
+cat("DONE\n")
+	
+######################
 ### Calculate call burdens
 ######################
 cat("## Calculating call burdens...")
@@ -995,7 +1004,7 @@ callBurdens <- call_types_toanalyze %>%
 		by = names(call_types_toanalyze)
 	)
 
-#Nest join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for SBSindel_call_type = "mutation" and "mismatch-ds" so mutations are only counted once but other ssDNA call_types will be counted twice when present on opposite strands with the same coordinates. Also extract unique calls for SBSindel_call_type = "mutation".
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for SBSindel_call_type = "mutation" and "mismatch-ds" so mutations are only counted once but other ssDNA call_types will be counted twice when present on opposite strands with the same coordinates. Also extract unique calls for SBSindel_call_type = "mutation".
 finalCalls.for_burdens_and_spectra <- call_types_toanalyze %>%
 	nest_join(
 		finalCalls,
@@ -1037,21 +1046,26 @@ finalCalls.for_burdens_and_spectra <- call_types_toanalyze %>%
 		)
 	)
 
-#Calculate number of all calls for each call_type to analyze.
+#Calculate number of calls for each call_type to analyze.
 callBurdens <- callBurdens  %>%
 	left_join(
 		finalCalls.for_burdens_and_spectra,
 		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
 	) %>%
 	mutate(
-		num_calls = finalCalls %>% map_dbl(nrow),
+		num_calls = finalCalls %>%
+			map_dbl(nrow),
 		num_calls_unique = finalCalls_unique %>%
 			map_dbl(
 				function(x){
 					if(!is.null(x)){x %>% nrow} else{NA_real_}
 				}
 			)
-	) %>%
+	)
+
+#Calculate trinucleotide counts and fractions of calls for each call_type to analyze
+##TODO
+%>%
 	select(-finalCalls,-finalCalls_unique)
 
 #Calculate Poisson 95% confidence intervals for number of calls and number of unique calls
@@ -1089,23 +1103,6 @@ callBurdens <- callBurdens %>%
 		burden_calls_unique_lci = num_calls_unique_lci / interrogated_bases_or_bp,
 		burden_calls_unique_uci = num_calls_unique_uci / interrogated_bases_or_bp
 	)
-
-cat("DONE\n")
-
-######################
-### Calculate call spectra
-######################
-cat("## Calculating call spectra...")
-
-callSpectra <- finalCalls.for_burdens_and_spectra %>%
-	
-	
-	pyr for muts for all and unique
-  64 for everything except muts
-  pyr for everything except muts
-
-rm(finalCalls.for_burdens_and_spectra)
-invisible(gc())
 
 cat("DONE\n")
 

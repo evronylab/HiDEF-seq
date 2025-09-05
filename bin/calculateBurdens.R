@@ -378,7 +378,7 @@ germlineVariantCalls <- germlineVariantCalls %>%
 	select(-call_toanalyze)
 
 #Combine molecule_stats to one tibble and sum stats. Also do a left_join to molecule_stats[[1]] without the value column to preserve the original row order of stats. Also calculate stats summed across all run_ids.
-molecule_stats_by_run_id <- molecule_stats[[1]] %>%
+molecule_stats.by_run_id <- molecule_stats[[1]] %>%
 	select(run_id,chromgroup,filtergroup,stat) %>%
 	left_join(
 		molecule_stats %>%
@@ -388,7 +388,7 @@ molecule_stats_by_run_id <- molecule_stats[[1]] %>%
 		by = join_by(run_id,chromgroup,filtergroup,stat)
 	)
 
-molecule_stats_by_analysis_id <- molecule_stats[[1]] %>%
+molecule_stats.by_analysis_id <- molecule_stats[[1]] %>%
 	select(chromgroup,filtergroup,stat) %>%
 	left_join(
 		molecule_stats %>%
@@ -544,9 +544,9 @@ rm(regions_to_getseq, h)
 invisible(gc())
 
 ######################
-### Calculate trinucleotide background counts
+### Calculate trinucleotide distributions of interrogated bases and the genome
 ######################
-cat("## Calculating trinucleotide background counts...")
+cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
 
 #Calculate trinucleotide counts and fractions of final interrogated genome bases
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
@@ -608,82 +608,65 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			)
 	)
 
-#Calculate trinucleotide counts and fractions of the whole genome
-genome.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
-	get %>%
-	getSeq %>%
-	trinucleotideFrequency(simplify.as = "collapsed") %>%
-	enframe(name = "reftnc", value = "count") %>%
-	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
-
-genome.reftnc_minus_strand <- genome.reftnc_plus_strand %>%
-	mutate(
-		reftnc = reftnc %>%
-			DNAStringSet %>%
-			reverseComplement %>%
-			as.character %>%
-			factor(levels = trinucleotides_64)
-	)
-
-genome.reftnc_both_strands <- bind_rows(
-		genome.reftnc_plus_strand,
-		genome.reftnc_minus_strand
-	) %>%
-	group_by(reftnc) %>%
-	summarize(count = sum(count), .groups = "drop") %>%
-	arrange(reftnc) %>%
-	filter(!is.na(reftnc)) %>%
-	mutate(fraction = count / sum(count))
+#Calculate trinucleotide counts and fractions of the whole genome and of the genome in the analyzed chromgroup
+ #Function to extract trinucleotide counts and fractions
+get_genome_reftnc <- function(BSgenome_name, chroms){
 	
-genome.reftnc_duplex_pyr <- genome.reftnc_plus_strand %>%
-	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-	rename(reftnc_pyr = reftnc) %>%
-	filter(!is.na(reftnc_pyr)) %>%
-	mutate(fraction = count / sum(count))
+	reftnc_plus_strand <- BSgenome_name %>%
+		get %>%
+		getSeq(chroms) %>%
+		trinucleotideFrequency(simplify.as = "collapsed") %>%
+		enframe(name = "reftnc", value = "count") %>%
+		mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
+	
+	reftnc_minus_strand <- reftnc_plus_strand %>%
+		mutate(
+			reftnc = reftnc %>%
+				DNAStringSet %>%
+				reverseComplement %>%
+				as.character %>%
+				factor(levels = trinucleotides_64)
+		)
+	
+	reftnc_both_strands <- bind_rows(
+		reftnc_plus_strand,
+		reftnc_minus_strand
+	) %>%
+		group_by(reftnc) %>%
+		summarize(count = sum(count), .groups = "drop") %>%
+		arrange(reftnc) %>%
+		filter(!is.na(reftnc)) %>%
+		mutate(fraction = count / sum(count))
+	
+	reftnc_duplex_pyr <- reftnc_plus_strand %>%
+		trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+		rename(reftnc_pyr = reftnc) %>%
+		filter(!is.na(reftnc_pyr)) %>%
+		mutate(fraction = count / sum(count))
+	
+	return(
+		list(
+			reftnc_both_strands = reftnc_both_strands,
+			reftnc_duplex_pyr = reftnc_duplex_pyr
+		)
+	)
+}
 
-rm(genome.reftnc_plus_strand,genome.reftnc_minus_strand)
-invisible(gc())
-
-#Calculate trinucleotide counts of the genome in the analyzed chromgroup
-genome_chromgroup.reftnc_plus_strand <- yaml.config$BSgenome$BSgenome_name %>%
-	get %>%
-	getSeq(chroms_toanalyze) %>%
-	trinucleotideFrequency(simplify.as = "collapsed") %>%
-	enframe(name = "reftnc", value = "count") %>%
-	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
-
-genome_chromgroup.reftnc_minus_strand <- genome_chromgroup.reftnc_plus_strand %>%
-	mutate(
-		reftnc = reftnc %>%
-			DNAStringSet %>%
-			reverseComplement %>%
-			as.character %>%
-			factor(levels = trinucleotides_64)
+	#Whole genome
+genome.reftnc <- get_genome_reftnc(
+	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames
 	)
 
-genome_chromgroup.reftnc_both_strands <- bind_rows(
-	genome_chromgroup.reftnc_plus_strand,
-	genome_chromgroup.reftnc_minus_strand
-) %>%
-	group_by(reftnc) %>%
-	summarize(count = sum(count), .groups = "drop") %>%
-	arrange(reftnc) %>%
-	filter(!is.na(reftnc)) %>%
-	mutate(fraction = count / sum(count))
-
-genome_chromgroup.reftnc_duplex_pyr <- genome_chromgroup.reftnc_plus_strand %>%
-	trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-	rename(reftnc_pyr = reftnc) %>%
-	filter(!is.na(reftnc_pyr)) %>%
-	mutate(fraction = count / sum(count))
-
-rm(genome_chromgroup.reftnc_plus_strand,genome_chromgroup.reftnc_minus_strand)
-invisible(gc())
+ #genome in the analyzed chromgroup
+genome_chromgroup.reftnc <- get_genome_reftnc(
+	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	chroms = chroms_toanalyze
+)
 
 cat("DONE\n")
 
 #Calculate ratio of trinucleotide fractions of final interrogated genome bases to the trinucleotide fractions of the whole genome and the genome in the analyzed chromgroup
-##TODO
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.reftnc_both_strands %>%
@@ -691,12 +674,12 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 				function(x){
 					x %>%
 						left_join(
-							genome.reftnc_both_strands,
+							genome.reftnc$reftnc_both_strands,
 							by = "reftnc",
 							suffix = c("",".genome")
 						) %>%
 						left_join(
-							genome_chromgroup.reftnc_both_strands,
+							genome_chromgroup.reftnc$reftnc_both_strands,
 							by = "reftnc",
 							suffix = c("",".genome_chromgroup")
 						)
@@ -711,12 +694,12 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						function(y){
 							y %>%
 								left_join(
-									genome.reftnc_duplex_pyr,
+									genome.reftnc$reftnc_duplex_pyr,
 									by = "reftnc_pyr",
 									suffix = c("",".genome")
 								) %>%
 								left_join(
-									genome_chromgroup.reftnc_duplex_pyr,
+									genome_chromgroup.reftnc$reftnc_duplex_pyr,
 									by = "reftnc_pyr",
 									suffix = c("",".genome_chromgroup")
 								)
@@ -733,8 +716,8 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						function(y){
 							y %>% 
 								mutate(
-									ratio_to_genome = fraction / fraction.genome,
-									ratio_to_genome_chromgroup = fraction / fraction.genome_chromgroup
+									fraction_ratio_to_genome = fraction / fraction.genome,
+									fraction_ratio_to_genome_chromgroup = fraction / fraction.genome_chromgroup
 								) %>%
 								select(-contains(".genome"))
 						}
@@ -744,9 +727,265 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	)
 
 ######################
+### Calculate trinucleotide distributions (SBS and MDB calls) and spectra (SBS and indel calls)
+######################
+cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
+	
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for SBSindel_call_type = "mutation" and "mismatch-ds" so mutations are only counted once but other ssDNA call_types will be counted twice when present on opposite strands with the same coordinates. Also extract unique calls for SBSindel_call_type = "mutation". Used for burden, spectra, and vcf output.
+finalCalls.bytype <- call_types_toanalyze %>%
+	nest_join(
+		finalCalls %>%
+			mutate(
+				reftnc_pyr = reftnc_pyr %>% factor(levels = trinucleotides_32_pyr),
+				reftnc_template_strand = reftnc_template_strand %>% factor(levels = trinucleotides_64),
+			),
+		by = join_by(call_class, call_type, SBSindel_call_type),
+		name = "finalCalls"
+	) %>%
+	mutate(
+		finalCalls = if_else(
+			SBSindel_call_type %in% c("mutation","mismatch-ds"),
+			finalCalls %>% map(
+				function(x){
+					x %>%
+						distinct( #Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join
+							run_id,zm,
+							seqnames,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,reftnc_template_strand
+						)
+				}
+			),
+			finalCalls %>% map(
+				function(x){
+					x %>%
+						distinct(
+							run_id,zm,
+							seqnames,strand,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,reftnc_template_strand
+						)
+				}
+			)
+		),
+		finalCalls_unique = if_else(
+			SBSindel_call_type == "mutation",
+			finalCalls %>% map(
+				function(x){
+					x %>%
+						distinct(
+							seqnames,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,reftnc_template_strand
+						)
+				}
+			),
+			NA
+		)
+	)
+
+#Extract trinucleotide base change for SBS mutation and SBS mismatch-ss for later spectra
+##TODO
+finalCalls.bytype <- finalCalls.bytype %>%
+	mutate(
+		***
+		reftnc_pyr_mut = str_c(
+			reftnc_pyr,">",
+			str_sub(reftnc_pyr,1,1),
+			if_else(
+				reftnc_plus_strand == reftnc_pyr,
+				alt_plus_strand,
+				alt_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character
+			),
+			str_sub(reftnc_pyr,3,3)
+		)
+	)
+
+
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB"
+finalCalls.reftnc_spectra <- finalCalls.bytype %>%
+	mutate(
+		finalCalls.reftnc_pyr = pmap(
+			list(call_class, SBSindel_call_type, finalCalls),
+			function(x,y,z){
+				if(x == "SBS" & y %in% c("mutation","mismatch-ds")){
+					z %>%
+						count(reftnc_pyr, name = "count") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
+						arrange(reftnc_pyr) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NA
+				}
+			}
+		),
+		
+		finalCalls_unique.reftnc_pyr = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_unique),
+			function(x,y,z){
+				if(x == "SBS" & y == "mutation"){
+					z %>%
+						count(reftnc_pyr, name = "count") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
+						arrange(reftnc_pyr) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NA
+				}
+			}
+		),
+		
+		finalCalls.reftnc_template_strand = pmap(
+			list(call_class, SBSindel_call_type, finalCalls),
+			function(x,y,z){
+				if((x == "SBS" & y == "mismatch-ss") | x == "MDB"){
+					z %>%
+						count(reftnc_template_strand, name = "count") %>%
+						complete(reftnc_template_strand, fill = list(count = 0)) %>%
+						arrange(reftnc_template_strand) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NA
+				}
+			}
+		),
+		
+		finalCalls.reftnc_template_strand_pyr = pmap(
+			list(call_class, SBSindel_call_type, finalCalls),
+			function(x,y,z){
+				if((x == "SBS" & y == "mismatch-ss") | x == "MDB"){
+					z %>%
+						count(reftnc_template_strand, name = "count") %>%
+						complete(reftnc_template_strand, fill = list(count = 0)) %>%
+						filter(!is.na(reftnc_template_strand)) %>%
+						trinucleotides_64to32(tri_column="reftnc_template_strand", count_column="count") %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NA
+				}
+			}
+		)
+	) 
+
+#Extract SBS spectra in tibble and sigfit format
+##TODO
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	mutate(
+		finalCalls.reftnc_pyr_mut = pmap(
+			list(call_class, SBSindel_call_type, finalCalls),
+			function(x,y,z){
+				if(x == "SBS" & y == "mutation"){
+					z 
+				}else{
+					NA
+				}
+			}
+		)
+	)
+
+ SBS mutation all -> 96
+ SBS mutation unique -> 96
+ SBS mismatch-ss -> 96 and 192
+	
+#Extract indel spectra
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	mutate(
+		
+	)
+indel mutation -> base
+
+#Remove unnecessary columns
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	select(-finalCalls,-finalCalls_unique)
+
+cat("DONE\n")
+
+######################
+### Calculate call burdens
+######################
+cat("## Calculating call burdens...")
+	
+#Calculate number of interrogated base pairs (SBSindel_call_type = mutation or mismatch-ds) or bases (mismatch-ss, mismatch-os, match), for each call_type to analyze
+finalCalls.burdens <- call_types_toanalyze %>%
+	select(-starts_with("MDB")) %>%
+	left_join(
+		bam.gr.filtertrack.bytype %>%
+			mutate(
+				interrogated_bases_or_bp = if_else(
+					SBSindel_call_type %in% c("mutation","mismatch-ds"),
+					bam.gr.filtertrack.coverage %>%
+						map_dbl(
+							function(x){
+								x %>% mcols %>% with(duplex_coverage) %>% sum
+							}
+						),
+					bam.gr.filtertrack.coverage %>%
+						map_dbl(
+							function(x){
+								2 * (x %>% mcols %>% with(duplex_coverage) %>% sum)
+							}
+						)
+				)
+			) %>%
+			select(names(call_types_toanalyze),interrogated_bases_or_bp),
+		by = names(call_types_toanalyze)
+	)
+
+#Calculate number of calls for each call_type to analyze.
+finalCall_burdens <- finalCall_burdens  %>%
+	left_join(
+		finalCalls.for_burdens_and_spectra,
+		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
+	) %>%
+	mutate(
+		num_calls = finalCalls %>%
+			map_dbl(nrow),
+		num_calls_unique = finalCalls_unique %>%
+			map_dbl(
+				function(x){
+					if(!is.null(x)){x %>% nrow} else{NA_real_}
+				}
+			)
+	)
+
+#Calculate Poisson 95% confidence intervals for number of calls and number of unique calls
+finalCall_burdens <- finalCall_burdens %>%
+	mutate(
+		ci = num_calls %>% map( function(x){poisson.test(x)$conf.int} ),
+		ci_unique = map2(
+			SBSindel_call_type,
+			num_calls_unique,
+			function(x,y){
+				if(x == "mutation"){
+					poisson.test(y)$conf.int
+				}else{
+					c(NA_real_,NA_real_)
+				}
+			}
+		),
+		
+		num_calls_lci = map_dbl(ci,1),
+		num_calls_uci = map_dbl(ci,2),
+		
+		num_calls_unique_lci = map_dbl(ci_unique,1),
+		num_calls_unique_uci = map_dbl(ci_unique,2)
+	) %>%
+	select(-ci, -ci_unique)
+
+#Calculate burdens for all calls and unique calls, with Poisson 95% confidence intervals
+finalCall_burdens <- finalCall_burdens %>%
+	mutate(
+		burden_calls = num_calls / interrogated_bases_or_bp,
+		burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
+		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp,
+		
+		burden_calls_unique = num_calls_unique / interrogated_bases_or_bp,
+		burden_calls_unique_lci = num_calls_unique_lci / interrogated_bases_or_bp,
+		burden_calls_unique_uci = num_calls_unique_uci / interrogated_bases_or_bp
+	)
+
+rm(finalCalls.for_burdens_and_spectra)
+invisible(gc())
+
+cat("DONE\n")
+
+######################
 ### Calculate SBS and indel sensitivity
 ######################
-
 #Create sensitivity tibble, set default sensitivity to 1 and source to 'default' for all call_types, except for call_class == 'MDB' whose source is set to 'yaml.config' and sensitivity is set per the yaml.config.
 sensitivity <- call_types_toanalyze %>%
 	mutate(
@@ -847,14 +1086,14 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		mutate(num_zm_detected = num_zm_detected %>% replace_na(0))
 	
 	#Annotate duplex coverage of high_confidence_germline_vcf_variants for each non-germline filter tracker. For insertions and deletions, annotate the minimum coverage at the left and right bases immediately flanking the insertion site/deleted bases.
-	 #For high_confidence_germline_vcf_variants, change insertion and deletion ranges to span immediately flanking bases
+	#For high_confidence_germline_vcf_variants, change insertion and deletion ranges to span immediately flanking bases
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
 		mutate(
 			start = if_else(call_class == "indel", start - 1, start),
 			end = if_else(call_class == "indel", end + 1, end)
 		)
 	
-	 #Get coverage for start and end positions so that coverage is calculated for those bases specifically, and then set coverage to the minimum between these.
+	#Get coverage for start and end positions so that coverage is calculated for those bases specifically, and then set coverage to the minimum between these.
 	bam.gr.filtertrack.except_germline_filters.bytype <- bam.gr.filtertrack.except_germline_filters.bytype %>%
 		nest_join(high_confidence_germline_vcf_variants, by = "call_type") %>%
 		mutate(
@@ -883,7 +1122,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 			)
 		)
 	
-	 #Join high_confidence_germline_vcf_variants.annotated to sensitivity tibble 
+	#Join high_confidence_germline_vcf_variants.annotated to sensitivity tibble 
 	sensitivity <- sensitivity %>%
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
@@ -904,21 +1143,21 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		)
 	
 	#Calculate sensitivity.
-		#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 
-		#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(num_zm_detected) / sum(duplex_coverage)
-		#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(num_zm_detected) / sum(duplex_coverage).
-		#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases. 
+	#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 
+	#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(num_zm_detected) / sum(duplex_coverage)
+	#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(num_zm_detected) / sum(duplex_coverage).
+	#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases. 
 	sensitivity <- sensitivity %>% 
 		mutate(
 			
 			#Check based on thresholds if sensitivity should be calculated
 			calculate_sensitivity = (call_class == "SBS" &
-				high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$SBS_min_variant_detections &
-				high_confidence_germline_vcf_variants_sum_duplex_coverage > 0) |
-			
-			(calculate_indel_sensitivity = call_class == "indel" &
-				high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$indel_min_variant_detections &
-				high_confidence_germline_vcf_variants_sum_duplex_coverage > 0),
+															 	high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$SBS_min_variant_detections &
+															 	high_confidence_germline_vcf_variants_sum_duplex_coverage > 0) |
+				
+				(calculate_indel_sensitivity = call_class == "indel" &
+				 	high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$indel_min_variant_detections &
+				 	high_confidence_germline_vcf_variants_sum_duplex_coverage > 0),
 			
 			sensitivity = case_when(
 				calculate_sensitivity & sensitivity_parameters$genotype == "homozygous" ~
@@ -957,156 +1196,6 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 }
 
 ######################
-### Calculate call spectra
-######################
-cat("## Calculating call spectra...")
-	##TODO
-callSpectra <- finalCalls.for_burdens_and_spectra %>%
-	
-	
-	pyr for muts for all and unique
-64 for everything except muts
-pyr for everything except muts
-
-rm(finalCalls.for_burdens_and_spectra)
-invisible(gc())
-
-cat("DONE\n")
-	
-######################
-### Calculate call burdens
-######################
-cat("## Calculating call burdens...")
-	
-#Calculate number of interrogated base pairs (SBSindel_call_type = mutation or mismatch-ds) or bases (mismatch-ss, mismatch-os, match), for each call_type to analyze
-callBurdens <- call_types_toanalyze %>%
-	select(-starts_with("MDB")) %>%
-	left_join(
-		bam.gr.filtertrack.bytype %>%
-			mutate(
-				interrogated_bases_or_bp = if_else(
-					SBSindel_call_type %in% c("mutation","mismatch-ds"),
-					bam.gr.filtertrack.coverage %>%
-						map_dbl(
-							function(x){
-								x %>% mcols %>% with(duplex_coverage) %>% sum
-							}
-						),
-					bam.gr.filtertrack.coverage %>%
-						map_dbl(
-							function(x){
-								2 * (x %>% mcols %>% with(duplex_coverage) %>% sum)
-							}
-						)
-				)
-			) %>%
-			select(names(call_types_toanalyze),interrogated_bases_or_bp),
-		by = names(call_types_toanalyze)
-	)
-
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for SBSindel_call_type = "mutation" and "mismatch-ds" so mutations are only counted once but other ssDNA call_types will be counted twice when present on opposite strands with the same coordinates. Also extract unique calls for SBSindel_call_type = "mutation".
-finalCalls.for_burdens_and_spectra <- call_types_toanalyze %>%
-	nest_join(
-		finalCalls,
-		by = join_by(call_class, call_type, SBSindel_call_type)
-	) %>%
-	mutate(
-		finalCalls = if_else(
-			SBSindel_call_type %in% c("mutation","mismatch-ds"),
-			finalCalls %>% map(
-				function(x){
-					x %>%
-						distinct( #Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join
-							run_id,zm,
-							seqnames,start,end,ref_plus_strand,alt_plus_strand
-						)
-				}
-			),
-			finalCalls %>% map(
-				function(x){
-					x %>%
-						distinct(
-							run_id,zm,
-							seqnames,strand,start,end,ref_plus_strand,alt_plus_strand
-						)
-				}
-			)
-		),
-		finalCalls_unique = if_else(
-			SBSindel_call_type == "mutation",
-			finalCalls %>% map(
-				function(x){
-					x %>%
-						distinct(
-							seqnames,start,end,ref_plus_strand,alt_plus_strand
-						)
-				}
-			),
-			NA
-		)
-	)
-
-#Calculate number of calls for each call_type to analyze.
-callBurdens <- callBurdens  %>%
-	left_join(
-		finalCalls.for_burdens_and_spectra,
-		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
-	) %>%
-	mutate(
-		num_calls = finalCalls %>%
-			map_dbl(nrow),
-		num_calls_unique = finalCalls_unique %>%
-			map_dbl(
-				function(x){
-					if(!is.null(x)){x %>% nrow} else{NA_real_}
-				}
-			)
-	)
-
-#Calculate trinucleotide counts and fractions of calls for each call_type to analyze
-##TODO
-%>%
-	select(-finalCalls,-finalCalls_unique)
-
-#Calculate Poisson 95% confidence intervals for number of calls and number of unique calls
-callBurdens <- callBurdens %>%
-	mutate(
-		ci = num_calls %>% map( function(x){poisson.test(x)$conf.int} ),
-		ci_unique = map2(
-			SBSindel_call_type,
-			num_calls_unique,
-			function(x,y){
-				if(x == "mutation"){
-					poisson.test(y)$conf.int
-				}else{
-					c(NA_real_,NA_real_)
-				}
-			}
-		),
-		
-		num_calls_lci = map_dbl(ci,1),
-		num_calls_uci = map_dbl(ci,2),
-		
-		num_calls_unique_lci = map_dbl(ci_unique,1),
-		num_calls_unique_uci = map_dbl(ci_unique,2)
-	) %>%
-	select(-ci, -ci_unique)
-
-#Calculate burdens for all calls and unique calls, with Poisson 95% confidence intervals
-callBurdens <- callBurdens %>%
-	mutate(
-		burden_calls = num_calls / interrogated_bases_or_bp,
-		burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
-		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp,
-		
-		burden_calls_unique = num_calls_unique / interrogated_bases_or_bp,
-		burden_calls_unique_lci = num_calls_unique_lci / interrogated_bases_or_bp,
-		burden_calls_unique_uci = num_calls_unique_uci / interrogated_bases_or_bp
-	)
-
-cat("DONE\n")
-
-######################
 ### Calculate estimated mutation error rate
 ######################
 cat("## Calculating estimated mutation error rate...")
@@ -1132,19 +1221,18 @@ qs_save(
 		chromgroup = chromgroup_toanalyze,
 		filtergroup = filtergroup_toanalyze,
 		call_types = call_types_toanalyze
-		molecule_stats_by_run_id = molecule_stats_by_run_id,
-		molecule_stats_by_analysis_id = molecule_stats_by_analysis_id
+		molecule_stats.by_run_id = molecule_stats.by_run_id,
+		molecule_stats.by_analysis_id = molecule_stats.by_analysis_id
 		region_genome_filter_stats = region_genome_filter_stats,
-		bam.gr.filtertrack.bytype.coverage_tnccounts = bam.gr.filtertrack.bytype,
-		genome.reftnc_both_strands = genome.reftnc_both_strands,
-		genome.reftnc_duplex_pyr = genome.reftnc_duplex_pyr,
-		genome_chromgroup.reftnc_both_strands = genome_chromgroup.reftnc_both_strands,
-		genome_chromgroup.reftnc_duplex_pyr = genome_chromgroup.reftnc_duplex_pyr,
+		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype,
+		genome.reftnc = genome.reftnc,
+		genome_chromgroup.reftnc = genome_chromgroup.reftnc,
 		finalCalls = finalCalls,
 		germlineVariantCalls = germlineVariantCalls,
+		finalCalls.bytype = finalCalls.bytype,
+		finalCalls.reftnc_spectra = finalCalls.reftnc_spectra,
+		finalCalls.burdens = finalCalls.burdens,
 		sensitivity = sensitivity,
-		callBurdens = callBurdens,
-		callSpectra = callSpectra,
 		estimatedMutationErrorRate = estimatedMutationErrorRate
 	),
 	outputFile

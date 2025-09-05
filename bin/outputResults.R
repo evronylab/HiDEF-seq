@@ -324,24 +324,8 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 
 cat("## Outputting final calls and detected germline variants...")
 
-#Final calls
-#Extract final calls, split by type, and format list columns to comma-delimited
-finalCalls.out <- call_types_toanalyze %>%
-	distinct(call_type, call_class, SBSindel_call_type) %>%
-	nest_join(
-		finalCalls %>%
-			mutate(
-				across(
-					where(is.list),
-					function(x){map_chr(x, function(v){str_c(v, collapse = ",")})}
-				)
-			),
-		by = join_by(call_type, call_class, SBSindel_call_type),
-		name = "finalCalls"
-	)
-
 #Output final calls to tsv and vcf, separately for each combination of call_class, call_type, SBSindel_call_type
-finalCalls.out %>%
+finalCalls.bytype %>%
 	pwalk(
 		function(...){
 			x <- list(...)
@@ -352,6 +336,15 @@ finalCalls.out %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
+			
+			#Format list columns to comma-delimited
+			x$finalCalls <- x$finalCalls %>%
+				mutate(
+					across(
+						where(is.list),
+						function(x){map_chr(x, function(v){str_c(v, collapse = ",")})}
+					)
+				)
 			
 			#tsv
 			x$finalCalls %>%
@@ -384,8 +377,8 @@ finalCalls.out %>%
 		}
 	)
 
-#Germline variant calls
-#Extract germline variant calls and format list columns to comma-delimited
+#Output germline variant calls
+ #Format list columns to comma-delimited
 germlineVariantCalls.out <- germlineVariantCalls %>%
 	mutate(
 		across(
@@ -394,13 +387,13 @@ germlineVariantCalls.out <- germlineVariantCalls %>%
 		)
 	)
 
-#Output germline variant calls to tsv
+ #tsv
 germlineVariantCalls.out %>%
 	write_tsv(
 		str_c(output_basename,"germlineVariantCalls","tsv",sep=".")
 	)
 
-#Output germline variant calls to vcf
+ #vcf
 germlineVariantCalls.out %>% 
 	normalize_indels_for_vcf(
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name
@@ -410,7 +403,7 @@ germlineVariantCalls.out %>%
 		out_vcf = str_c(output_basename,"germlineVariantCalls","vcf",sep=".")
 	)
 
-rm(finalCalls.out, germlineVariantCalls.out)
+rm(germlineVariantCalls.out)
 
 cat("DONE\n")
 

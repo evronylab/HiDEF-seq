@@ -76,7 +76,7 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 				x %>% str_split_1(",") %>% str_trim
 			})
 	) %>%
-	select(-name, -sensitivity_thresholds) %>%
+	select(-name) %>%
 	bind_rows(
 		tibble(
 			chromgroup = "all_chromgroups",
@@ -1058,9 +1058,18 @@ calls <- calls %>%
 			
 			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns. Also calculate trinucleotide context with central pyrimidine
 			mutate(
-				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>% as.character,
-				reftnc_minus_strand = reftnc_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
-				reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand)
+				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+					as.character %>%
+					factor(levels = trinucleotides_64),
+				
+				reftnc_minus_strand = reftnc_plus_strand %>%
+					DNAStringSet %>%
+					reverseComplement %>%
+					as.character %>%
+					factor(levels = trinucleotides_64),
+				
+				reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand) %>%
+					factor(levels = trinucleotides_32_pyr)
 			) %>%
 			
 			#Resize back to original start/end, and make tibble
@@ -1075,7 +1084,7 @@ calls <- calls %>%
 		by = join_by(seqnames,start_refspace,end_refspace,call_class)
 	)
 
-#Annotate for each calls its ref, alt, and trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
+#Annotate for each calls its ref, alt, and ref and alt trinucleotide context sequences relative to the reference plus strand, synthesized strand, and template strand.
 calls <- calls %>%
 	mutate(
 		ref_minus_strand = ref_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
@@ -1087,9 +1096,33 @@ calls <- calls %>%
 		alt_template_strand = if_else(strand=="+",alt_minus_strand,alt_plus_strand),
 		
 		reftnc_synthesized_strand = if_else(strand=="+",reftnc_plus_strand,reftnc_minus_strand),
-		reftnc_template_strand = if_else(strand=="+",reftnc_minus_strand,reftnc_plus_strand)
+		reftnc_template_strand = if_else(strand=="+",reftnc_minus_strand,reftnc_plus_strand),
+		
+		alttnc_plus_strand = str_c(
+			str_sub(reftnc_plus_strand,1,1),
+			alt_plus_strand,
+			str_sub(reftnc_plus_strand,3,3)
+		) %>%
+			factor(levels = trinucleotides_64),
+		alttnc_minus_strand = str_c(
+			str_sub(reftnc_minus_strand,1,1),
+			alt_minus_strand,
+			str_sub(reftnc_minus_strand,3,3)
+		) %>%
+			factor(levels = trinucleotides_64),
+		 #alttnc corresponding to same strand as reftnc_pyr, so the '_pyr' annotation in this column name does NOT imply that alttnc_pyr has a central pyrimidine.
+		alttnc_pyr = if_else(
+			reftnc_plus_strand %>% as.character == reftnc_pyr %>% as.character,
+			alttnc_plus_strand,
+			alttnc_minus_strand
+		) %>%
+			factor(levels = trinucleotides_64),
+		
+		alttnc_synthesized_strand = if_else(strand=="+",alttnc_plus_strand,alttnc_minus_strand),
+		alttnc_template_strand = if_else(strand=="+",alttnc_minus_strand,alttnc_plus_strand)
+	
 	) %>%
-	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand))
+	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand,alttnc_minus_strand))
 
 #Annotate for each call (for all call classes: SBS, indel, MDB) the base sequence on the opposite strand based on reference space coordinates, taking into account if there was an SBS or an indel called on the opposite strand, regardless if there was an MDB called on the opposite strand.
 # Possible overlaps are SBS/MDB with SBS, SBS/MDB with deletion, insertion with insertion, insertion with deletion, deletion with SBS, deletion with insertion, deletion with deletion.

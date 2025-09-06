@@ -144,7 +144,7 @@ process limaDemux {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    lima --ccs --split-named --same --min-score 90 \\
+    lima --ccs --split-named --same --min-score ${params.lima_min_score} \\
          --min-ref-span 0.9 --min-scoring-regions 2 \\
          ${bamFile} \\
          ${barcodesFasta} \\

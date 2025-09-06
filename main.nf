@@ -524,9 +524,7 @@ process outputResultsSample {
       tuple val(sample_id), path(calculateBurdensFiles)
     
     output:
-      tuple
-        val(sample_id),
-        ***
+      tuple val(sample_id)
 
     storeDir "${outputResults_output_dir}"
 

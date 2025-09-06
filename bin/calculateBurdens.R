@@ -148,12 +148,6 @@ indel_labels <- c(
 	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5"
 )
 
-#All possible trinucleotides
-trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
-
-#central pyrimidine trinucleotides
-trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
-
 #List named with trinucleotides_32_pyr sequences, each containing the corresponding trinucleotides_64 sequences
 trinucleotides_64_32_pyr_list <- split(
 	trinucleotides_64,

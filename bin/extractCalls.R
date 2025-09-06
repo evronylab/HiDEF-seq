@@ -91,6 +91,11 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 cat("DONE\n")
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Define custom functions
 ######################
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup

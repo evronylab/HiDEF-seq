@@ -112,10 +112,15 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Define custom functions
 ######################
 #Order of sbs trinucleotide context labels
-sbs_labels <- c(
+sbs96_labels <- c(
 	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
 	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
 	"ACA>AGA","ACC>AGC","ACG>AGG","ACT>AGT","CCA>CGA","CCC>CGC","CCG>CGG","CCT>CGT",
@@ -128,6 +133,11 @@ sbs_labels <- c(
 	"GTA>GCA","GTC>GCC","GTG>GCG","GTT>GCT","TTA>TCA","TTC>TCC","TTG>TCG","TTT>TCT",
 	"ATA>AGA","ATC>AGC","ATG>AGG","ATT>AGT","CTA>CGA","CTC>CGC","CTG>CGG","CTT>CGT",
 	"GTA>GGA","GTC>GGC","GTG>GGG","GTT>GGT","TTA>TGA","TTC>TGC","TTG>TGG","TTT>TGT"
+)
+
+sbs192_labels <- c(
+	str_c("T:",sbs96_labels),
+	str_c("U:",sbs96_labels)
 )
 
 #Order of indel context labels

@@ -74,48 +74,6 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
-#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
-normalize_indels_for_vcf <- function(df, BSgenome_name) {
-	
-	#Identify deletions and insertions
-	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
-	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
-	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
-	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
-	ins_or_del <- ins | del
-	
-	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
-	if(any(ins_or_del)){
-		df$start[ins_or_del] <- df$start[ins_or_del] - 1
-		
-		gr <- GRanges(
-			df$seqnames[ins_or_del],
-			IRanges(df$start[ins_or_del],	width = 1),
-			seqinfo = BSgenome_name %>% get %>% seqinfo
-		)
-		
-		start_base_ref <- df %>% nrow %>% character
-		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
-	}
-	
-	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
-	if(any(ins)){
-		df$ref_plus_strand[ins] <- start_base_ref[ins]
-		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
-	}
-	
-	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
-	if(any(del)){
-		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
-		df$alt_plus_strand[del] <- start_base_ref[del]
-	}
-	
-	#Remove 'end' column that is not needed for vcf, to avoid confusion
-	df$end <- NULL
-	
-	return(df)
-}
-
 #Function to write vcf from finalCalls/germlineCalls
 write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	
@@ -359,10 +317,7 @@ finalCalls.bytype %>%
 				)
 			
 			#vcf
-			x$finalCalls %>%
-				normalize_indels_for_vcf(
-					BSgenome_name = yaml.config$BSgenome$BSgenome_name
-				) %>%
+			x$finalCalls_for_vcf %>%
 				write_vcf_from_calls(
 					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 					out_vcf = str_c(
@@ -376,6 +331,8 @@ finalCalls.bytype %>%
 			
 		}
 	)
+
+##TODO - OUTPUT UNIQUE CALLS to TSV and VCF
 
 #Output germline variant calls
  #Format list columns to comma-delimited

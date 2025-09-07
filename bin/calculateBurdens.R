@@ -136,6 +136,15 @@ sbs96_labels <- c(
 )
 
 sbs192_labels <- c(
+	sbs96_labels,
+	str_c(
+		str_sub(sbs96_labels,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+		">",
+		str_sub(sbs96_labels,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+	)
+)
+
+sbs192_labels.sigfit <- c(
 	str_c("T:",sbs96_labels),
 	str_c("U:",sbs96_labels)
 )
@@ -233,6 +242,48 @@ gr_1bp_cov <- function(gr, cov){
 	}
 	
 	return(result)
+}
+
+#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
+normalize_indels_for_vcf <- function(df, BSgenome_name) {
+	
+	#Identify deletions and insertions
+	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
+	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
+	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
+	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
+	ins_or_del <- ins | del
+	
+	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
+	if(any(ins_or_del)){
+		df$start[ins_or_del] <- df$start[ins_or_del] - 1
+		
+		gr <- GRanges(
+			df$seqnames[ins_or_del],
+			IRanges(df$start[ins_or_del],	width = 1),
+			seqinfo = BSgenome_name %>% get %>% seqinfo
+		)
+		
+		start_base_ref <- df %>% nrow %>% character
+		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
+	}
+	
+	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
+	if(any(ins)){
+		df$ref_plus_strand[ins] <- start_base_ref[ins]
+		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
+	}
+	
+	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
+	if(any(del)){
+		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
+		df$alt_plus_strand[del] <- start_base_ref[del]
+	}
+	
+	#Remove 'end' column that is not needed for vcf, to avoid confusion
+	df$end <- NULL
+	
+	return(df)
 }
 
 #Function to convert indelwald spectrum (produced by indel.spectrum) to sigfit format
@@ -710,8 +761,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" and "mismatch-ds" so each of these events is only counted once, but all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Used for burden, spectra, and vcf output.
-
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" and "mismatch-ds" so each of these events is only counted once, but all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Also create a table formatted for vcf output. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
 	nest_join(
 		finalCalls,
@@ -740,6 +790,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				}
 			)
 		),
+		
 		finalCalls_unique = if_else(
 			SBSindel_call_type == "mutation",
 			finalCalls %>% map(
@@ -747,6 +798,28 @@ finalCalls.bytype <- call_types_toanalyze %>%
 					x %>%
 						distinct(
 							seqnames,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,reftnc_template_strand
+						)
+				}
+			),
+			NA
+		),
+		
+		finalCalls_for_vcf = finalCalls %>% map(
+			function(x){
+				x %>% 
+					normalize_indels_for_vcf(
+						BSgenome_name = yaml.config$BSgenome$BSgenome_name
+					)
+			}
+		),
+		
+		finalCalls_unique_for_vcf = if_else(
+			SBSindel_call_type == "mutation",
+			finalCalls_unique %>% map(
+				function(x){
+					x %>% 
+						normalize_indels_for_vcf(
+							BSgenome_name = yaml.config$BSgenome$BSgenome_name
 						)
 				}
 			),
@@ -821,32 +894,171 @@ finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 		
 	)
 
-#Extract SBS spectra in tibble and sigfit format
-##TODO
+#Extract SBS spectra
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
-		finalCalls.reftnc_pyr_mut = pmap(
-			list(call_class, SBSindel_call_type, finalCalls),
-			function(x,y,z){
-				if(x == "SBS" & y == "mutation"){
-					z 
-				}else{
-					NA
-				}
-			}
+		finalCalls.reftnc_pyr_spectrum = if_else(
+			call_class == "SBS" & SBSindel_call_type %in% c("mutation","mismatch-ss"),
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							mutate(
+								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
+									factor(levels = sbs96_labels)
+							) %>%
+							count(channel, name = "count") %>%
+							complete(channel, fill = list(count = 0)) %>%
+							arrange(channel)
+					}
+				),
+			NA
+		),
+		
+		finalCalls_unique.reftnc_pyr_spectrum = if_else(
+			call_class == "SBS" & SBSindel_call_type == "mutation",
+			finalCalls_unique %>%
+				map(
+					function(x){
+						x %>%
+							mutate(
+								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
+									factor(levels = sbs96_labels)
+							) %>%
+							count(channel, name = "count") %>%
+							complete(channel, fill = list(count = 0)) %>%
+							arrange(channel)
+					}
+				),
+			NA
+		),
+		
+		finalCalls.reftnc_template_strand_spectrum = if_else(
+			call_class == "SBS" & SBSindel_call_type == "mismatch-ss",
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							mutate(
+								channel = str_c(reftnc_template_strand,">",alttnc_template_strand) %>%
+									factor(levels = sbs192_labels)
+							) %>%
+							count(channel, name = "count") %>%
+							complete(channel, fill = list(count = 0)) %>%
+							arrange(channel)
+					}
+				),
+			NA
 		)
 	)
 
- SBS mutation all -> 96
- SBS mutation unique -> 96
- SBS mismatch-ss -> 96 and 192
+#Extract indel spectra (only for mutations)
+BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
+	get %>%
+	getSeq
 	
-#Extract indel spectra
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
+		finalCalls.refindel_spectrum = if_else(
+			call_class == "indel" & SBSindel_call_type == "mutation",
+			finalCalls_for_vcf %>%
+				map(
+					function(x){
+						x %>%
+							rename(
+								CHROM = seqnames, POS = start,
+								REF = ref_plus_strand, ALT = alt_plus_strand
+							) %>%
+							select(CHROM, POS, REF, ALT) %>%
+							indel.spectrum(BSgenome_for_indel.spectrum)
+					}
+				),
+			NA
+		),
 		
+		finalCalls_unique.refindel_spectrum = if_else(
+			call_class == "indel" & SBSindel_call_type == "mutation",
+			finalCalls_unique_for_vcf %>% map(
+				function(x){
+					x %>%
+						rename(
+							CHROM = seqnames, POS = start,
+							REF = ref_plus_strand, ALT = alt_plus_strand
+						) %>%
+						select(CHROM, POS, REF, ALT) %>%
+						indel.spectrum(BSgenome_for_indel.spectrum)
+				}
+			),
+			NA
+		)
 	)
-indel mutation -> base
+
+rm(BSgenome_for_indel.spectrum)
+invisible(gc())
+
+#Create sigfit-format spectra tables
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	mutate(
+		across(
+			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
+			function(x){
+				x <- x %>%
+					pivot_wider(names_from = channel, values_from = count)
+				rownames(x) <- str_c(
+					yaml.config$analysis_id, sample_id_toanalyze,
+					chromgroup_toanalyze, filtergroup_toanalyze,
+					call_class, call_type, SBSindel_call_type
+					sep="."
+				)
+				return(x)
+			},
+			.names = "{.col}.sigfit"
+		),
+		
+		across(
+			c(finalCalls.reftnc_template_strand_spectrum),
+			function(x){
+				x <- x %>%
+					mutate(
+						channel = if_else(
+							str_sub(channel,2,2) %in% c("C","T"),
+							str_c("T:",channel),
+							str_c(
+								"U:",
+								str_sub(channel,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+								">",
+								str_sub(channel,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+							)
+						) %>%
+							factor(levels = sbs192_labels.sigfit)
+					) %>%
+					pivot_wider(names_from = channel, values_from = count)
+				rownames(x) <- str_c(
+					yaml.config$analysis_id, sample_id_toanalyze,
+					chromgroup_toanalyze, filtergroup_toanalyze,
+					call_class, call_type, SBSindel_call_type
+					sep="."
+				)
+				return(x)
+			},
+			.names = "{.col}.sigfit"
+		),
+		
+		across(
+			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
+			function(x){
+				x <- x %>% indelwald.to.sigfit
+				rownames(x) <- str_c(
+					yaml.config$analysis_id, sample_id_toanalyze,
+					chromgroup_toanalyze, filtergroup_toanalyze,
+					call_class, call_type, SBSindel_call_type
+					sep="."
+				)
+				return(x)
+			},
+			.names = "{.col}.sigfit"
+		)
+	)
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%

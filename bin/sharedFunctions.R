@@ -229,7 +229,7 @@ trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
 trinucleotides_64_32_pyr_list <- split(
 	trinucleotides_64,
 	ifelse(
-		substr(trinucleotides_64, 2, 2) %in% c("C","T"),
+		str_sub(trinucleotides_64, 2, 2) %in% c("C","T"),
 		trinucleotides_64,
 		trinucleotides_64 %>% DNAStringSet %>% reverseComplement %>% as.character
 	) %>%
@@ -253,7 +253,7 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)
-indel.spectrum <- function(x,reference){
+indel.spectrum <- function(x, reference){
 	
 	## 1. split VCF indels into:
 	# (i) 1-bp deletions

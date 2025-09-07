@@ -225,6 +225,31 @@ trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
 #central pyrimidine trinucleotides
 trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
 
+#List named with trinucleotides_32_pyr sequences, each containing the corresponding trinucleotides_64 sequences
+trinucleotides_64_32_pyr_list <- split(
+	trinucleotides_64,
+	ifelse(
+		substr(trinucleotides_64, 2, 2) %in% c("C","T"),
+		trinucleotides_64,
+		trinucleotides_64 %>% DNAStringSet %>% reverseComplement %>% as.character
+	) %>%
+		factor(levels = trinucleotides_32_pyr)
+)
+
+#Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
+trinucleotides_64to32 <- function(x, tri_column, count_column){
+	x %>%
+		mutate(
+			!!sym(tri_column) := !!sym(tri_column) %>%
+				factor(levels = trinucleotides_64) %>%
+				fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
+				factor(levels = trinucleotides_32_pyr)
+		)%>%
+		group_by(!!sym(tri_column)) %>%
+		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
+		arrange(!!sym(tri_column))
+}
+
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)

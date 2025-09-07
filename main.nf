@@ -445,7 +445,7 @@ process extractCallsChunk {
       tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), val(chunkID), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
+      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
     storeDir "${extractCalls_output_dir}"
 

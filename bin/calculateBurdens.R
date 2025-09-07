@@ -710,20 +710,17 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for SBSindel_call_type = "mutation" and "mismatch-ds" so mutations are only counted once but other ssDNA call_types will be counted twice when present on opposite strands with the same coordinates. Also extract unique calls for SBSindel_call_type = "mutation". Used for burden, spectra, and vcf output.
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" and "mismatch-ds" so each of these events is only counted once, but all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Used for burden, spectra, and vcf output.
+
 finalCalls.bytype <- call_types_toanalyze %>%
 	nest_join(
-		finalCalls %>%
-			mutate(
-				reftnc_pyr = reftnc_pyr %>% factor(levels = trinucleotides_32_pyr),
-				reftnc_template_strand = reftnc_template_strand %>% factor(levels = trinucleotides_64),
-			),
+		finalCalls,
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
 	) %>%
 	mutate(
 		finalCalls = if_else(
-			SBSindel_call_type %in% c("mutation","mismatch-ds"),
+			call_class %in% c("SBS","indel") & SBSindel_call_type %in% c("mutation","mismatch-ds"),
 			finalCalls %>% map(
 				function(x){
 					x %>%
@@ -757,88 +754,72 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		)
 	)
 
-#Extract trinucleotide base change for SBS mutation and SBS mismatch-ss for later spectra
-##TODO
-finalCalls.bytype <- finalCalls.bytype %>%
-	mutate(
-		***
-		reftnc_pyr_mut = str_c(
-			reftnc_pyr,">",
-			str_sub(reftnc_pyr,1,1),
-			if_else(
-				reftnc_plus_strand == reftnc_pyr,
-				alt_plus_strand,
-				alt_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character
-			),
-			str_sub(reftnc_pyr,3,3)
-		)
-	)
-
-
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB"
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For call_class and "SBS" with SBSindel_call_type = "mutation" and "mismatch-ds", calculate only reftnc_pyr. For everything else, calculate reftnc_template_strand and reftnc_template_strand_pyr.
 finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 	mutate(
-		finalCalls.reftnc_pyr = pmap(
-			list(call_class, SBSindel_call_type, finalCalls),
-			function(x,y,z){
-				if(x == "SBS" & y %in% c("mutation","mismatch-ds")){
-					z %>%
-						count(reftnc_pyr, name = "count") %>%
-						complete(reftnc_pyr, fill = list(count = 0)) %>%
-						arrange(reftnc_pyr) %>%
-						mutate(fraction = count / sum(count))
-				}else{
-					NA
-				}
-			}
+		
+		finalCalls.reftnc_pyr = if_else(
+			call_class == "SBS" & SBSindel_call_type %in% c("mutation","mismatch-ds"),
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							count(reftnc_pyr, name = "count") %>%
+							complete(reftnc_pyr, fill = list(count = 0)) %>%
+							arrange(reftnc_pyr) %>%
+							mutate(fraction = count / sum(count))
+					}
+				),
+			NA
 		),
 		
-		finalCalls_unique.reftnc_pyr = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_unique),
-			function(x,y,z){
-				if(x == "SBS" & y == "mutation"){
-					z %>%
-						count(reftnc_pyr, name = "count") %>%
-						complete(reftnc_pyr, fill = list(count = 0)) %>%
-						arrange(reftnc_pyr) %>%
-						mutate(fraction = count / sum(count))
-				}else{
-					NA
-				}
-			}
+		finalCalls_unique.reftnc_pyr = if_else(
+			call_class == "SBS" & SBSindel_call_type == "mutation",
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							count(reftnc_pyr, name = "count") %>%
+							complete(reftnc_pyr, fill = list(count = 0)) %>%
+							arrange(reftnc_pyr) %>%
+							mutate(fraction = count / sum(count))
+					}
+				),
+			NA
 		),
 		
-		finalCalls.reftnc_template_strand = pmap(
-			list(call_class, SBSindel_call_type, finalCalls),
-			function(x,y,z){
-				if((x == "SBS" & y == "mismatch-ss") | x == "MDB"){
-					z %>%
-						count(reftnc_template_strand, name = "count") %>%
-						complete(reftnc_template_strand, fill = list(count = 0)) %>%
-						arrange(reftnc_template_strand) %>%
-						mutate(fraction = count / sum(count))
-				}else{
-					NA
-				}
-			}
+		finalCalls.reftnc_template_strand = if_else(
+			(call_class == "SBS" & SBSindel_call_type == "mismatch-ss") | call_class == "MDB",
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							count(reftnc_template_strand, name = "count") %>%
+							complete(reftnc_template_strand, fill = list(count = 0)) %>%
+							arrange(reftnc_template_strand) %>%
+							mutate(fraction = count / sum(count))
+					}
+				),
+			NA
 		),
 		
-		finalCalls.reftnc_template_strand_pyr = pmap(
-			list(call_class, SBSindel_call_type, finalCalls),
-			function(x,y,z){
-				if((x == "SBS" & y == "mismatch-ss") | x == "MDB"){
-					z %>%
-						count(reftnc_template_strand, name = "count") %>%
-						complete(reftnc_template_strand, fill = list(count = 0)) %>%
-						filter(!is.na(reftnc_template_strand)) %>%
-						trinucleotides_64to32(tri_column="reftnc_template_strand", count_column="count") %>%
-						mutate(fraction = count / sum(count))
-				}else{
-					NA
-				}
-			}
+		finalCalls.reftnc_template_strand_pyr = if_else(
+			(call_class == "SBS" & SBSindel_call_type == "mismatch-ss") | call_class == "MDB",
+			finalCalls %>%
+				map(
+					function(x){
+						x %>%
+							count(reftnc_template_strand, name = "count") %>%
+							complete(reftnc_template_strand, fill = list(count = 0)) %>%
+							filter(!is.na(reftnc_template_strand)) %>%
+							trinucleotides_64to32(tri_column="reftnc_template_strand", count_column="count") %>%
+							mutate(fraction = count / sum(count))
+					}
+				),
+			NA
 		)
-	) 
+		
+	)
 
 #Extract SBS spectra in tibble and sigfit format
 ##TODO

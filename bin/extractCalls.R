@@ -1231,8 +1231,8 @@ invisible(gc())
   #       N      |       N                       			=> "match" (possible only for MDB)
   #       N      |       Y                       			=> "mismatch-os" (possible only for MDB)
   #       Y      |       N                     				=> "mismatch-ss"
-  #       Y      |       Y (non-complementary change)  => "mismatch-ds"
-  #       Y      |       Y (complementary change)      => "mutation"
+  #       Y      |       Y (non-complementary change) => "mismatch-ds"
+  #       Y      |       Y (complementary change)     => "mutation"
 
 calls <- calls %>%
 	mutate(SBSindel_call_type = case_when(

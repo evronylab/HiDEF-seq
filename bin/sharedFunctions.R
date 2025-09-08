@@ -791,7 +791,7 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 		dels.5bp.context <- as.character(
 			subseq(
 				x = reference[as.character(dels.5bp[,'CHROM'])],
-				start = as.numeric(dels.5bp[,'POS']) - (.flank - 1L),
+				start = as.numeric(dels.5bp[,'POS']) - (.flank - 1),
 				end = as.numeric(dels.5bp[,'POS']) + dels.5bp.context.middle.lengths + .flank
 				)
 			)
@@ -804,33 +804,23 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 		#upstream
 		dels.5bp.context.start <- rep(NA, nrow(dels.5bp))
 		for (i in 1:length(dels.5bp.context.start)){
-			##CHECK
-			l   <- dels.5bp.context.middle.lengths[i]
-			nC  <- 2*.flank + l                       # total length of context string for this deletion
-			s   <- str_split_fixed(dels.5bp.context[i], '', nC)
-			i1  <- max(1L, .flank - 5L*l + 1L)        # start index (clamped)
-			i2  <- .flank                              # end index (upstream flank end)
-			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
-			dels.5bp.context.start[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
-			
-			# tmp.dels.5bp.context.start <- str_split_fixed(dels.5bp.context[i], '', 501)[,c(1 + 500-c(5*dels.5bp.context.middle.lengths[i])):500,drop=F]
-			# dels.5bp.context.start[i] <- paste(tmp.dels.5bp.context.start, collapse = '')
+			l <- dels.5bp.context.middle.lengths[i]
+			nC <- 2*.flank + l # total length of context string for this deletion
+			s <- str_split_fixed(dels.5bp.context[i], '', nC)
+			i1 <- max(1, .flank - (5 * l) + 1) # start index (clamped)
+			i2 <- .flank # end index (upstream flank end)
+			dels.5bp.context.start[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
 		
 		#downstream
 		dels.5bp.context.end <- rep(NA, nrow(dels.5bp))
 		for (i in 1:length(dels.5bp.context.end)){
-			##CHECK
-			l   <- dels.5bp.context.middle.lengths[i]
-			nC  <- 2*.flank + l
-			s   <- str_split_fixed(dels.5bp.context[i], '', nC)
-			i1  <- .flank + 1L + l                     # first base after the deleted block
-			i2  <- min(.flank + 6L*l, nC)              # clamp to available sequence
-			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
-			dels.5bp.context.end[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
-			
-			# tmp.dels.5bp.context.end <- str_split_fixed(dels.5bp.context[i], '', 1006)[,c(501+dels.5bp.context.middle.lengths[i]):c(501 + dels.5bp.context.middle.lengths[i]*6 - 1),drop=F]
-			# dels.5bp.context.end[i] <- paste(tmp.dels.5bp.context.end, collapse = '')
+			l <- dels.5bp.context.middle.lengths[i]
+			nC <- 2*.flank + l
+			s <- str_split_fixed(dels.5bp.context[i], '', nC)
+			i1 <- .flank + 1 + l # first base after the deleted block
+			i2 <- min(.flank + (6*l), nC) # clamp to available sequence
+			dels.5bp.context.end[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
 		
 		dels.5bp[,'TRIPLET'] <- paste(dels.5bp.context.start, dels.5bp.context.middle, dels.5bp.context.end, sep = '')
@@ -1431,7 +1421,7 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 			subseq(
 				x = reference[as.character(ins.5bp[,'CHROM'])],
 				start = as.numeric(ins.5bp[,'POS']) - (.flank - 1L),
-				end = as.numeric(ins.5bp[,'POS']) + .flank)
+				end = as.numeric(ins.5bp[,'POS']) + .flank
 			)
 		)
 		
@@ -1444,33 +1434,22 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 		# upstream: take up to 5×repeat-length
 		ins.5bp.context.start <- rep(NA, nrow(ins.5bp))
 		for (i in 1:length(ins.5bp.context.start)){
-			##CHECK
-			l   <- ins.5bp.context.middle.lengths[i]
-			s   <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
-			i1  <- max(1L, .flank - 5L*l + 1L)
-			i2  <- .flank
-			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
-			ins.5bp.context.start[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
-			
-			# tmp.ins.5bp.context.start <- str_split_fixed(ins.5bp.context[i], '', 501)[,c(1 + 500-c(5*ins.5bp.context.middle.lengths[i])):500,drop=F]
-			# ins.5bp.context.start[i] <- paste(tmp.ins.5bp.context.start, collapse = '')
+			l <- ins.5bp.context.middle.lengths[i]
+			s <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
+			i1 <- max(1, .flank - (5 * l) + 1)
+			i2 <- .flank
+			ins.5bp.context.start[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
 		
 		# downstream: take up to 6×repeat-length starting immediately after POS
 		ins.5bp.context.end <- rep(NA, nrow(ins.5bp))
 		for (i in 1:length(ins.5bp.context.end)){
-			##CHECK
-			l   <- ins.5bp.context.middle.lengths[i]
-			s   <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
-			i1  <- .flank + 1L
-			i2  <- min(.flank + 6L*l, 2*.flank)       # clamp to available sequence
-			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
-			ins.5bp.context.end[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
-			
-			# tmp.ins.5bp.context.end <- str_split_fixed(ins.5bp.context[i], '', 1000)[,501:c(501 + ins.5bp.context.middle.lengths[i]*6 - 1),drop=F]
-			# ins.5bp.context.end[i] <- paste(tmp.ins.5bp.context.end, collapse = '')
+			l <- ins.5bp.context.middle.lengths[i]
+			s <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
+			i1 <- .flank + 1
+			i2 <- min(.flank + (6 * l), 2*.flank) # clamp to available sequence
+			ins.5bp.context.end[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
-		
 		
 		ins.5bp[,'TRIPLET'] <- paste(ins.5bp.context.start, ins.5bp.context.middle, ins.5bp.context.end, sep = '')
 		colnames(ins.5bp)[5] <- 'CONTEXT'

@@ -366,7 +366,7 @@ cat("DONE\n")
 
 ####
 Output Sensitivity
-
+ - Assign the use_chromgroup sensitivity to all chromgroups, or if use_chromgroup is null, every chromgroup will already have the default sensitivity tibble assigned by the calculateBurdens script
 
 #Call burdens
  -> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)

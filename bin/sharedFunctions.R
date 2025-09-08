@@ -253,7 +253,10 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)
-indel.spectrum <- function(x, reference){
+indel.spectrum <- function(x, reference, long_context_bp = 1000){
+	
+	# long_context_bp: total number of bp extracted around ≥5 bp events (flank on each side ~ long_context_bp/2)
+	.flank <- as.integer(long_context_bp / 2L)  # symmetric flank size used in ≥5 bp sections
 	
 	## 1. split VCF indels into:
 	# (i) 1-bp deletions
@@ -781,27 +784,55 @@ indel.spectrum <- function(x, reference){
 	# (iv) 5+ bp deletions at simple repeats (length 1 == "no neighbouring simple repeat")
 	if(nrow(dels.5bp) > 0){
 		
-		## extract 5 x 100 bp upstream/downstream sequence context from reference
-		## i.e. max. 100 bp repeat motif
-		dels.5bp.context <- as.character(subseq(x = reference[as.character(dels.5bp[,'CHROM'])], 
-																						start = as.numeric(dels.5bp[,'POS']) - 499, 
-																						end = as.numeric(dels.5bp[,'POS']) + 5 + 500))
+		# lengths of the deleted segments
+		dels.5bp.context.middle.lengths <- nchar(as.character(dels.5bp[,'REF'])) - 1
 		
-		### account for the different repeat lengths: iterate
+		# extract symmetric upstream/downstream flanks sized by long_context_bp and extend end by deletion length
+		dels.5bp.context <- as.character(
+			subseq(
+				x = reference[as.character(dels.5bp[,'CHROM'])],
+				start = as.numeric(dels.5bp[,'POS']) - (.flank - 1L),
+				end = as.numeric(dels.5bp[,'POS']) + dels.5bp.context.middle.lengths + .flank
+				)
+			)
+		
+		# build [deleted] middle
 		dels.5bp.context.middle <- as.character(dels.5bp[,'REF'])
 		dels.5bp.context.middle <- str_split_fixed(dels.5bp.context.middle, '', 2)[,2,drop=F]
 		dels.5bp.context.middle <- paste0('[', dels.5bp.context.middle, ']')
-		dels.5bp.context.middle.lengths <- nchar(as.character(dels.5bp[,'REF'])) - 1
+		
+		#upstream
 		dels.5bp.context.start <- rep(NA, nrow(dels.5bp))
 		for (i in 1:length(dels.5bp.context.start)){
-			tmp.dels.5bp.context.start <- str_split_fixed(dels.5bp.context[i], '', 501)[,c(1 + 500-c(5*dels.5bp.context.middle.lengths[i])):500,drop=F]
-			dels.5bp.context.start[i] <- paste(tmp.dels.5bp.context.start, collapse = '')
+			##CHECK
+			l   <- dels.5bp.context.middle.lengths[i]
+			nC  <- 2*.flank + l                       # total length of context string for this deletion
+			s   <- str_split_fixed(dels.5bp.context[i], '', nC)
+			i1  <- max(1L, .flank - 5L*l + 1L)        # start index (clamped)
+			i2  <- .flank                              # end index (upstream flank end)
+			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
+			dels.5bp.context.start[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
+			
+			# tmp.dels.5bp.context.start <- str_split_fixed(dels.5bp.context[i], '', 501)[,c(1 + 500-c(5*dels.5bp.context.middle.lengths[i])):500,drop=F]
+			# dels.5bp.context.start[i] <- paste(tmp.dels.5bp.context.start, collapse = '')
 		}
+		
+		#downstream
 		dels.5bp.context.end <- rep(NA, nrow(dels.5bp))
 		for (i in 1:length(dels.5bp.context.end)){
-			tmp.dels.5bp.context.end <- str_split_fixed(dels.5bp.context[i], '', 1006)[,c(501+dels.5bp.context.middle.lengths[i]):c(501 + dels.5bp.context.middle.lengths[i]*6 - 1),drop=F]
-			dels.5bp.context.end[i] <- paste(tmp.dels.5bp.context.end, collapse = '')
+			##CHECK
+			l   <- dels.5bp.context.middle.lengths[i]
+			nC  <- 2*.flank + l
+			s   <- str_split_fixed(dels.5bp.context[i], '', nC)
+			i1  <- .flank + 1L + l                     # first base after the deleted block
+			i2  <- min(.flank + 6L*l, nC)              # clamp to available sequence
+			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
+			dels.5bp.context.end[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
+			
+			# tmp.dels.5bp.context.end <- str_split_fixed(dels.5bp.context[i], '', 1006)[,c(501+dels.5bp.context.middle.lengths[i]):c(501 + dels.5bp.context.middle.lengths[i]*6 - 1),drop=F]
+			# dels.5bp.context.end[i] <- paste(tmp.dels.5bp.context.end, collapse = '')
 		}
+		
 		dels.5bp[,'TRIPLET'] <- paste(dels.5bp.context.start, dels.5bp.context.middle, dels.5bp.context.end, sep = '')
 		colnames(dels.5bp)[5] <- 'CONTEXT'
 		
@@ -1396,25 +1427,51 @@ indel.spectrum <- function(x, reference){
 	# (iv) 5+ bp insertions at simple repeats (length 0 == "no neighbouring simple repeat")
 	if(nrow(ins.5bp) > 0){
 		
-		ins.5bp.context <- as.character(subseq(x = reference[as.character(ins.5bp[,'CHROM'])], 
-																					 start = as.numeric(ins.5bp[,'POS']) - 499, 
-																					 end = as.numeric(ins.5bp[,'POS']) + 500))
+		ins.5bp.context <- as.character(
+			subseq(
+				x = reference[as.character(ins.5bp[,'CHROM'])],
+				start = as.numeric(ins.5bp[,'POS']) - (.flank - 1L),
+				end = as.numeric(ins.5bp[,'POS']) + .flank)
+			)
+		)
 		
-		### account for the different repeat lengths: iterate
+		# inserted segment and its length
 		ins.5bp.context.middle <- as.character(ins.5bp[,'ALT'])
 		ins.5bp.context.middle <- str_split_fixed(ins.5bp.context.middle, '', 2)[,2,drop=F]
 		ins.5bp.context.middle <- paste0('[', ins.5bp.context.middle, ']')
 		ins.5bp.context.middle.lengths <- nchar(as.character(ins.5bp[,'ALT'])) - 1
+
+		# upstream: take up to 5×repeat-length
 		ins.5bp.context.start <- rep(NA, nrow(ins.5bp))
 		for (i in 1:length(ins.5bp.context.start)){
-			tmp.ins.5bp.context.start <- str_split_fixed(ins.5bp.context[i], '', 501)[,c(1 + 500-c(5*ins.5bp.context.middle.lengths[i])):500,drop=F]
-			ins.5bp.context.start[i] <- paste(tmp.ins.5bp.context.start, collapse = '')
+			##CHECK
+			l   <- ins.5bp.context.middle.lengths[i]
+			s   <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
+			i1  <- max(1L, .flank - 5L*l + 1L)
+			i2  <- .flank
+			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
+			ins.5bp.context.start[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
+			
+			# tmp.ins.5bp.context.start <- str_split_fixed(ins.5bp.context[i], '', 501)[,c(1 + 500-c(5*ins.5bp.context.middle.lengths[i])):500,drop=F]
+			# ins.5bp.context.start[i] <- paste(tmp.ins.5bp.context.start, collapse = '')
 		}
+		
+		# downstream: take up to 6×repeat-length starting immediately after POS
 		ins.5bp.context.end <- rep(NA, nrow(ins.5bp))
 		for (i in 1:length(ins.5bp.context.end)){
-			tmp.ins.5bp.context.end <- str_split_fixed(ins.5bp.context[i], '', 1000)[,501:c(501 + ins.5bp.context.middle.lengths[i]*6 - 1),drop=F]
-			ins.5bp.context.end[i] <- paste(tmp.ins.5bp.context.end, collapse = '')
+			##CHECK
+			l   <- ins.5bp.context.middle.lengths[i]
+			s   <- str_split_fixed(ins.5bp.context[i], '', 2*.flank)
+			i1  <- .flank + 1L
+			i2  <- min(.flank + 6L*l, 2*.flank)       # clamp to available sequence
+			tmp <- if(i1 <= i2) s[, i1:i2, drop=FALSE] else ''
+			ins.5bp.context.end[i] <- if(length(tmp)) paste(tmp, collapse='') else ''
+			
+			# tmp.ins.5bp.context.end <- str_split_fixed(ins.5bp.context[i], '', 1000)[,501:c(501 + ins.5bp.context.middle.lengths[i]*6 - 1),drop=F]
+			# ins.5bp.context.end[i] <- paste(tmp.ins.5bp.context.end, collapse = '')
 		}
+		
+		
 		ins.5bp[,'TRIPLET'] <- paste(ins.5bp.context.start, ins.5bp.context.middle, ins.5bp.context.end, sep = '')
 		colnames(ins.5bp)[5] <- 'CONTEXT'
 		
@@ -1490,7 +1547,7 @@ indel.spectrum <- function(x, reference){
 				
 			}
 			
-		} 
+		}
 		
 	}
 	

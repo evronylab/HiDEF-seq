@@ -253,10 +253,10 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)
-indel.spectrum <- function(x, reference, long_context_bp = 1000){
+indel.spectrum <- function(x, reference, context_bp = 1000){
 	
-	# long_context_bp: total number of bp extracted around ≥5 bp events (flank on each side ~ long_context_bp/2)
-	.flank <- as.integer(long_context_bp / 2L)  # symmetric flank size used in ≥5 bp sections
+	# context_bp: total number of bp extracted around ≥5 bp events (flank on each side ~ context_bp/2)
+	.flank <- as.integer(context_bp / 2L)  # symmetric flank size used in ≥5 bp sections
 	
 	## 1. split VCF indels into:
 	# (i) 1-bp deletions
@@ -787,7 +787,7 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 		# lengths of the deleted segments
 		dels.5bp.context.middle.lengths <- nchar(as.character(dels.5bp[,'REF'])) - 1
 		
-		# extract symmetric upstream/downstream flanks sized by long_context_bp and extend end by deletion length
+		# extract symmetric upstream/downstream flanks sized by context_bp and extend end by deletion length
 		dels.5bp.context <- as.character(
 			subseq(
 				x = reference[as.character(dels.5bp[,'CHROM'])],
@@ -1745,4 +1745,53 @@ indel.spectrum <- function(x, reference, long_context_bp = 1000){
 							'MH dels' = dels.greater.2bp.MH.summary)
 	return(out)
 	
+}
+
+#Function to convert indel spectrum produced by indel.spectrum() to sigfit format
+indelspectrum.to.sigfit <- function(indelspectrum){
+	
+	#Helpers to convert from indelwald to sigfit labels
+	map_1bp_rep  <- function(x){
+		case_match(x, "0 bp" ~ "0", "1 bp" ~ "1", "2 bp" ~ "2", "3 bp" ~ "3", "4 bp" ~ "4", "5+ bp" ~ "5")
+	}
+	
+	map_sz <- function(x){
+		case_match(x, "2 bp" ~ "2", "3 bp" ~ "3", "4 bp" ~ "4", "5+ bp" ~ "5")
+	}
+	
+	map_R_del <- function(x){
+		case_match(x, "1" ~ "0", "2" ~ "1", "3" ~ "2", "4" ~ "3", "5" ~ "4", "6+" ~ "5")
+	}
+	
+	map_R_ins <- function(x){
+		case_match(x,"0" ~ "0", "1" ~ "1", "2" ~ "2", "3" ~ "3", "4" ~ "4", "5+" ~ "5")
+	}
+	
+	map_MH_len <- function(x){
+		case_match(x,"1 bp MH" ~ "1", "2 bp MH" ~ "2", "3 bp MH" ~ "3", "4 bp MH" ~ "4", "5+ bp MH" ~ "5")
+	}
+	
+	indelspectrum %>%
+		imap_dfr(function(mat, grp){
+			mat %>%
+				as.data.frame %>%
+				rownames_to_column("rowname") %>%
+				pivot_longer(-rowname, names_to="colname", values_to="count") %>%
+				mutate(group = grp)
+		}
+		) %>%
+		filter(!is.na(count)) %>%
+		mutate(
+			label = case_when(
+				group == "1bp del" ~ str_c("1","Del", colname, map_1bp_rep(rowname), sep=":"),
+				group == "1bp ins" ~ str_c("1","Ins", colname, map_1bp_rep(rowname), sep=":"),
+				group == ">2bp del" ~ str_c(map_sz(colname), "Del", "R", map_R_del(rowname), sep=":"),
+				group == ">2bp ins" ~ str_c(map_sz(colname), "Ins", "R", map_R_ins(rowname), sep=":"),
+				group == "MH dels" ~ str_c(map_sz(colname), "Del", "M", map_MH_len(rowname), sep=":")
+			) %>%
+				factor(level = indel_labels.sigfit)
+		)%>%
+		select(label, count) %>%
+		arrange(label) %>%
+		pivot_wider(names_from = label, values_from = count)
 }

@@ -150,7 +150,7 @@ sbs192_labels.sigfit <- c(
 )
 
 #Order of indel context labels
-indel_labels <- c(
+indel_labels.sigfit <- c(
 	"1:Del:C:0","1:Del:C:1","1:Del:C:2","1:Del:C:3","1:Del:C:4","1:Del:C:5",
 	"1:Del:T:0","1:Del:T:1","1:Del:T:2","1:Del:T:3","1:Del:T:4","1:Del:T:5",
 	"1:Ins:C:0","1:Ins:C:1","1:Ins:C:2","1:Ins:C:3","1:Ins:C:4","1:Ins:C:5",
@@ -284,18 +284,6 @@ normalize_indels_for_vcf <- function(df, BSgenome_name) {
 	df$end <- NULL
 	
 	return(df)
-}
-
-#Function to convert indel spectrum produced by indel.spectrum() to sigfit format
-indelspectrum.to.sigfit <- function(indelspectrum){
-	indelspectrum %>%
-		map(c) %>%
-		unlist %>%
-		as_tibble %>%
-		na.omit %>% ###CHECK
-		set_names("count") %>%
-		bind_cols(label=indel_labels,.) %>%
-		pivot_wider(names_from=label,values_from=count)
 }
 
 ######################
@@ -933,43 +921,43 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq
-	
+
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
-		finalCalls.refindel_spectrum = if_else(
-			call_class == "indel" & SBSindel_call_type == "mutation",
-			finalCalls_for_vcf %>%
-				map(
-					function(x){
-						x %>%
-							rename(
-								CHROM = seqnames, POS = start,
-								REF = ref_plus_strand, ALT = alt_plus_strand
-							) %>%
-							select(CHROM, POS, REF, ALT) %>%
-							as.data.frame %>%
-							indel.spectrum(BSgenome_for_indel.spectrum, long_context_bp = 1500)
-					}
-				),
-			NA
-		),
-		
-		finalCalls_unique.refindel_spectrum = if_else(
-			call_class == "indel" & SBSindel_call_type == "mutation",
-			finalCalls_unique_for_vcf %>% map(
-				function(x){
-					if(is.null(x)){return(NA)}
-					x %>%
+		finalCalls.refindel_spectrum = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
+			function(x,y,z){
+				if(x == "indel" & y == "mutation"){
+					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
 							REF = ref_plus_strand, ALT = alt_plus_strand
 						) %>%
 						select(CHROM, POS, REF, ALT) %>%
 						as.data.frame %>%
-						indel.spectrum(BSgenome_for_indel.spectrum, long_context_bp = 1500)
+						indel.spectrum(BSgenome_for_indel.spectrum)
+				}else{
+					NULL
 				}
-			),
-			NA
+			}
+		),
+		
+		finalCalls_unique.refindel_spectrum = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
+			function(x,y,z){
+				if(x == "indel" & y == "mutation"){
+					z %>%
+						rename(
+							CHROM = seqnames, POS = start,
+							REF = ref_plus_strand, ALT = alt_plus_strand
+						) %>%
+						select(CHROM, POS, REF, ALT) %>%
+						as.data.frame %>%
+						indel.spectrum(BSgenome_for_indel.spectrum)
+				}else{
+					NULL
+				}
+			}
 		)
 	)
 
@@ -979,18 +967,27 @@ invisible(gc())
 #Create sigfit-format spectra tables
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
+		rowname_col = str_c(
+			yaml.config$analysis_id, sample_id_toanalyze,
+			chromgroup_toanalyze, filtergroup_toanalyze,
+			call_class, call_type, SBSindel_call_type,
+			sep="."
+		),
+		
 		across(
 			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
 			function(x){
-				x <- x %>%
-					pivot_wider(names_from = channel, values_from = count)
-				rownames(x) <- str_c(
-					yaml.config$analysis_id, sample_id_toanalyze,
-					chromgroup_toanalyze, filtergroup_toanalyze,
-					call_class, call_type, SBSindel_call_type
-					sep="."
+				map2(
+					x, rowname_col,
+					function(y, rn){
+						if(is.null(y)){return(NULL)}
+						y %>%
+							pivot_wider(names_from = channel, values_from = count) %>%
+							mutate(rowname = rn) %>%
+							column_to_rownames("rowname") %>%
+							as.data.frame
+					}
 				)
-				return(x)
 			},
 			.names = "{.col}.sigfit"
 		),
@@ -998,28 +995,30 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		across(
 			c(finalCalls.reftnc_template_strand_spectrum),
 			function(x){
-				x <- x %>%
-					mutate(
-						channel = if_else(
-							str_sub(channel,2,2) %in% c("C","T"),
-							str_c("T:",channel),
-							str_c(
-								"U:",
-								str_sub(channel,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
-								">",
-								str_sub(channel,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
-							)
-						) %>%
-							factor(levels = sbs192_labels.sigfit)
-					) %>%
-					pivot_wider(names_from = channel, values_from = count)
-				rownames(x) <- str_c(
-					yaml.config$analysis_id, sample_id_toanalyze,
-					chromgroup_toanalyze, filtergroup_toanalyze,
-					call_class, call_type, SBSindel_call_type
-					sep="."
+				map2(
+					x, rowname_col,
+					function(y, rn){
+						if(is.null(y)){return(NULL)}
+						y %>%
+							mutate(
+								channel = if_else(
+									str_sub(channel,2,2) %in% c("C","T"),
+									str_c("T:",channel),
+									str_c(
+										"U:",
+										str_sub(channel,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+										">",
+										str_sub(channel,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+									)
+								) %>%
+									factor(levels = sbs192_labels.sigfit)
+							) %>%
+							pivot_wider(names_from = channel, values_from = count) %>%
+							mutate(rowname = rn) %>%
+							column_to_rownames("rowname") %>%
+							as.data.frame
+					}
 				)
-				return(x)
 			},
 			.names = "{.col}.sigfit"
 		),
@@ -1027,18 +1026,21 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		across(
 			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
 			function(x){
-				x <- x %>% indelspectrum.to.sigfit
-				rownames(x) <- str_c(
-					yaml.config$analysis_id, sample_id_toanalyze,
-					chromgroup_toanalyze, filtergroup_toanalyze,
-					call_class, call_type, SBSindel_call_type
-					sep="."
+				map2(
+					x, rowname_col,
+					function(y, rn){
+						if(is.null(y)){return(NULL)}
+						y %>%
+							indelspectrum.to.sigfit %>%
+							mutate(rowname = rn) %>%
+							column_to_rownames("rowname") %>%
+							as.data.frame
+					}
 				)
-				return(x)
-			},
-			.names = "{.col}.sigfit"
+			}
 		)
-	)
+	) %>%
+	select(-rowname_col)
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%

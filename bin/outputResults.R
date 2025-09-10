@@ -1,8 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #outputResults.R:
-# Output results.
-	#Also calculates sensitivity-corrected burdens.
+# Output results. Also calculates sensitivity-corrected burdens and estimated SBS mutation error rate.
 
 cat("#### Running outputResults ####\n")
 
@@ -44,7 +43,7 @@ option_list = list(
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$sample_id_toanalyze) | is.na(opt$files) | is.na(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
@@ -375,4 +374,4 @@ Output Sensitivity
 #Call spectra
  #plots
 
-#Estimated mutation error rate
+#Estimated SBS mutation error rate

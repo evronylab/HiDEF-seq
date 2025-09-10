@@ -42,7 +42,7 @@ option_list = list(
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.na(opt$config) | is.na(opt$bam) | is.na(opt$output)){
+if(is.null(opt$config) | is.null(opt$bam) | is.null(opt$output)){
   stop("Missing input parameter(s)!")
 }
 

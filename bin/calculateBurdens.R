@@ -522,8 +522,13 @@ seqkit_seqs <- tmpseqs %>%
 invisible(file.remove(tmpregions,tmpseqs))
 
 hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
-regions_to_getseq$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
-regions_to_getseq$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
+
+if(length(regions_to_getseq) > 0){
+	regions_to_getseq$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
+	regions_to_getseq$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
+}else{
+	regions_to_getseq$reftnc_plus_strand <- factor(levels = trinucleotides_64)
+}
 
 rm(seqkit_seqs, hits)
 invisible(gc())
@@ -539,9 +544,13 @@ for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 		type = "equal"
 	)
 	
-	mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
-	
-	mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand[queryHits(h)] <- regions_to_getseq$reftnc_plus_strand[subjectHits(h)]
+	if(length(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]]) > 0){
+		mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
+		
+		mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand[queryHits(h)] <- regions_to_getseq$reftnc_plus_strand[subjectHits(h)]
+	}else{
+		mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]])$reftnc_plus_strand <- factor(levels = trinucleotides_64)
+	}
 	
 	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
 		mutate(
@@ -621,6 +630,7 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 	reftnc_plus_strand <- BSgenome_name %>%
 		get %>%
 		getSeq(chroms) %>%
+		DNAStringSet %>%
 		trinucleotideFrequency(simplify.as = "collapsed") %>%
 		enframe(name = "reftnc", value = "count") %>%
 		mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
@@ -744,11 +754,13 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		finalCalls = finalCalls %>%
 			map(
 				function(x){
-					x %>% across(
-						where(is.list),
-						function(x){map_chr(x, function(v){str_c("[",str_c(v, collapse = ","),"]")
-})}
-					)
+					x %>%
+						mutate(
+							across(
+								where(is.list),
+								function(y){y %>% map_chr(function(v){str_c("[",str_c(v, collapse = ","),"]")})}
+							)
+						)
 				}
 			),
 		
@@ -774,8 +786,8 @@ finalCalls.bytype <- call_types_toanalyze %>%
 								ref_template_strand,alt_template_strand,
 								reftnc_synthesized_strand,alttnc_synthesized_strand,
 								reftnc_template_strand,alttnc_template_strand),
-								function(x){
-									x %>% replace_na("NA") %>% str_c(x,collapse=",")
+								function(y){
+									y %>% as.character %>% replace_na("NA") %>% str_c(collapse=",")
 								},
 								.names="{.col}.ref_plus_minus_strand_read"
 							),
@@ -787,7 +799,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				function(x){
 					x %>%
 						select(
-							-c(call_class,call_type,call_class.opposite_strand,call_type.opposite_strand,SBSindel_call_type,germline_vcf_types_detected,germline_vcf_files_detected,deletion.bothstrands.startendmatch),
+							-c(germline_vcf_types_detected,germline_vcf_files_detected,deletion.bothstrands.startendmatch),
 							-ends_with(".passfilter")
 						)
 				}
@@ -834,121 +846,120 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				),
 			NA
 		)
-	)
+	) %>%
+	select(-finalCalls)
 
 #Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 	mutate(
 		
-		finalCalls.reftnc_pyr = if_else(
-			call_class %in% c("SBS","MDB"),
-			finalCalls_for_tsv %>%
-				map(
-					function(x){
-						x %>%
-							count(reftnc_pyr, name = "count") %>%
-							complete(reftnc_pyr, fill = list(count = 0)) %>%
-							arrange(reftnc_pyr) %>%
-							filter(!is.na(reftnc_pyr)) %>%
-							mutate(fraction = count / sum(count))
-					}
-				),
-			NA
+		finalCalls.reftnc_pyr = pmap(
+			list(call_class, finalCalls_for_tsv),
+			function(x,z){
+				if(x %in% c("SBS","MDB")){
+					z %>%
+						count(reftnc_pyr, name = "count") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
+						arrange(reftnc_pyr) %>%
+						filter(!is.na(reftnc_pyr)) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NULL
+				}
+			}
 		),
 		
-		finalCalls_unique.reftnc_pyr = if_else(
-			call_class == "SBS" & SBSindel_call_type == "mutation",
-			finalCalls_unique %>%
-				map(
-					function(x){
-						if(is.null(x)){return(NA)}
-						x %>%
-							count(reftnc_pyr, name = "count") %>%
-							complete(reftnc_pyr, fill = list(count = 0)) %>%
-							arrange(reftnc_pyr) %>%
-							filter(!is.na(reftnc_pyr)) %>%
-							mutate(fraction = count / sum(count))
-					}
-				),
-			NA
+		finalCalls_unique.reftnc_pyr = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(x,y,z){
+				if(x == "SBS" & y == "mutation"){
+					z %>%
+						count(reftnc_pyr, name = "count") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
+						arrange(reftnc_pyr) %>%
+						filter(!is.na(reftnc_pyr)) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NULL
+				}
+			}
 		),
 		
-		finalCalls.reftnc_template_strand = if_else(
-			(call_class == "SBS" & SBSindel_call_type != "mutation") | call_class == "MDB",
-			finalCalls %>%
-				map(
-					function(x){
-						x %>%
-							count(reftnc_template_strand, name = "count") %>%
-							complete(reftnc_template_strand, fill = list(count = 0)) %>%
-							arrange(reftnc_template_strand) %>%
-							filter(!is.na(reftnc_template_strand)) %>%
-							mutate(fraction = count / sum(count))
-					}
-				),
-			NA
+		finalCalls.reftnc_template_strand = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_for_tsv),
+			function(x,y,z){
+				if((x == "SBS" & y != "mutation") | x == "MDB"){
+					z %>%
+						count(reftnc_template_strand, name = "count") %>%
+						complete(reftnc_template_strand, fill = list(count = 0)) %>%
+						arrange(reftnc_template_strand) %>%
+						filter(!is.na(reftnc_template_strand)) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NULL
+				}
+			}
 		)
 	)
 
 #Extract SBS spectra
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
-		finalCalls.reftnc_pyr_spectrum = if_else(
-			call_class == "SBS",
-			finalCalls %>%
-				map(
-					function(x){
-						x %>%
-							mutate(
-								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
-									factor(levels = sbs96_labels.sigfit)
-							) %>%
-							count(channel, name = "count") %>%
-							complete(channel, fill = list(count = 0)) %>%
-							arrange(channel) %>%
-							filter(!is.na(channel))
-					}
-				),
-			NA
+		finalCalls.reftnc_pyr_spectrum = pmap(
+			list(call_class, finalCalls_for_tsv),
+			function(x,z){
+				if(x == "SBS"){
+					z %>%
+						mutate(
+							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
+								factor(levels = sbs96_labels.sigfit)
+						) %>%
+						count(channel, name = "count") %>%
+						complete(channel, fill = list(count = 0)) %>%
+						arrange(channel) %>%
+						filter(!is.na(channel))
+				}else{
+					NULL
+				}
+			}
 		),
 		
-		finalCalls_unique.reftnc_pyr_spectrum = if_else(
-			call_class == "SBS" & SBSindel_call_type == "mutation",
-			finalCalls_unique %>%
-				map(
-					function(x){
-						if(is.null(x)){return(NA)}
-						x %>%
-							mutate(
-								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
-									factor(levels = sbs96_labels.sigfit)
-							) %>%
-							count(channel, name = "count") %>%
-							complete(channel, fill = list(count = 0)) %>%
-							arrange(channel) %>%
-							filter(!is.na(channel))
-					}
-				),
-			NA
+		finalCalls_unique.reftnc_pyr_spectrum = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(x,y,z){
+				if(x == "SBS" & y == "mutation"){
+					z %>%
+						mutate(
+							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
+								factor(levels = sbs96_labels.sigfit)
+						) %>%
+						count(channel, name = "count") %>%
+						complete(channel, fill = list(count = 0)) %>%
+						arrange(channel) %>%
+						filter(!is.na(channel))
+				}else{
+					NULL
+				}
+			}
 		),
 		
-		finalCalls.reftnc_template_strand_spectrum = if_else(
-			call_class == "SBS" & SBSindel_call_type != "mutation",
-			finalCalls %>%
-				map(
-					function(x){
-						x %>%
-							mutate(
-								channel = str_c(reftnc_template_strand,">",alttnc_template_strand) %>%
-									factor(levels = sbs192_labels)
-							) %>%
-							count(channel, name = "count") %>%
-							complete(channel, fill = list(count = 0)) %>%
-							arrange(channel) %>%
-							filter(!is.na(channel))
-					}
-				),
-			NA
+		finalCalls.reftnc_template_strand_spectrum = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_for_tsv),
+			function(x,y,z){
+				if(x == "SBS" & y != "mutation"){
+					z %>%
+						mutate(
+							channel = str_c(reftnc_template_strand,">",alttnc_template_strand) %>%
+								factor(levels = sbs192_labels)
+						) %>%
+						count(channel, name = "count") %>%
+						complete(channel, fill = list(count = 0)) %>%
+						arrange(channel) %>%
+						filter(!is.na(channel))
+				}else{
+					NULL
+				}
+			}
 		)
 	)
 
@@ -1077,7 +1088,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	select(-c(finalCalls, finalCalls_unique, finalCalls_for_vcf, finalCalls_unique_for_vcf))
+	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf))
 
 cat("DONE\n")
 
@@ -1129,7 +1140,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 			finalCalls.bytype %>%
 				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
-					num_calls = finalCalls_unique %>% map_dbl(nrow),
+					num_calls = finalCalls_unique_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
 					unique_calls = TRUE,
 					reftnc_corrected = if_else(call_class =="SBS", FALSE, NA),
@@ -1555,7 +1566,7 @@ if(call_types_toanalyze %>% filter(call_class=="SBS", SBSindel_call_type=="misma
 	
 }else{
 	cat("Skipping since this filtergroup does not analyze SBS mismatch-ss calls.\n")
-	estimatedSBSMutationErrorRate <- NULL
+	estimatedSBSMutationErrorProbability <- NULL
 }
 
 cat("DONE\n")

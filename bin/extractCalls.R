@@ -1034,10 +1034,7 @@ invisible(gc())
 #Combine calls of all runs
 calls <- calls %>%
   bind_rows(.id="run_id") %>%
-  mutate(
-  	run_id=factor(run_id),
-  	strand = strand %>% factor(levels=strand_levels)
-  	)
+  mutate(run_id=factor(run_id))
 
 #Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
 calls <- calls %>%
@@ -1218,7 +1215,8 @@ calls <- calls %>%
 				call_type.opposite_strand,
 				alt_plus_strand.opposite_strand,
 				deletion.bothstrands.startendmatch
-			),
+			) %>%
+			mutate(strand = strand %>% factor(levels=strand_levels)),
 		by=join_by(run_id,zm,start_refspace,end_refspace,strand),
 		multiple="any" # Required due to possibility of > 1 call on the opposite strand overlapping an analyzed deletion
 	)

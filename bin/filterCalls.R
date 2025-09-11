@@ -103,7 +103,8 @@ call_types_toanalyze <- yaml.config$call_types %>%
 	filter(
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
-		)
+		) %>%
+	mutate(filtergroup = filtergroup %>% factor)
   
  #filter group parameters (restrict to selected filtergroup_toanalyze)
 filtergroup_toanalyze_config <- yaml.config$filtergroups %>%

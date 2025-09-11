@@ -1263,23 +1263,27 @@ calls <- calls %>%
 
 #For mutations, reannotate each strand's qual.opposite_strand, sa.opposite_strand, sm.opposite_strand, and sx.opposite_strand based on the opposite strand's qual, sa, sm, sx. This is more accurate than the previously calculated opposite strand data, because the prior data utilized a query space -> reference space -> opposite strand query space transformation, whereas annotated mutations reflect corresponding deletion coordinates and insertion sequences that are lost in the prior transformation. Though note that mismatches still have imperfect opposite strand qual, sa, sm, sx, and to obtain this would require aligning strands to each other which would be significantly more complex to incorporate.
 
-calls <- calls %>% left_join(
-  #Extract only mutations, and reverse strand orientation so that opposite strand info is annotated
-  calls %>%
-    filter(SBSindel_call_type == "mutation") %>%
-    select(
-      run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand,
-      qual,sa,sm,sx
-    ) %>%
-    rename(
-      qual.tmp = qual,
-      sa.tmp = sa,
-      sm.tmp = sm,
-      sx.tmp = sx,
-    ) %>%
-    mutate(strand = if_else(strand %>% as.character == "+", "-", "+")),
-  by = join_by(run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand)
-) %>%
+calls <- calls %>%
+	left_join(
+	  #Extract only mutations, and reverse strand orientation so that opposite strand info is annotated
+	  calls %>%
+	    filter(SBSindel_call_type == "mutation") %>%
+	    select(
+	      run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand,
+	      qual,sa,sm,sx
+	    ) %>%
+	    rename(
+	      qual.tmp = qual,
+	      sa.tmp = sa,
+	      sm.tmp = sm,
+	      sx.tmp = sx,
+	    ) %>%
+	    mutate(
+	    	strand = if_else(strand %>% as.character == "+", "-", "+") %>%
+	    		factor(levels = strand_levels)
+	    ),
+	  by = join_by(run_id,zm,seqnames,strand,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand)
+	) %>%
   #If there is a non-NULL value in the joined qual/sa/sm/sx columns, use those as the new corresponding opposite_strand values.
   mutate(
     qual.opposite_strand = if_else(map_lgl(qual.tmp, is.null), qual.opposite_strand, qual.tmp),

@@ -110,8 +110,7 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	
 	# INFO: everything except the basic VCF columns and fields you want to drop
 	info_cols <- names(calls) %>%
-		setdiff(c("seqnames","start","ref_plus_strand","alt_plus_strand","qual","strand")) %>%
-		str_subset("passfilter$", negate=TRUE)
+		setdiff(c("seqnames","start","ref_plus_strand","alt_plus_strand","qual"))
 	
 	#Convert factor columns to character
 	info_df <- calls %>%
@@ -177,6 +176,12 @@ molecule_stats.by_run_id <- list()
 molecule_stats.by_analysis_id <- list()
 region_genome_filter_stats <- list()
 bam.gr.filtertrack.bytype.coverage_tnc <- list()
+finalCalls <- list()
+germlineVariantCalls <- list()
+finalCalls.bytype <- list()
+finalCalls.reftnc_spectra <- list()
+finalCalls.burdens <- list()
+sensitivity <- list()
 
 #Loop over all calculateBurdens
 for(i in seq_along(calculateBurdensFiles)){
@@ -201,51 +206,146 @@ for(i in seq_along(calculateBurdensFiles)){
 	#Load filtering stats
 	molecule_stats.by_run_id[[i]] <- calculateBurdensFile$molecule_stats.by_run_id %>%
 		mutate(
-			analysis_id = !!analysis_id,
-			individual_id = !!individual_id,
-			sample_id = !!sample_id,
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
 			.before = 1
+		) %>%
+		mutate(
+			chromgroup = chromgroup %>% factor,
+			filtergroup = filtergroup %>% factor
 		)
 	
 	molecule_stats.by_analysis_id[[i]] <- calculateBurdensFile$molecule_stats.by_analysis_id %>%
 		mutate(
-			analysis_id = !!analysis_id,
-			individual_id = !!individual_id,
-			sample_id = !!sample_id,
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
 			.before = 1
+		) %>%
+		mutate(
+			chromgroup = chromgroup %>% factor,
+			filtergroup = filtergroup %>% factor
 		)
 	
 	region_genome_filter_stats[[i]] <- calculateBurdensFile$region_genome_filter_stats %>%
 		mutate(
-			analysis_id = !!analysis_id,
-			individual_id = !!individual_id,
-			sample_id = !!sample_id,
-			chromgroup = !!chromgroup,
-			filtergroup = !!filtergroup,
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			filtergroup = !!filtergroup %>% factor,
 			.before = 1
 		)
 	
 	#Load HiDEF-seq bam genome coverage and trinucleotide counts, fractions, and ratio to genome
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile$bam.gr.filtertrack.bytype.coverage_tnc %>%
 		mutate(
-			analysis_id = !!analysis_id,
-			individual_id = !!individual_id,
-			sample_id = !!sample_id,
-			chromgroup = !!chromgroup,
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
 			.before = 1
 		) %>%
 		relocate(filtergroup, .after = chromgroup) %>%
 		select(-analyzein_chromgroups)
 	
+	#Final calls for single table output
+	finalCalls[[i]] <- calculateBurdensFile$finalCalls %>%
+		mutate(
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			filtergroup = !!filtergroup %>% factor
+			.before = 1
+		)
 	
+	#Germline variant calls
+	germlineVariantCalls[[i]] <- calculateBurdensFile$germlineVariantCalls %>%
+		mutate(
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			filtergroup = !!filtergroup %>% factor
+			.before = 1
+		)
+	
+	#finalCalls for tsv and VCF output
+	finalCalls.bytype[[i]] <- calculateBurdensFile$finalCalls.bytype %>%
+		mutate(
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			.before = 1
+		) %>%
+		relocate(filtergroup, .after = chromgroup) %>%
+		select(-analyzein_chromgroups)
+	
+	#Trinucleotide context counts and fractions of finalCalls
+	finalCalls.reftnc_spectra[[i]] <- calculateBurdensFile$finalCalls.reftnc_spectra %>%
+		mutate(
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			.before = 1
+		) %>%
+		relocate(filtergroup, .after = chromgroup) %>%
+		select(-analyzein_chromgroups)
+	
+	#Burdens
+	finalCalls.burdens[[i]] <- calculateBurdensFile$finalCalls.burdens %>%
+		mutate(
+			analysis_id = !!analysis_id %>% factor,
+			individual_id = !!individual_id %>% factor,
+			sample_id = !!sample_id %>% factor,
+			chromgroup = !!chromgroup %>% factor,
+			.before = 1
+		) %>%
+		relocate(filtergroup, .after = chromgroup) %>%
+		select(-analyzein_chromgroups)
+	
+	#Sensitivity
+	if(!is.null(calculateBurdensFile$sensitivity)){
+		sensitivity[[i]] <- calculateBurdensFile$sensitivity %>%
+			mutate(
+				analysis_id = !!analysis_id %>% factor,
+				individual_id = !!individual_id %>% factor,
+				sample_id = !!sample_id %>% factor,
+				chromgroup = !!chromgroup %>% factor,
+				.before = 1
+			) %>%
+			relocate(filtergroup, .after = chromgroup) %>%
+			select(-analyzein_chromgroups)
+	}
+	
+	#estiamted SBS mutation error probability
+	if(!is.null(calculateBurdensFile$estimatedSBSMutationErrorProbability)){
+		estimatedSBSMutationErrorProbability[[i]] <- calculateBurdensFile$estimatedSBSMutationErrorProbability
+	}
+	
+	#Remove temporary objects
+	rm(calculcateBurdensFile)
+	invisible(gc())
 	
 	cat("DONE\n")
 
 }
 
-#Remove temp objects
-rm(calculcateBurdensFile)
-invisible(gc())
+#Combine data across chromgroups/filtergroups
+molecule_stats.by_run_id <-
+molecule_stats.by_analysis_id <-
+region_genome_filter_stats <-
+bam.gr.filtertrack.bytype.coverage_tnc <-
+finalCalls <-
+germlineVariantCalls <-
+finalCalls.bytype <-
+finalCalls.reftnc_spectra <-
+finalCalls.burdens <-
+sensitivity <-
 
 ######################
 ### Output configuration parameters
@@ -344,10 +444,11 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 ### Output final calls and germline variant calls
 ######################
 
-cat("## Outputting final calls and detected germline variants...")
+cat("## Outputting final calls and germline variant calls...")
 
 #Output final calls to tsv and vcf, separately for each combination of call_class, call_type, SBSindel_call_type
 finalCalls.bytype %>%
+	##**ADD here to rename strand in all the finalCalls tibbles (for tsv and for vcf, all and unique) to aligned_synthesized_strand, to help users understand more easily what the 'strand' column is
 	pwalk(
 		function(...){
 			x <- list(...)
@@ -358,15 +459,6 @@ finalCalls.bytype %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
-			#Format list columns to comma-delimited
-			x$finalCalls <- x$finalCalls %>%
-				mutate(
-					across(
-						where(is.list),
-						function(x){map_chr(x, function(v){str_c(v, collapse = ",")})}
-					)
-				)
 			
 			#tsv
 			x$finalCalls %>%
@@ -428,15 +520,19 @@ rm(germlineVariantCalls.out)
 
 cat("DONE\n")
 
+##Call spectra
+#tables
+
+#plots
+
+##burdens
+
 ####
 Output Sensitivity
- - Assign the use_chromgroup sensitivity to all chromgroups, or if use_chromgroup is null, every chromgroup will already have the default sensitivity tibble assigned by the calculateBurdens script
+- Assign the use_chromgroup sensitivity to all chromgroups, or if use_chromgroup is null, every chromgroup will already have the default sensitivity tibble assigned by the calculateBurdens script
 
 #Call burdens
- -> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)
- - calculate for uncorrected and tnc_corrected burdens
-	
-#Call spectra
- #plots
+-> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)
+- calculate for uncorrected and tnc_corrected burdens
 
 #Estimated SBS mutation error rate

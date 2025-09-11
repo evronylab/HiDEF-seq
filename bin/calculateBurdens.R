@@ -91,7 +91,8 @@ call_types_toanalyze <- yaml.config$call_types %>%
 	filter(
 		analyzein_chromgroups == "all" | (analyzein_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 		filtergroup == filtergroup_toanalyze
-	)
+	) %>%
+	mutate(filtergroup = filtergroup %>% factor)
 
  #sensitivity thresholds
 sensitivity_parameters <- yaml.config$sensitivity_parameters %>%
@@ -379,11 +380,11 @@ for(i in seq_along(filterCallsFiles)){
 
 	#molecule_stats
 	molecule_stats[[i]] <- filterCallsFile %>% pluck("molecule_stats")
+	
+	#Remove temporary objects
+	rm(filterCallsFile)
+	invisible(gc())
 }
-
-#Remove temp objects
-rm(filterCallsFile)
-invisible(gc())
 
 #Combine finalCalls and germlineVariantCalls each to one tibble
 finalCalls <- finalCalls %>%
@@ -731,7 +732,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Also create a table formatted for vcf output. Used for burden, spectra, and vcf output.
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsf and for vcf output. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
 	nest_join(
 		finalCalls,
@@ -739,42 +740,78 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		name = "finalCalls"
 	) %>%
 	mutate(
-		finalCalls = if_else(
+		#Format finalCalls list columns to be comma-delimited bounded by square brackets
+		finalCalls = finalCalls %>%
+			map(
+				function(x){
+					x %>% across(
+						where(is.list),
+						function(x){map_chr(x, function(v){str_c("[",str_c(v, collapse = ","),"]")
+})}
+					)
+				}
+			),
+		
+		#Format all calls for tsv output
+		finalCalls_for_tsv = if_else(
 			call_class %in% c("SBS","indel") & SBSindel_call_type == "mutation",
 			finalCalls %>% map(
 				function(x){
 					x %>%
-						distinct( #Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join
-							run_id,zm,
-							seqnames,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,alttnc_pyr,reftnc_template_strand,alttnc_template_strand
+						group_by( #Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
+							analysis_chunk,run_id,zm,
+							seqnames,start,end,ref_plus_strand,alt_plus_strand,
+							reftnc_plus_strand,alttnc_plus_strand,reftnc_pyr,alttnc_pyr,
+							indel_width
+						) %>%
+						arrange(strand) %>% #Sort by reference genome aligned strand
+						summarize(
+							across( #Collapse to one row fields that differ between strands
+								c(strand,start_queryspace,end_queryspace,
+								qual,qual.opposite_strand,sa,sa.opposite_strand,
+								sm,sm.opposite_strand,sx,sx.opposite_strand,
+								ref_synthesized_strand,alt_synthesized_strand,
+								ref_template_strand,alt_template_strand,
+								reftnc_synthesized_strand,alttnc_synthesized_strand,
+								reftnc_template_strand,alttnc_template_strand),
+								function(x){
+									x %>% replace_na("NA") %>% str_c(x,collapse=",")
+								},
+								.names="{.col}.ref_plus_minus_strand_read"
+							),
+							.groups = "drop"
 						)
 				}
 			),
 			finalCalls %>% map(
 				function(x){
 					x %>%
-						distinct(
-							run_id,zm,
-							seqnames,strand,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,alttnc_pyr,reftnc_template_strand,alttnc_template_strand
+						select(
+							-c(call_class,call_type,call_class.opposite_strand,call_type.opposite_strand,SBSindel_call_type,germline_vcf_types_detected,germline_vcf_files_detected,deletion.bothstrands.startendmatch),
+							-ends_with(".passfilter")
 						)
 				}
 			)
 		),
 		
-		finalCalls_unique = if_else(
+		#Format unique calls for tsv output
+		finalCalls_unique_for_tsv = if_else(
 			SBSindel_call_type == "mutation",
-			finalCalls %>% map(
+			finalCalls_for_tsv %>% map(
 				function(x){
 					x %>%
 						distinct(
-							seqnames,start,end,ref_plus_strand,alt_plus_strand,reftnc_pyr,alttnc_pyr,reftnc_template_strand,alttnc_template_strand
+							seqnames,start,end,ref_plus_strand,alt_plus_strand,
+							reftnc_plus_strand,alttnc_plus_strand,reftnc_pyr,alttnc_pyr,
+							indel_width
 						)
 				}
 			),
 			NA
 		),
 		
-		finalCalls_for_vcf = finalCalls %>% map(
+		#Format all calls for vcf output
+		finalCalls_for_vcf = finalCalls_for_tsv %>% map(
 			function(x){
 				x %>% 
 					normalize_indels_for_vcf(
@@ -783,9 +820,10 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			}
 		),
 		
+		#Format unique calls for vcf output
 		finalCalls_unique_for_vcf = if_else(
 			SBSindel_call_type == "mutation",
-			finalCalls_unique %>%
+			finalCalls_unique_for_tsv %>%
 				map(
 					function(x){
 						x %>% 
@@ -804,7 +842,7 @@ finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 		
 		finalCalls.reftnc_pyr = if_else(
 			call_class %in% c("SBS","MDB"),
-			finalCalls %>%
+			finalCalls_for_tsv %>%
 				map(
 					function(x){
 						x %>%
@@ -1079,7 +1117,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 			#Not unique calls
 			finalCalls.bytype %>%
 				mutate(
-					num_calls = finalCalls %>% map_dbl(nrow),
+					num_calls = finalCalls_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
 					unique_calls = if_else(SBSindel_call_type == "mutation", FALSE, NA),
 					reftnc_corrected = if_else(call_class %in% c("SBS","MDB"), FALSE, NA),
@@ -1089,7 +1127,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		
 			#Unique calls (only mutations)
 			finalCalls.bytype %>%
-				filter(!map_lgl(finalCalls_unique,is.null)) %>%
+				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
 					num_calls = finalCalls_unique %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,

@@ -121,7 +121,7 @@ source(Sys.which("sharedFunctions.R"))
 ### Define custom functions
 ######################
 #Order of sbs trinucleotide context labels
-sbs96_labels <- c(
+sbs96_labels.sigfit <- c(
 	"ACA>AAA","ACC>AAC","ACG>AAG","ACT>AAT","CCA>CAA","CCC>CAC","CCG>CAG","CCT>CAT",
 	"GCA>GAA","GCC>GAC","GCG>GAG","GCT>GAT","TCA>TAA","TCC>TAC","TCG>TAG","TCT>TAT",
 	"ACA>AGA","ACC>AGC","ACG>AGG","ACT>AGT","CCA>CGA","CCC>CGC","CCG>CGG","CCT>CGT",
@@ -137,17 +137,17 @@ sbs96_labels <- c(
 )
 
 sbs192_labels <- c(
-	sbs96_labels,
+	sbs96_labels.sigfit,
 	str_c(
-		str_sub(sbs96_labels,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+		str_sub(sbs96_labels.sigfit,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
 		">",
-		str_sub(sbs96_labels,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+		str_sub(sbs96_labels.sigfit,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
 	)
 )
 
 sbs192_labels.sigfit <- c(
-	str_c("T:",sbs96_labels),
-	str_c("U:",sbs96_labels)
+	str_c("T:",sbs96_labels.sigfit),
+	str_c("U:",sbs96_labels.sigfit)
 )
 
 #Order of indel context labels
@@ -863,7 +863,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						x %>%
 							mutate(
 								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
-									factor(levels = sbs96_labels)
+									factor(levels = sbs96_labels.sigfit)
 							) %>%
 							count(channel, name = "count") %>%
 							complete(channel, fill = list(count = 0)) %>%
@@ -883,7 +883,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						x %>%
 							mutate(
 								channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
-									factor(levels = sbs96_labels)
+									factor(levels = sbs96_labels.sigfit)
 							) %>%
 							count(channel, name = "count") %>%
 							complete(channel, fill = list(count = 0)) %>%
@@ -1190,7 +1190,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 	)
 
  #SBS non-mutations and MDB: Not unique calls, reftnc for whole genome and for chromgroup
-finalCalls.reftnc_spectra.genome_correction.nonSBSmutations <- finalCalls.reftnc_spectra.genome_correction %>%
+finalCalls.reftnc_spectra.genome_correction.SBSnonmutations <- finalCalls.reftnc_spectra.genome_correction %>%
 	filter((call_class == "SBS" & SBSindel_call_type != "mutation") | call_class == "MDB")
 
 finalCalls.burdens <- finalCalls.burdens %>%
@@ -1198,7 +1198,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		bind_rows(
 			
 			#Not unique calls, whole-genome corrected
-			finalCalls.reftnc_spectra.genome_correction.nonSBSmutations %>%
+			finalCalls.reftnc_spectra.genome_correction.SBSnonmutations %>%
 				mutate(
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
@@ -1208,7 +1208,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				),
 			
 			#Not unique calls, genome chromgroup corrected
-			finalCalls.reftnc_spectra.genome_correction.nonSBSmutations %>%
+			finalCalls.reftnc_spectra.genome_correction.SBSnonmutations %>%
 				mutate(
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
@@ -1221,7 +1221,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		unnest_wider(burden_data)
 	)
 
-rm(finalCalls.reftnc_spectra.genome_correction, finalCalls.reftnc_spectra.genome_correction.SBSmutations, finalCalls.reftnc_spectra.genome_correction.nonSBSmutations)
+rm(finalCalls.reftnc_spectra.genome_correction, finalCalls.reftnc_spectra.genome_correction.SBSmutations, finalCalls.reftnc_spectra.genome_correction.SBSnonmutations)
 invisible(gc())
 
 #Calculate Poisson 95% confidence intervals for number of calls and burdens
@@ -1453,21 +1453,72 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 }
 
 ######################
-### Calculate estimated SBS mutation error rate
+### Calculate estimated SBS mutation error rates per trinucleotide call channel and total error rate
 ######################
-cat("## Calculating estimated SBS mutation error rate...")
+cat("## Calculating estimated SBS mutation error probability per trinucleotide call channel and total error probability...")
+#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels (i) using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
 
-estimatedSBSMutationErrorRate
+if(call_types_toanalyze %>% filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>% nrow == 1){
+	
+	estimatedSBSMutationErrorProbability <- list()
+	
+	#Calculate burden of each trinucleotide call channel
+	estimatedSBSMutationErrorProbability_by_channel <- left_join(
+		#SBS mismatch-ss calls template_strand spectrum
+		finalCalls.reftnc_spectra %>%
+			filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+			pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
+			mutate(reftnc = channel %>% str_sub(1,3)),
+	
+		#Interrogated bases spectrum
+		bam.gr.filtertrack.bytype %>%
+			filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+			pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
+			select(reftnc, count),
+		
+		by = "reftnc",
+		suffix = c(".calls",".interrogated_bases")
+	) %>%
+		mutate(
+			burden = count.calls / count.interrogated_bases
+		) %>%
+		select(channel, burden)
+	
+	#Multiply each trinucleotide call channel burden by its reverse complement's burden to obtain the error probability for each channel
+	estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationErrorProbability_by_channel %>%
+		mutate(
+			channel_rc = str_c(
+				channel %>% str_sub(1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+				">",
+				channel %>% str_sub(5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+			) %>%
+				factor(levels = sbs192_labels)
+		) %>%
+		left_join(
+			x = select(., channel, channel_rc, burden),
+			y = select(., channel_rc, burden),
+			by = join_by(channel == channel_rc),
+			suffix = c("",".rc")
+		) %>%
+		mutate(
+			error_prob = burden * burden.rc,
+			channel_pyr = if_else(channel %>% str_sub(2,2) %in% c("C","T"), channel, channel_rc) %>%
+				factor(levels = sbs96_labels.sigfit)
+		) %>%
+		group_by(channel_pyr) %>%
+		summarize(error_prob = sum(error_prob, na.rm = TRUE)) %>%
+		arrange(channel_pyr)
 
-spectrum:
-finalCalls.reftnc_spectra %>% filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>% pluck("finalCalls.reftnc_template_strand_spectrum",1)
-
- num interrogated bases
-bam.gr.filtertrack.bytype %>% filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>% pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>% pull(count) %>% sum
-
-#For ssDNA mismatches only, for each channel and total
-
-- review Nanoseq code for calculating error rate again and update HiDEF-seq accordingly. See https://github.com/cancerit/NanoSeq/issues/92 and https://github.com/cancerit/NanoSeq/blob/4136d3ca943b96b2cf9013ac14183f098b8234be/R/nanoseq_results_plotter.R#L730. Specifically, do I need to divide the interrogated ssDNA bases by 2 in the denominator, since the two false positive calls must happen in opposite strands. But think about it carefully. Not sure about this.
+	estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
+		pull(error_prob) %>% 
+		sum
+	
+	rm(estimatedSBSMutationErrorProbability_by_channel)
+	
+}else{
+	cat("Skipping since this filtergroup does not analyze SBS mismatch-ss calls.\n")
+	estimatedSBSMutationErrorRate <- NULL
+}
 
 cat("DONE\n")
 
@@ -1496,7 +1547,7 @@ qs_save(
 		finalCalls.reftnc_spectra = finalCalls.reftnc_spectra,
 		finalCalls.burdens = finalCalls.burdens,
 		sensitivity = sensitivity,
-		estimatedSBSMutationErrorRate
+		estimatedSBSMutationErrorProbability = estimatedSBSMutationErrorProbability
 	),
 	outputFile
 )

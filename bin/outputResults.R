@@ -33,7 +33,7 @@ options(warn=2) #Stop script for any warnings
 option_list = list(
 	make_option(c("-c", "--config"), type = "character", default=NULL,
 							help="path to YAML configuration file"),
-	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
+	make_option(c("-s", "--sample_id"), type = "character", default=NULL,
 							help="sample_id to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated calculateBurdens qs2 files"),
@@ -43,12 +43,12 @@ option_list = list(
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
-sample_id_toanalyze <- opt$sample_id_toanalyze
+sample_id <- opt$sample_id
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
 
@@ -56,17 +56,27 @@ output_basename <- opt$output_basename
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
+ #analysis_id
+analysis_id <- yaml.config$analysis_id
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
   bind_rows %>%
-  filter(sample_id == sample_id_toanalyze) %>%
+  filter(sample_id == sample_id) %>%
   pull(individual_id)
+
+ #call types
+call_type <- yaml.config$call_types %>%
+	enframe(name=NULL) %>%
+	unnest_wider(value) %>%
+	unnest_longer(SBSindel_call_types) %>%
+	unnest_wider(SBSindel_call_types) %>%
+	select(-starts_with("MDB"))
 
 #Display basic configuration parameters
 cat("> Processing:\n")
 cat("    individual_id:",individual_id,"\n")
-cat("    sample_id:",sample_id_toanalyze,"\n")
+cat("    sample_id:",sample_id,"\n")
 
 cat("DONE\n")
 
@@ -160,24 +170,76 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 ######################
 ### Load data from calculateBurdens files
 ######################
-cat("## Loading data from calculateBurdens files...\n> chromgroup/filtergroup:")
+cat("## Loading data from calculateBurdens files...\n")
 
 #Create lists for data loading
+molecule_stats.by_run_id <- list()
+molecule_stats.by_analysis_id <- list()
+region_genome_filter_stats <- list()
+bam.gr.filtertrack.bytype.coverage_tnc <- list()
 
 #Loop over all calculateBurdens
 for(i in seq_along(calculateBurdensFiles)){
 	
-	cat(" ", **, sep="")
-	
 	#Load calculateBurdensFile
 	calculateBurdensFile <- qs_read(calculateBurdensFiles[i])
+	chromgroup <- calculateBurdensFile$chromgroup
+	filtergroup <- calculateBurdensFile$filtergroup
 	
-	#Load basic configuration only from first chunk, since identical in all chunks.
+	cat(" > chromgroup/filtergroup:", chromgroup, "/", filtergroup, "...")
+	
+	#Load data that is identical in all calculateBurdensFiles
 	if(i == 1){
-		#Basic configuration parameters
-		run_metadata -> same for all filtergroup/chromgroup
+		#Run metadata
+		run_metadata <- calculateBurdensFile %>% pluck("run_metadata")
 		
+		#Whole genome trinucleotide counts and fractions
+		genome.reftnc_pyr <- calculateBurdensFile %>% pluck("genome.reftnc","reftnc_pyr")
+		genome.reftnc_both_strands <- calculateBurdensFile %>% pluck("genome.reftnc","reftnc_both_strands")
 	}
+	
+	#Load filtering stats
+	molecule_stats.by_run_id[[i]] <- calculateBurdensFile$molecule_stats.by_run_id %>%
+		mutate(
+			analysis_id = !!analysis_id,
+			individual_id = !!individual_id,
+			sample_id = !!sample_id,
+			.before = 1
+		)
+	
+	molecule_stats.by_analysis_id[[i]] <- calculateBurdensFile$molecule_stats.by_analysis_id %>%
+		mutate(
+			analysis_id = !!analysis_id,
+			individual_id = !!individual_id,
+			sample_id = !!sample_id,
+			.before = 1
+		)
+	
+	region_genome_filter_stats[[i]] <- calculateBurdensFile$region_genome_filter_stats %>%
+		mutate(
+			analysis_id = !!analysis_id,
+			individual_id = !!individual_id,
+			sample_id = !!sample_id,
+			chromgroup = !!chromgroup,
+			filtergroup = !!filtergroup,
+			.before = 1
+		)
+	
+	#Load HiDEF-seq bam genome coverage and trinucleotide counts, fractions, and ratio to genome
+	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile$bam.gr.filtertrack.bytype.coverage_tnc %>%
+		mutate(
+			analysis_id = !!analysis_id,
+			individual_id = !!individual_id,
+			sample_id = !!sample_id,
+			chromgroup = !!chromgroup,
+			.before = 1
+		) %>%
+		relocate(filtergroup, .after = chromgroup) %>%
+		select(-analyzein_chromgroups)
+	
+	
+	
+	cat("DONE\n")
 
 }
 
@@ -243,6 +305,9 @@ cat("DONE\n")
 
 
 #Output trinucleotide counts
+genome.reftnc_pyr
+genome.reftnc_both_strands
+
 #bam.gr.filtertracks
 for(i in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
 	for(j in seq_len(nrow(bam.gr.filtertrack.bytype))){

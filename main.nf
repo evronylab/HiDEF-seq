@@ -1032,10 +1032,8 @@ workflow {
       Channel.fromList(params.samples)
           .combine(Channel.of(1..params.analysis_chunks))
           .combine(chromgroups_filtergroups_ch)
-          .map { sample, chunkID, chromgroup_filtergroup ->
+          .map { sample, chunkID, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
-              def chromgroup = chromgroup_filtergroup[0]
-              def filtergroup = chromgroup_filtergroup[1]
               def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
               return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
           }
@@ -1054,10 +1052,8 @@ workflow {
     calculateBurdens_out = calculateBurdens_out ?:
       Channel.fromList(params.samples)
           .combine(chromgroups_filtergroups_ch)
-          .map { sample, chromgroup_filtergroup ->
+          .map { sample, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
-              def chromgroup = chromgroup_filtergroup[0]
-              def filtergroup = chromgroup_filtergroup[1]
               def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
               return tuple(sample_id, calculateBurdensFile)
           }

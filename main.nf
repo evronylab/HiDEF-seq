@@ -1059,7 +1059,7 @@ workflow {
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
-        .groupTuple(by: 0) // Group by sample_id
+        .groupTuple(by: 0, size: chromgroups_filtergroups_ch.count()) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }

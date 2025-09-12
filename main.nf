@@ -45,7 +45,7 @@ process ccsChunk {
       tuple val(run_id), path(bamFile), path(pbiFile), val(chunkID)
 
     output:
-      tuple val(run_id), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi"), emit: bampbi_tuple
+      tuple val(run_id), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam"), path("hifi_reads/${run_id}.chunk${chunkID}.hifi_reads.ccs.bam.pbi"), val(chunkID), emit: bampbi_tuple
       path "statistics/*.ccs_report.*", emit: report
       path "statistics/*.summary.json", emit: summary
 
@@ -603,8 +603,8 @@ workflow processReads {
         
         // Merge all CCS chunks per run
         ccs_grouped_ch = ccsChunk.out.bampbi_tuple
-            .groupTuple(by: 0) // Group by run_id
-            .map { run_id, bamFiles, pbiFiles ->
+            .groupTuple(by: 0, sort: 3) // Group by run_id, sort by chunkID
+            .map { run_id, bamFiles, pbiFiles, chunkIDs ->
               return tuple(run_id, bamFiles, pbiFiles)
             }
 
@@ -1039,7 +1039,7 @@ workflow {
           }
 
     def filterCalls_grouped_ch = filterCalls_out
-        .groupTuple(by: [0, 1, 2], sort: { it[3] as Integer }, size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup and sort by chunkID. 'size' parameter emits as soon as each group's chunks finish.
+        .groupTuple(by: [0, 1, 2], sort: 3, size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup and sort by chunkID. 'size' parameter emits as soon as each group's chunks finish.
         .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
             return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
         }

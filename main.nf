@@ -1039,7 +1039,7 @@ workflow {
           }
 
     def filterCalls_grouped_ch = filterCalls_out
-        .groupTuple(by: [0, 1, 2], sort: true) // Group by sample_id, chromgroup, filtergroup and sort by chunkID
+        .groupTuple(by: [0, 1, 2], sort: true, size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup and sort by chunkID. 'size' parameter emits as soon as each group's chunks finish.
         .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
             return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
         }

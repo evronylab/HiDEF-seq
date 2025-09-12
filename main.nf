@@ -603,9 +603,13 @@ workflow processReads {
         
         // Merge all CCS chunks per run
         ccs_grouped_ch = ccsChunk.out.bampbi_tuple
-            .groupTuple(by: 0, sort: { it[3] as Integer }) // Group by run_id, sort by chunkID
+            .groupTuple(by: 0) // Group by run_id
             .map { run_id, bamFiles, pbiFiles, chunkIDs ->
-              return tuple(run_id, bamFiles, pbiFiles)
+              // Sort by chunkID
+              def sortedIndices = (0..<bamFiles.size()).sort { chunkIDs[it] as Integer }
+              def sortedBamFiles = sortedIndices.collect { bamFiles[it] }
+              def sortedPbiFiles = sortedIndices.collect { pbiFiles[it] }
+              return tuple(run_id, sortedBamFiles, sortedPbiFiles)
             }
 
         mergeCCSchunks(ccs_grouped_ch)
@@ -1039,9 +1043,12 @@ workflow {
           }
 
     def filterCalls_grouped_ch = filterCalls_out
-        .groupTuple(by: [0, 1, 2], sort: { it[3] as Integer }, size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup and sort by chunkID. 'size' parameter emits as soon as each group's chunks finish.
+        .groupTuple(by: [0, 1, 2], size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
         .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
-            return tuple(sample_id, chromgroup, filtergroup, filterCallsFiles)
+            // Sort by chunkID
+            def sortedIndices = (0..<filterCallsFiles.size()).sort { chunkIDs[it] as Integer }
+            def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
+            return tuple(sample_id, chromgroup, filtergroup, sortedfilterCallsFiles)
         }
 
     calculateBurdens_out = calculateBurdens(filterCalls_grouped_ch)

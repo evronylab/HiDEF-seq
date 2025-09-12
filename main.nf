@@ -428,7 +428,7 @@ process prepareRegionFilters {
   extractCallsChunk: Run extractCalls.R for an analysis chunk
 */
 process extractCallsChunk {
-    cpus 2
+    cpus 1
     memory { 
       def baseMemory = params.mem_extractCallsChunk as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
@@ -459,7 +459,7 @@ process extractCallsChunk {
   filterCallsChunk: Run filterCalls.R for each analysis chunk, chromgroup, filtergroup combination
 */
 process filterCallsChunk {
-    cpus 2
+    cpus 1
     memory { 
       def baseMemory = params.mem_filterCallsChunk as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
@@ -490,7 +490,7 @@ process filterCallsChunk {
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
 process calculateBurdensChromgroupFiltergroup {
-    cpus 2
+    cpus 1
     memory '64 GB'
     time '24h'
     tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
@@ -514,7 +514,7 @@ process calculateBurdensChromgroupFiltergroup {
   outputResultsSample: Run outputResults.R for each sample_id
 */
 process outputResultsSample {
-    cpus 2
+    cpus 1
     memory '32 GB'
     time '2h'
     tag { "Output results: ${sample_id}" }

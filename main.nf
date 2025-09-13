@@ -606,7 +606,7 @@ workflow processReads {
             .groupTuple(by: 0) // Group by run_id
             .map { run_id, bamFiles, pbiFiles, chunkIDs ->
               // Sort by chunkID
-              def sortedIndices = (0..<bamFiles.size()).sort { chunkIDs[it] as Integer }
+              def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
               def sortedBamFiles = sortedIndices.collect { bamFiles[it] }
               def sortedPbiFiles = sortedIndices.collect { pbiFiles[it] }
               return tuple(run_id, sortedBamFiles, sortedPbiFiles)
@@ -1046,7 +1046,7 @@ workflow {
         .groupTuple(by: [0, 1, 2], size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
         .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
             // Sort by chunkID
-            def sortedIndices = (0..<chunkIDs.size()).sort { chunkIDs[it] as Integer }
+            def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
             def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
             return tuple(sample_id, chromgroup, filtergroup, sortedfilterCallsFiles)
         }

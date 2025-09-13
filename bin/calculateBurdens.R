@@ -428,51 +428,46 @@ cat(" DONE\n")
 ######################
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
 
-#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'coverage' column, excluding zero coverage bases
-bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
-	mutate(
-		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
-			map(
-				function(x){
-					if(length(x) == 0){
+#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'coverage' column, excluding zero coverage bases. 'for' loop uses less memory than 'map'
+for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
+	
+	if(length(bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"]) == 0){
+		bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] <- GRanges(
+			duplex_coverage=integer(),
+			seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+		)
+	}else{
+		bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] <- bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] %>%
+			imap(
+				function(r,chr){
+					pos <- which(r != 0L) 
+					
+					if(length(pos) == 0L){
 						return(GRanges(
 							duplex_coverage=integer(),
 							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-							))
-						}
+						))
+					}
 					
-					x %>%
-						imap(
-							function(r,chr){
-								pos <- which(r != 0L) 
-								
-								if(length(pos) == 0L){
-									return(GRanges(
-										duplex_coverage=integer(),
-										seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-										))
-									}
-								
-								rl <- runLength(r)
-								rv <- runValue(r)
-								nz <- rv != 0L
-								
-								GRanges(
-									seqnames = chr,
-									ranges = IRanges(start = pos, width = 1L),
-									duplex_coverage = rep.int(rv[nz], rl[nz]),
-									seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-								)
-							}
-						) %>%
-						GRangesList %>%
-						unlist(use.names = FALSE)
+					rl <- runLength(r)
+					rv <- runValue(r)
+					nz <- rv != 0L
+					
+					GRanges(
+						seqnames = chr,
+						ranges = IRanges(start = pos, width = 1L),
+						duplex_coverage = rep.int(rv[nz], rl[nz]),
+						seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+					)
 				}
-			)
-	)
-cat("\n1\n")
-#Annotate trinucleotide reference sequences for final interrogated genome bases
+			) %>%
+			GRangesList %>%
+			unlist(use.names = FALSE)
+	}
+}
 
+#Annotate trinucleotide reference sequences for final interrogated genome bases
+cat("\n1\n")
  #Extract all regions for which to obtain sequence
 regions_to_getseq <- bam.gr.filtertrack.bytype %>%
 	pull(bam.gr.filtertrack.coverage) %>%
@@ -484,7 +479,7 @@ regions_to_getseq <- bam.gr.filtertrack.bytype %>%
 	resize(width = 3, fix="center") %>%
 	trim %>% #Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3)
 	filter(width == 3)
-cat("\n2\n")
+
  #Extract reference sequences with seqkit (faster than R getSeq)
 tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
 tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
@@ -495,7 +490,7 @@ str_c(
 	"-", regions_to_getseq %>% end
 ) %>%
 	write_lines(tmpregions)
-cat("\n3\n")
+
 invisible(system(paste(
 	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,yaml.config$genome_fasta,"|",
 	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
@@ -503,7 +498,7 @@ invisible(system(paste(
 	"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
 	tmpseqs
 ),intern=FALSE))
-cat("\n4\n")
+
 seqkit_seqs <- tmpseqs %>%
 	read_tsv(
 		col_names=c("seqnames","start","end","reftnc_plus_strand"),
@@ -518,27 +513,27 @@ seqkit_seqs <- tmpseqs %>%
 		keep.extra.columns = TRUE,
 		seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 	)
-cat("\n5\n")
+
 invisible(file.remove(tmpregions,tmpseqs))
 
 hits <- findOverlaps(regions_to_getseq, seqkit_seqs, type = "equal")
-cat("\n6\n")
+
 if(length(regions_to_getseq) > 0){
 	regions_to_getseq$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
 	regions_to_getseq$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
 }else{
 	regions_to_getseq$reftnc_plus_strand <- factor(levels = trinucleotides_64)
 }
-cat("\n7\n")
+
 rm(seqkit_seqs, hits)
 invisible(gc())
 
 regions_to_getseq <- regions_to_getseq %>%
 	resize(width = 1, fix = "center")
-cat("\n8\n")
+
  #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. 'for' loop uses less memory than 'map'
 for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
-	cat("\n9-",i,"\n")
+
 	h <- findOverlaps(
 		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]],
 		regions_to_getseq,
@@ -568,7 +563,7 @@ for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 				factor(levels = trinucleotides_32_pyr)
 		)
 }
-cat("\n9\n")10
+
 rm(regions_to_getseq, h)
 invisible(gc())
 

@@ -428,46 +428,76 @@ cat(" DONE\n")
 ######################
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
 
-#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'coverage' column, excluding zero coverage bases. 'for' loop uses less memory than 'map'
-for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
+#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'duplex_coverage' column in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle.
+ #Helper function
+rlelist_to_perbase_GRanges <- function(cov, BSgenome_name){
 	
-	if(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% length == 0){
-		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- GRanges(
-			duplex_coverage=integer(),
-			seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-		)
-	}else{
-		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
-			imap(
-				function(r,chr){
-					pos <- which(r != 0L)
-					
-					if(length(pos) == 0L){
-						return(GRanges(
-							duplex_coverage=integer(),
-							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-						))
-					}
-					
-					rl <- runLength(r)
-					rv <- runValue(r)
-					nz <- rv != 0L
-					
-					GRanges(
-						seqnames = chr,
-						ranges = IRanges(start = pos, width = 1L),
-						duplex_coverage = rep.int(rv[nz], rl[nz]),
-						seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-					)
-				}
-			) %>%
-			GRangesList %>%
-			unlist(use.names = FALSE)
+	chrs <- names(cov)
+	si <- BSgenome_name %>% get %>% seqinfo
+		
+	## First pass: compute N for each chr and collect per-chr coverage Rle fragments
+	N_by_chr <- integer(cov %>% length)
+	cov_rle_parts <- vector("list", cov %>% length)
+	runs_s <- vector("list", cov %>% length)
+	runs_w <- vector("list", cov %>% length)
+	
+	for(i in seq_along(cov)){
+		r <- cov[[i]]
+		if(length(r) == 0L){next}
+		rl <- r %>% runLength
+		rv <- r %>% runValue %>% as.integer
+		nz <- which(rv != 0L)
+		if(length(nz) == 0L){next}
+		ends <- rl %>% cumsum
+		starts <- ends - rl + 1L
+		N_by_chr[i] <- rl[nz] %>% sum
+		cov_rle_parts[[i]] <- Rle(rv[nz], rl[nz])
+		runs_s[[i]] <- starts[nz]
+		runs_w[[i]] <- rl[nz]
 	}
+	
+	totalN <- N_by_chr %>% sum
+	if(totalN == 0L){
+		return(GRanges(duplex_coverage = integer(), seqinfo = si))
+	}
+	
+	## Build seqnames as an Rle
+	keep_idx <- which(N_by_chr > 0L)
+	seqnames_Rle <- Rle(chrs[keep_idx] %>% factor(levels = seqlevels(si)), N_by_chr[keep_idx])
+	
+	# Build the per-base start vector
+	start_vec <- integer(totalN)
+	offset <- 0L
+	for(i in keep_idx){
+		s <- runs_s[[i]]
+		w <- runs_w[[i]]
+		if(length(w) == 0L){next}
+		
+		v <- sequence(w) + rep.int(s - 1L, w)
+		len <- length(v)
+		start_vec[(offset + 1L):(offset + len)] <- v
+		offset <- offset + len
+		rm(v)
+	}
+	
+	# Construct final GRanges
+	gr <- GRanges(
+		seqnames = seqnames_Rle,
+		ranges = IRanges(start = start_vec, width = 1L),
+		seqinfo = si
+	)
+	mcols(gr)$duplex_coverage <- do.call(c, cov_rle_parts[keep_idx])
+	return(gr)
+}
+
+ #Run helper function for each bam.gr.filtertrack.bytype row. 'for' loop uses less memory than 'map'.
+for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
+	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
+		rlelist_to_perbase_GRanges(yaml.config$BSgenome$BSgenome_name)
 }
 
 #Annotate trinucleotide reference sequences for final interrogated genome bases
-cat("\n1\n")
+
  #Extract all regions for which to obtain sequence
 regions_to_getseq <- bam.gr.filtertrack.bytype %>%
 	pull(bam.gr.filtertrack.coverage) %>%
@@ -532,7 +562,7 @@ regions_to_getseq <- regions_to_getseq %>%
 	resize(width = 1, fix = "center")
 
  #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. 'for' loop uses less memory than 'map'
-for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
+for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 
 	h <- findOverlaps(
 		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]],

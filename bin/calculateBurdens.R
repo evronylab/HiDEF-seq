@@ -428,66 +428,52 @@ cat(" DONE\n")
 ######################
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
 
-#Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'duplex_coverage' column in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle.
+#Convert duplex coverage RleList of final interrogated genome bases to GRangesList (one element per chromosome, to avoid max integer overflows) that has a 'duplex_coverage' column for every base in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle.
  #Helper function
 rlelist_to_perbase_GRanges <- function(cov, BSgenome_name){
 	
 	chrs <- names(cov)
 	si <- BSgenome_name %>% get %>% seqinfo
-		
-	## First pass: compute N for each chr and collect per-chr coverage Rle fragments
-	N_by_chr <- integer(cov %>% length)
-	cov_rle_parts <- vector("list", cov %>% length)
-	runs_s <- vector("list", cov %>% length)
-	runs_w <- vector("list", cov %>% length)
 	
-	for(i in seq_along(cov)){
+	out <- vector("list", length(chrs)) %>% set_names(chrs)
+		
+	for(i in seq_along(chrs)){
+		chr <- chrs[i]
 		r <- cov[[i]]
-		if(length(r) == 0L){next}
+		
+		if(length(r) == 0L){
+			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			next
+		}
+		
 		rl <- r %>% runLength
 		rv <- r %>% runValue %>% as.integer
 		nz <- which(rv != 0L)
-		if(length(nz) == 0L){next}
+		
+		if(length(nz) == 0L){
+			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			next
+		}
+		
 		ends <- rl %>% cumsum
 		starts <- ends - rl + 1L
-		N_by_chr[i] <- rl[nz] %>% sum
-		cov_rle_parts[[i]] <- Rle(rv[nz], rl[nz])
-		runs_s[[i]] <- starts[nz]
-		runs_w[[i]] <- rl[nz]
-	}
-	
-	totalN <- N_by_chr %>% sum
-	if(totalN == 0L){
-		return(GRanges(duplex_coverage = integer(), seqinfo = si))
-	}
-	
-	## Build seqnames as an Rle
-	keep_idx <- which(N_by_chr > 0L)
-	seqnames_Rle <- Rle(chrs[keep_idx] %>% factor(levels = seqlevels(si)), N_by_chr[keep_idx])
-	
-	# Build the per-base start vector
-	start_vec <- integer(totalN)
-	offset <- 0L
-	for(i in keep_idx){
-		s <- runs_s[[i]]
-		w <- runs_w[[i]]
-		if(length(w) == 0L){next}
+		s <- starts[nz]
+		w <- rl[nz]
+		n <- sum(w)
 		
-		v <- sequence(w) + rep.int(s - 1L, w)
-		len <- length(v)
-		start_vec[(offset + 1L):(offset + len)] <- v
-		offset <- offset + len
-		rm(v)
+		# Build the per-base start vector
+		starts_vec <- sequence(w) + rep.int(s - 1L, w)
+		
+		# Construct final GRanges
+		out[[i]] <- GRanges(
+			seqnames = Rle(chr %>% factor(levels = chrs), n),
+			ranges = IRanges(start = starts_vec, width = 1L),
+			duplex_coverage = Rle(rv[nz], rl[nz]),
+			seqinfo = si
+		)
 	}
 	
-	# Construct final GRanges
-	gr <- GRanges(
-		seqnames = seqnames_Rle,
-		ranges = IRanges(start = start_vec, width = 1L),
-		seqinfo = si
-	)
-	mcols(gr)$duplex_coverage <- do.call(c, cov_rle_parts[keep_idx])
-	return(gr)
+	return(out %>% GRangesList)
 }
 
  #Run helper function for each bam.gr.filtertrack.bytype row. 'for' loop uses less memory than 'map'.

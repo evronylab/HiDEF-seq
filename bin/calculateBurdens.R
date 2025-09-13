@@ -291,7 +291,7 @@ normalize_indels_for_vcf <- function(df, BSgenome_name) {
 ######################
 ### Load data from filterCalls files
 ######################
-cat("## Loading data from filterCalls files...\n> analysis chunk:")
+cat("## Loading data from filterCalls files...\n > analysis chunk:")
 
 #Create lists for data loading
 finalCalls <- list()
@@ -570,6 +570,8 @@ for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 
 rm(regions_to_getseq, h)
 invisible(gc())
+
+cat(" DONE\n")
 
 ######################
 ### Calculate trinucleotide distributions of interrogated bases and the genome
@@ -1495,10 +1497,10 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	cat("DONE\n")
 	
 }else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
-	cat("Skipping sensitivity calculation since use_chromgroup not in currently analyzed chromgroup.\n")
+	cat("## Skipping sensitivity calculation since use_chromgroup not in currently analyzed chromgroup.\n")
 	sensitivity <- NULL #Remove sensitivity tibble so it is not used.
 }else if(is.null(sensitivity_parameters$use_chromgroup)){
-	cat("All sensitivities set to 1 since use_chromgroup not defined.\n")
+	cat("## All sensitivities set to 1 since use_chromgroup not defined.\n")
 }
 
 ######################

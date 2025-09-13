@@ -431,16 +431,16 @@ cat("## Calculating coverage and extracting reference sequences of interrogated 
 #Convert duplex coverage RleList of final interrogated genome bases to GRanges for every base with a 'coverage' column, excluding zero coverage bases. 'for' loop uses less memory than 'map'
 for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 	
-	if(length(bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"]) == 0){
-		bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] <- GRanges(
+	if(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% length == 0){
+		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- GRanges(
 			duplex_coverage=integer(),
 			seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 		)
 	}else{
-		bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] <- bam.gr.filtertrack.bytype[i,"bam.gr.filtertrack.coverage"] %>%
+		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
 			imap(
 				function(r,chr){
-					pos <- which(r != 0L) 
+					pos <- which(r != 0L)
 					
 					if(length(pos) == 0L){
 						return(GRanges(

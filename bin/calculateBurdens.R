@@ -223,6 +223,53 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
+#Function to convert a coverage SimpleRleList to a GRangesList annotated with 'duplex_coverage'
+rlelist_to_perbase_GRanges <- function(cov, BSgenome_name){
+	
+	chrs <- names(cov)
+	si <- BSgenome_name %>% get %>% seqinfo
+	
+	out <- vector("list", length(chrs)) %>% set_names(chrs)
+	
+	for(i in seq_along(chrs)){
+		chr <- chrs[i]
+		r <- cov[[i]]
+		
+		if(length(r) == 0L){
+			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			next
+		}
+		
+		rl <- r %>% runLength
+		rv <- r %>% runValue %>% as.integer
+		nz <- which(rv != 0L)
+		
+		if(length(nz) == 0L){
+			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			next
+		}
+		
+		ends <- rl %>% cumsum
+		starts <- ends - rl + 1L
+		s <- starts[nz]
+		w <- rl[nz]
+		n <- sum(w)
+		
+		# Build the per-base start vector
+		starts_vec <- sequence(w) + rep.int(s - 1L, w)
+		
+		# Construct final GRanges
+		out[[i]] <- GRanges(
+			seqnames = Rle(chr %>% factor(levels = si %>% seqlevels), n),
+			ranges = IRanges(start = starts_vec, width = 1L),
+			duplex_coverage = Rle(rv[nz], rl[nz]),
+			seqinfo = si
+		)
+	}
+	
+	return(out)
+}
+
 #Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
 gr_1bp_cov <- function(gr, cov){
 	
@@ -428,61 +475,14 @@ cat(" DONE\n")
 ######################
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
 
-#Convert duplex coverage RleList of final interrogated genome bases to a GRangesList (one element per chromosome, to avoid max integer overflows) that has a 'duplex_coverage' column for every base in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle.
- #Helper function
-rlelist_to_perbase_GRanges <- function(cov, BSgenome_name){
-	
-	chrs <- names(cov)
-	si <- BSgenome_name %>% get %>% seqinfo
-	
-	out <- vector("list", length(chrs)) %>% set_names(chrs)
-		
-	for(i in seq_along(chrs)){
-		chr <- chrs[i]
-		r <- cov[[i]]
-		
-		if(length(r) == 0L){
-			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
-			next
-		}
-		
-		rl <- r %>% runLength
-		rv <- r %>% runValue %>% as.integer
-		nz <- which(rv != 0L)
-		
-		if(length(nz) == 0L){
-			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
-			next
-		}
-		
-		ends <- rl %>% cumsum
-		starts <- ends - rl + 1L
-		s <- starts[nz]
-		w <- rl[nz]
-		n <- sum(w)
-		
-		# Build the per-base start vector
-		starts_vec <- sequence(w) + rep.int(s - 1L, w)
-		
-		# Construct final GRanges
-		out[[i]] <- GRanges(
-			seqnames = Rle(chr %>% factor(levels = si %>% seqlevels), n),
-			ranges = IRanges(start = starts_vec, width = 1L),
-			duplex_coverage = Rle(rv[nz], rl[nz]),
-			seqinfo = si
-		)
-	}
-	
-	return(out %>% GRangesList)
-}
-
- #Run helper function for each bam.gr.filtertrack.bytype row. 'for' loop uses less memory than 'map'.
+#Convert duplex coverage RleList of final interrogated genome bases to a GRangesList (one element per chromosome, to avoid max integer overflows) that has a 'duplex_coverage' column for every base in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle. 'for' loop uses less memory than 'map'.
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
 		rlelist_to_perbase_GRanges(yaml.config$BSgenome$BSgenome_name)
 }
 
-#Annotate trinucleotide reference sequences for final interrogated genome bases
+#Annotate trinucleotide reference sequences(reftnc_plus_strand, reftnc_minus_strand, and reftnc_pyr) for final interrogated genome bases
+ #Extract bases to annotate
 regions_to_getseq <- GRanges(seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo) %>%
 			list %>%
 			rep(yaml.config$BSgenome$BSgenome_name %>% get %>% length) %>%
@@ -506,7 +506,7 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 }
 invisible(gc())
 
-#Extract trinucleotide sequences for each base, separately for each chromosome to avoid max integer overflow
+ #Extract trinucleotide sequences for each base, separately for each chromosome to avoid max integer overflow
 for(i in regions_to_getseq %>% names){
 	
 	#Resize to 3 bp
@@ -578,48 +578,40 @@ for(i in regions_to_getseq %>% names){
 	}
 	
 	regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
-		resize(width = 1, fix = "center")
+		resize(width = 1, fix = "center") %>%
+		as_tibble %>%
+		select(-c(seqnames,end,width,strand))
 }
 
 rm(seqkit_seqs, hits)
 invisible(gc())
 
- #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. Optimized for speed.
+ #Join extracted sequences back to each bam.gr.filtertrack.coverage.
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-
 	for(j in bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% names){
-		# vectorized match by position instead of using findOverlaps(type = "equal")
-		idx <- match(
-			bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] %>% start,
-			regions_to_getseq[[j]] %>% start
-			) #NA when no match
+		duplex_coverage_tmp <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]]$duplex_coverage
 		
-		if(length(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]]) > 0){
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand <- factor(NA_character_, levels = trinucleotides_64)
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr <- factor(NA_character_, levels = trinucleotides_32_pyr)
-			
-			qh <- !is.na(idx) %>% which
-			sh <- idx[qh]
-			
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand[qh] <- regions_to_getseq[[j]]$reftnc_plus_strand[sh]
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand[qh] <- regions_to_getseq[[j]]$reftnc_minus_strand[sh]
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr[qh] <- regions_to_getseq[[j]]$reftnc_pyr[sh]
-			
-			rm(qh,sh)
-			
-		}else{
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(levels = trinucleotides_64)
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand <- factor(levels = trinucleotides_64)
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr <- factor(levels = trinucleotides_32_pyr)
-		}
-		
+		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] <- 
+			left_join(
+				bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] %>%
+					select(-duplex_coverage) %>%
+					as_tibble %>%
+					select(-c(end,width,strand)),
+				regions_to_getseq[[j]],
+				by = "start"
+			) %>%
+			makeGRangesFromDataFrame(
+				end.field = "start",
+				keep.extra.columns = TRUE,
+				seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+			) %>%
+			mutate(
+				duplex_coverage = duplex_coverage_tmp
+			)
 	}
-	
-	if(i %% 2L == 0L){invisible(gc())} #Periodic garbage collection
 }
 
-rm(regions_to_getseq, h)
+rm(regions_to_getseq, duplex_coverage_tmp)
 invisible(gc())
 
 cat(" DONE\n")
@@ -635,27 +627,20 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.coverage %>%
 			map(
 				function(x){
-					# per-chr weighted sums without expanding Rle
-					per_chr <- map(x, function(y){
-						out <- trinucleotides_32_pyr %>%
-							length %>%
-							numeric %>%
-							set_names(trinucleotides_32_pyr)
+					# per-chr reftnc_pyr counts without expanding Rle
+					map(x, function(y){
+						S4Vectors::split(y$duplex_coverage, y$reftnc_pyr) %>%
+							map(sum) %>%
+							unlist %>%
+							enframe(name = "reftnc_pyr", value = "count") %>%
+							mutate(reftnc_pyr = reftnc_pyr %>% factor(levels = trinucleotides_32_pyr))
+					}) %>%
 						
-						if(length(y)==0){return(out)}
-						s <- S4Vectors::split(y$duplex_coverage, y$reftnc_pyr)
-						sums <- s %>% endoapply(sum) %>% as.numeric
-						if(sums %>% length > 0){out[names(s)] <- sums}
-						return(out)
-					})
-					
-					total <- purrr::reduce(per_chr, `+`)
-					tibble(
-						reftnc_pyr = total %>%
-							names %>%
-							factor(levels = trinucleotides_32_pyr),
-						count = as.numeric(total)
-					) %>%
+						#sum across chroms
+						bind_rows %>%
+						group_by(reftnc_pyr) %>%
+						summarize(count = sum(count), .groups="drop") %>%
+						complete(reftnc_pyr, fill = list(count = 0)) %>%
 						arrange(reftnc_pyr) %>%
 						filter(!is.na(reftnc_pyr)) %>%
 						mutate(fraction = count / sum(count))
@@ -665,35 +650,28 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.coverage %>%
 			map(
 				function(x){
-					# per-chr weighted sums without expanding Rle
-					per_chr <- map(x, function(y){
-						out <- trinucleotides_64 %>%
-							length %>%
-							numeric %>%
-							set_names(trinucleotides_64)
+					# per-chr reftnc counts without expanding Rle
+					map(x, function(y){
+						bind_rows(
+							S4Vectors::split(y$duplex_coverage, y$reftnc_plus_strand) %>%
+								map(sum) %>%
+								unlist %>%
+								enframe(name = "reftnc", value = "count") %>%
+								mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)),
+							
+							S4Vectors::split(y$duplex_coverage, y$reftnc_minus_strand) %>%
+								map(sum) %>%
+								unlist %>%
+								enframe(name = "reftnc", value = "count") %>%
+								mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
+						)
+					}) %>%
 						
-						if(length(y)==0){return(out)}
-						s_plus <- S4Vectors::split(y$duplex_coverage, y$reftnc_plus_strand)
-						s_minus <- S4Vectors::split(y$duplex_coverage, y$reftnc_minus_strand)
-						
-						if (length(s_plus) > 0){
-							vals <- s_plus %>% endoapply(sum) %>% as.numeric
-							out[names(s_plus)] <- out[names(s_plus)] + vals
-						}
-						if (length(s_minus) > 0){
-							vals <- s_minus %>% endoapply(sum) %>% as.numeric
-							out[names(s_minus)] <- out[names(s_minus)] + vals
-						}
-						return(out)
-					})
-					
-					total <- purrr::reduce(per_chr, `+`)
-					tibble(
-						reftnc = total %>%
-							names %>%
-							factor(levels = trinucleotides_64),
-						count = as.numeric(total)
-					) %>%
+						#sum across chroms
+						bind_rows %>%
+						group_by(reftnc) %>%
+						summarize(count = sum(count), .groups="drop") %>%
+						complete(reftnc, fill = list(count = 0)) %>%
 						arrange(reftnc) %>%
 						filter(!is.na(reftnc)) %>%
 						mutate(fraction = count / sum(count))
@@ -705,7 +683,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 			map(
 				function(x){
 					x %>%
-						endoapply(function(y){
+						map(function(y){
 								y %>% select(-reftnc_plus_strand,-reftnc_minus_strand)
 						})
 				}

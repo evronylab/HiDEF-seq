@@ -388,7 +388,7 @@ for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 	
 	bam.gr.filtertrack.bytype %>%
 		pluck("bam.gr.filtertrack.coverage",i) %>%
-		** Fix to output each chromosome sequentially, since it is now a GRangesList
+		** Fix to output each chromosome sequentially, since it is now a List
 		mutate(name = reftnc_pyr, score = coverage) %>% #rename to to allow output by 'export'
 		export(
 			con = str_c(

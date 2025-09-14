@@ -556,36 +556,8 @@ for(i in regions_to_getseq %>% names){
 	if(length(regions_to_getseq[[i]]) > 0){
 		regions_to_getseq[[i]]$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
 		regions_to_getseq[[i]]$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
-	}else{
-		regions_to_getseq[[i]]$reftnc_plus_strand <- factor(levels = trinucleotides_64)
-	}
-	
-	regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
-		resize(width = 1, fix = "center")
-}
-
-rm(seqkit_seqs, hits)
-invisible(gc())
-
- #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. 'for' loop uses less memory than 'map'
-for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	
-	for(j in bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% names){
-		h <- findOverlaps(
-			bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]],
-			regions_to_getseq[[j]],
-			type = "equal"
-		)
 		
-		if(length(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]]) > 0){
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
-			
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand[queryHits(h)] <- regions_to_getseq[[j]]$reftnc_plus_strand[subjectHits(h)]
-		}else{
-			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(levels = trinucleotides_64)
-		}
-		
-		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] %>%
+		regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
 			mutate(
 				reftnc_minus_strand = reftnc_plus_strand %>%
 					fct_relabel(
@@ -599,6 +571,49 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 					fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
 					factor(levels = trinucleotides_32_pyr)
 			)
+	}else{
+		regions_to_getseq[[i]]$reftnc_plus_strand <- factor(levels = trinucleotides_64)
+		regions_to_getseq[[i]]$reftnc_minus_strand <- factor(levels = trinucleotides_64)
+		regions_to_getseq[[i]]$reftnc_pyr <- factor(levels = trinucleotides_32_pyr)
+	}
+	
+	regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
+		resize(width = 1, fix = "center")
+}
+
+rm(seqkit_seqs, hits)
+invisible(gc())
+
+ #Join extracted sequences back to each bam.gr.filtertrack.coverage, and use that to also annotate reftnc_minus_strand and reftnc_pyr. Optimized for speed.
+for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
+
+	for(j in bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% names){
+		# vectorized match by position instead of using findOverlaps(type = "equal")
+		idx <- match(
+			bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] %>% start,
+			regions_to_getseq[[j]] %>% start
+			) #NA when no match
+		
+		if(length(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]]) > 0){
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand <- factor(NA_character_, levels = trinucleotides_64)
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr <- factor(NA_character_, levels = trinucleotides_32_pyr)
+			
+			qh <- !is.na(idx) %>% which
+			sh <- idx[qh]
+			
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand[qh] <- regions_to_getseq[[j]]$reftnc_plus_strand[sh]
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand[qh] <- regions_to_getseq[[j]]$reftnc_minus_strand[sh]
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr[qh] <- regions_to_getseq[[j]]$reftnc_pyr[sh]
+			
+			rm(qh,sh)
+			
+		}else{
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_plus_strand <- factor(levels = trinucleotides_64)
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_minus_strand <- factor(levels = trinucleotides_64)
+			mcols(bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]])$reftnc_pyr <- factor(levels = trinucleotides_32_pyr)
+		}
+		
 	}
 	
 	if(i %% 2L == 0L){invisible(gc())} #Periodic garbage collection

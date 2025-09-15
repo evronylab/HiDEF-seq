@@ -476,6 +476,7 @@ cat(" DONE\n")
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
 
 #Convert duplex coverage RleList of final interrogated genome bases to a GRangesList (one element per chromosome, to avoid max integer overflows) that has a 'duplex_coverage' column for every base in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle. 'for' loop uses less memory than 'map'.
+cat("1\n")
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
 		rlelist_to_perbase_GRanges(yaml.config$BSgenome$BSgenome_name)
@@ -483,11 +484,13 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 
 #Annotate trinucleotide reference sequences(reftnc_plus_strand, reftnc_minus_strand, and reftnc_pyr) for final interrogated genome bases
  #Extract bases to annotate
+cat("2\n")
 regions_to_getseq <- GRanges(seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo) %>%
 			list %>%
 			rep(yaml.config$BSgenome$BSgenome_name %>% get %>% length) %>%
 			set_names(yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames)
 
+cat("3\n")
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 	grl <- bam.gr.filtertrack.bytype %>%
 		pluck("bam.gr.filtertrack.coverage",i)
@@ -507,6 +510,7 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 invisible(gc())
 
  #Extract trinucleotide sequences for each base, separately for each chromosome to avoid max integer overflow
+cat("4\n")
 for(i in regions_to_getseq %>% names){
 	
 	#Resize to 3 bp
@@ -586,6 +590,7 @@ for(i in regions_to_getseq %>% names){
 rm(seqkit_seqs, hits)
 invisible(gc())
 
+cat("5\n")
  #Join extracted sequences back to each bam.gr.filtertrack.coverage.
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 	for(j in bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% names){

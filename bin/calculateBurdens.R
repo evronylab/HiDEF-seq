@@ -23,6 +23,7 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
+suppresSPackageStartupMessages(library(duckplyr))
 
 ######################
 ### Load configuration
@@ -223,51 +224,47 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Function to convert a coverage SimpleRleList to a GRangesList annotated with 'duplex_coverage'
-rlelist_to_perbase_GRanges <- function(cov, BSgenome_name){
-	
-	chrs <- names(cov)
-	si <- BSgenome_name %>% get %>% seqinfo
-	
-	out <- vector("list", length(chrs)) %>% set_names(chrs)
+#Function to convert a SimpleRleList of coverage to non-zero runs (start, end, value)
+coverage_rlelist_to_runs <- function(cov){
+	out <- cov %>%
+		length %>%
+		vector("list") %>%
+		set_names(cov)
 	
 	for(i in seq_along(chrs)){
-		chr <- chrs[i]
 		r <- cov[[i]]
-		
 		if(length(r) == 0L){
-			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			out[[i]] <- tibble(
+				seqnames = character(),
+				start = integer(),
+				end = integer(),
+				duplex_coverage = integer()
+			)
 			next
 		}
 		
 		rl <- r %>% runLength
 		rv <- r %>% runValue %>% as.integer
 		nz <- which(rv != 0L)
-		
 		if(length(nz) == 0L){
-			out[[i]] <- GRanges(duplex_coverage = Rle(), seqinfo = si)
+			out[[i]] <- tibble(
+				seqnames = character(),
+				start = integer(),
+				end = integer(),
+				duplex_coverage = integer()
+			)
 			next
 		}
-		
-		ends <- rl %>% cumsum
+		ends   <- cumsum(rl)
 		starts <- ends - rl + 1L
-		s <- starts[nz]
-		w <- rl[nz]
-		n <- sum(w)
-		
-		# Build the per-base start vector
-		starts_vec <- sequence(w) + rep.int(s - 1L, w)
-		
-		# Construct final GRanges
-		out[[i]] <- GRanges(
-			seqnames = Rle(chr %>% factor(levels = si %>% seqlevels), n),
-			ranges = IRanges(start = starts_vec, width = 1L),
-			duplex_coverage = Rle(rv[nz], rl[nz]),
-			seqinfo = si
+		out[[i]] <- tibble(
+			seqnames = names(out)[i],
+			start = starts[nz],
+			end   = ends[nz],
+			duplex_coverage = rv[nz]
 		)
 	}
-	
-	return(out)
+	return(bind_rows(out))
 }
 
 #Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
@@ -474,150 +471,97 @@ cat(" DONE\n")
 ### Calculate coverage and extract reference sequences of interrogated genome bases
 ######################
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
+ #Utilizes duckplyr and parquet files to reduce memory usage
 
-#Convert duplex coverage RleList of final interrogated genome bases to a GRangesList (one element per chromosome, to avoid max integer overflows) that has a 'duplex_coverage' column for every base in Rle format, excluding zero coverage bases. Note, the duplex_coverage column behaves seamlessly downstream as it if were not an Rle. 'for' loop uses less memory than 'map'.
-cat("1\n")
+#Define parquet file paths
+perbase_cov_parquet <- str_c(yaml.config$analysis_id,sample_id_toanalyze,chromgroup_toanalyze,filtergroup_toanalyze,"calculateBurdens.perbase_cov.parquet",sep=".")
+
+perbase_annot_parquet <- str_c(yaml.config$analysis_id,sample_id_toanalyze,chromgroup_toanalyze,filtergroup_toanalyze,"calculateBurdens.perbase_annot.parquet",sep=".")
+
+#Convert coverage RLE to runs and output to parquet
+runs_list <- bam.gr.filtertrack.bytype %>% nrow %>% vector("list")
+
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>%
-		rlelist_to_perbase_GRanges(yaml.config$BSgenome$BSgenome_name)
-}
-
-#Annotate trinucleotide reference sequences(reftnc_plus_strand, reftnc_minus_strand, and reftnc_pyr) for final interrogated genome bases
- #Extract bases to annotate
-cat("2\n")
-regions_to_getseq <- GRanges(seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo) %>%
-			list %>%
-			rep(yaml.config$BSgenome$BSgenome_name %>% get %>% length) %>%
-			set_names(yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames)
-
-cat("3\n")
-for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	grl <- bam.gr.filtertrack.bytype %>%
-		pluck("bam.gr.filtertrack.coverage",i)
+	meta <- bam.gr.filtertrack.bytype %>%
+		slice(i) %>%
+		select(call_type, call_class, SBSindel_call_type, filtergroup, analyzein_chromgroups)
 	
-	for(chr in grl %>% names){
-		gr_chr <- grl[[chr]]
-		if(gr_chr %>% length == 0L){next}
-		mcols(gr_chr) <- NULL
-		regions_to_getseq[[chr]] <- regions_to_getseq[[chr]] %>%
-			c(gr_chr) %>%
-			unique %>%
-			sort
-	}
+	runs <- bam.gr.filtertrack.bytype %>%
+		pluck("bam.gr.filtertrack.coverage",i) %>%
+		coverage_rlelist_to_runs
 	
-	if(i %% 4L == 0L){invisible(gc())} #Periodic garbage collection
-}
-invisible(gc())
-
- #Extract trinucleotide sequences for each base, separately for each chromosome to avoid max integer overflow
-cat("4\n")
-for(i in regions_to_getseq %>% names){
-	
-	#Resize to 3 bp
-	regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
-		resize(width = 3, fix="center") %>%
-		trim %>% #Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3)
-		filter(width == 3)
-	
-	#Extract reference sequences with seqkit (faster than R getSeq)
-	tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
-	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
-	
-	str_c(
-		regions_to_getseq[[i]] %>% seqnames %>% as.character,
-		":", regions_to_getseq[[i]] %>% start,
-		"-", regions_to_getseq[[i]] %>% end
-	) %>%
-		write_lines(tmpregions)
-	
-	invisible(system(paste(
-		yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,yaml.config$genome_fasta,"|",
-		yaml.config$seqkit_bin,"seq -u |", #convert to upper case
-		yaml.config$seqkit_bin,"fx2tab -Q |",
-		"sed -E 's/:([0-9]+)-([0-9]+)\\t/\\t\\1\\t\\2\\t/' >", #change : and - to tab
-		tmpseqs
-	),intern=FALSE))
-	
-	seqkit_seqs <- tmpseqs %>%
-		read_tsv(
-			col_names=c("seqnames","start","end","reftnc_plus_strand"),
-			col_types = cols(
-				seqnames = col_factor(),
-				start = col_integer(),
-				end = col_integer(),
-				reftnc_plus_strand = col_factor(levels = trinucleotides_64)
-			),
-		) %>%
-		makeGRangesFromDataFrame(
-			keep.extra.columns = TRUE,
-			seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-		)
-	
-	invisible(file.remove(tmpregions,tmpseqs))
-	
-	hits <- findOverlaps(regions_to_getseq[[i]], seqkit_seqs, type = "equal")
-	
-	if(length(regions_to_getseq[[i]]) > 0){
-		regions_to_getseq[[i]]$reftnc_plus_strand <- factor(NA_character_, levels = trinucleotides_64)
-		regions_to_getseq[[i]]$reftnc_plus_strand[queryHits(hits)] <- seqkit_seqs$reftnc_plus_strand[subjectHits(hits)]
-		
-		regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
-			mutate(
-				reftnc_minus_strand = reftnc_plus_strand %>%
-					fct_relabel(
-						function(y){
-							y %>% DNAStringSet %>% reverseComplement %>% as.character
-						}
-					) %>%
-					fct_relevel(trinucleotides_64),
-				
-				reftnc_pyr = reftnc_plus_strand %>%
-					fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
-					factor(levels = trinucleotides_32_pyr)
-			)
+	if(runs %>% nrow > 0){
+		runs_list[[i]] <- bind_cols(runs, meta)
 	}else{
-		regions_to_getseq[[i]]$reftnc_plus_strand <- factor(levels = trinucleotides_64)
-		regions_to_getseq[[i]]$reftnc_minus_strand <- factor(levels = trinucleotides_64)
-		regions_to_getseq[[i]]$reftnc_pyr <- factor(levels = trinucleotides_32_pyr)
+		runs_list[[i]] <- runs
 	}
 	
-	regions_to_getseq[[i]] <- regions_to_getseq[[i]] %>%
-		resize(width = 1, fix = "center") %>%
-		as_tibble %>%
-		select(-c(seqnames,end,width,strand))
+	if(i %% 2L == 0L) invisible(gc())
 }
 
-rm(seqkit_seqs, hits)
+tmp_cov_runs_parquet <- tempfile(tmpdir=getwd(),pattern=".")
+
+runs_list %>%
+	bind_rows %>%
+	compute_parquet(tmp_cov_runs_parquet)
+
+rm(runs_list)
 invisible(gc())
 
-cat("5\n")
- #Join extracted sequences back to each bam.gr.filtertrack.coverage.
-for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	for(j in bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]] %>% names){
-		duplex_coverage_tmp <- bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]]$duplex_coverage
-		
-		bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] <- 
-			left_join(
-				bam.gr.filtertrack.bytype$bam.gr.filtertrack.coverage[[i]][[j]] %>%
-					select(-duplex_coverage) %>%
-					as_tibble %>%
-					select(-c(end,width,strand)),
-				regions_to_getseq[[j]],
-				by = "start"
-			) %>%
-			makeGRangesFromDataFrame(
-				end.field = "start",
-				keep.extra.columns = TRUE,
-				seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-			) %>%
-			mutate(
-				duplex_coverage = duplex_coverage_tmp
-			)
-	}
-}
+#Convert runs to per-base table using SQL and write back to parquet
+con <- dbConnect(duckdb())
+on.exit(try(dbDisconnect(con, shutdown=TRUE), silent=TRUE), add=TRUE)
 
-rm(regions_to_getseq, duplex_coverage_tmp)
-invisible(gc())
+dbExecute(con, sprintf("CREATE VIEW cov_runs AS SELECT * FROM read_parquet('%s')", tmp_cov_runs_parquet))
+
+tbl(con, sql("
+  SELECT
+    seqnames,
+    unnest(range(start, end)) AS pos,
+    duplex_coverage,
+    call_type, call_class, SBSindel_call_type, filtergroup, analyzein_chromgroups
+  FROM cov_runs
+")) %>%
+	compute_parquet(perbase_cov_parquet)
+
+invisible(file.remove(tmp_cov_runs_parquet))
+
+#Emit regions for seqkit to process
+tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
+tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
+
+dbExecute(con, sprintf("
+  COPY (
+    SELECT seqnames || ':' || (pos-1) || '-' || (pos+1) AS region
+    FROM read_parquet('%s')
+  ) TO '%s' (HEADER, DELIMITER ',')
+", perbase_cov_parquet, tmpregions))
+
+invisible(system(paste(
+	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,yaml.config$genome_fasta,"|",
+	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
+	yaml.config$seqkit_bin,"fx2tab -Q |",
+	# Convert TSV -> CSV so duckplyr_df_from_file() can infer easily
+	"sed -E 's/:([0-9]+)-([0-9]+)\\t/,\\1,\\2,/' >", # chr,start,end to CSV columns
+	tmpseqs
+), intern = FALSE))
+
+#Join per-base coverage with seqkit results
+seqs_tbl <- duckplyr::duckplyr_df_from_file(tmpseqs) %>%
+	rename(seqnames = X1, start = X2, end = X3, reftnc_plus_strand = X4) %>%
+	mutate(
+		start = start %>% as.integer,
+		end = end %>% as.integer(end)
+	)
+
+perbase_cov_parquet %>%
+	duckplyr_df_from_file %>%
+	mutate(start = pos - 1L, end = pos + 1L) %>%
+	left_join(seqs_tbl, by = join_by(seqnames,start,end)) %>%
+	select(-start,-end) %>%
+	compute_parquet(perbase_annot_parquet)
+
+invisible(file.remove(tmpregions,tmpseqs))
 
 cat(" DONE\n")
 

@@ -23,7 +23,9 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
-suppresSPackageStartupMessages(library(duckplyr))
+suppressPackageStartupMessages(library(DBI))
+suppressPackageStartupMessages(library(duckdb))
+suppressPackageStartupMessages(library(duckplyr))
 
 ######################
 ### Load configuration
@@ -226,36 +228,27 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 
 #Function to convert a SimpleRleList of coverage to non-zero runs (start, end, value)
 coverage_rlelist_to_runs <- function(cov){
-	out <- cov %>%
-		length %>%
-		vector("list") %>%
-		set_names(cov)
+	out <- vector("list", cov %>% length) %>%
+		set_names(cov %>% names)
 	
-	for(i in seq_along(chrs)){
+	for(i in cov %>% seq_along){
+		out[[i]] <- tibble(
+			seqnames = character(),
+			start = integer(),
+			end = integer(),
+			duplex_coverage = integer()
+		)
+		
 		r <- cov[[i]]
-		if(length(r) == 0L){
-			out[[i]] <- tibble(
-				seqnames = character(),
-				start = integer(),
-				end = integer(),
-				duplex_coverage = integer()
-			)
-			next
-		}
+		if(length(r) == 0L){next}
 		
 		rl <- r %>% runLength
 		rv <- r %>% runValue %>% as.integer
+		
 		nz <- which(rv != 0L)
-		if(length(nz) == 0L){
-			out[[i]] <- tibble(
-				seqnames = character(),
-				start = integer(),
-				end = integer(),
-				duplex_coverage = integer()
-			)
-			next
-		}
-		ends   <- cumsum(rl)
+		if(length(nz) == 0L){next}
+		
+		ends <- cumsum(rl)
 		starts <- ends - rl + 1L
 		out[[i]] <- tibble(
 			seqnames = names(out)[i],
@@ -473,97 +466,151 @@ cat(" DONE\n")
 cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
  #Utilizes duckplyr and parquet files to reduce memory usage
 
-#Define parquet file paths
-perbase_cov_parquet <- str_c(yaml.config$analysis_id,sample_id_toanalyze,chromgroup_toanalyze,filtergroup_toanalyze,"calculateBurdens.perbase_cov.parquet",sep=".")
+#Create duck db with empty tables
+duckdb_file <- outputFile %>%
+	fs::path_ext_remove() %>%
+	str_c(".coverage_tnc.duckdb")
 
-perbase_annot_parquet <- str_c(yaml.config$analysis_id,sample_id_toanalyze,chromgroup_toanalyze,filtergroup_toanalyze,"calculateBurdens.perbase_annot.parquet",sep=".")
+if(duckdb_file %>% file.exists){duckdb_file %>% file.remove %>% invisible}
+if(duckdb_file %>% str_c(".wal") %>% file.exists){duckdb_file %>% str_c(".wal") %>% file.remove %>% invisible}
+if(duckdb_file %>% str_c(".tmp") %>% file.exists){duckdb_file %>% str_c(".tmp") %>% file.remove %>% invisible}
+if("con" %>% exists){con %>% dbDisconnect(shutdown = TRUE)}
 
-#Convert coverage RLE to runs and output to parquet
-runs_list <- bam.gr.filtertrack.bytype %>% nrow %>% vector("list")
+con <- duckdb_file %>% duckdb %>% dbConnect
+on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
 
+con %>% dbExecute("PRAGMA memory_limit='4GB'; PRAGMA enable_progress_bar=false;") %>% invisible
+
+con %>%
+	dbExecute("
+	  CREATE TABLE metadata(
+	    call_type VARCHAR,
+	    call_class VARCHAR,
+	    analyzein_chromgroups VARCHAR,
+	    SBSindel_call_type VARCHAR,
+	    filtergroup VARCHAR,
+	    row_id INTEGER
+	  );
+	") %>%
+	invisible
+
+con %>%
+	dbExecute("
+	  CREATE TABLE coverage_runs(
+	    seqnames VARCHAR,
+	    start INTEGER,
+	    end_pos INTEGER,
+	    duplex_coverage INTEGER,
+	    row_id INTEGER
+	  );
+	") %>%
+	invisible
+
+con %>% dbBegin
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	meta <- bam.gr.filtertrack.bytype %>%
+	
+	bam.gr.filtertrack.bytype %>%
 		slice(i) %>%
-		select(call_type, call_class, SBSindel_call_type, filtergroup, analyzein_chromgroups)
+		mutate(row_id = i %>% as.integer) %>%
+		select(-bam.gr.filtertrack.coverage) %>%
+		dbAppendTable(con, "metadata", .) %>%
+		invisible
 	
-	runs <- bam.gr.filtertrack.bytype %>%
-		pluck("bam.gr.filtertrack.coverage",i) %>%
-		coverage_rlelist_to_runs
-	
-	if(runs %>% nrow > 0){
-		runs_list[[i]] <- bind_cols(runs, meta)
-	}else{
-		runs_list[[i]] <- runs
-	}
-	
-	if(i %% 2L == 0L) invisible(gc())
+	bam.gr.filtertrack.bytype %>%
+		pluck("bam.gr.filtertrack.coverage", i) %>%
+		coverage_rlelist_to_runs %>%
+		mutate(row_id = i %>% as.integer) %>%
+		rename(end_pos = end)  %>% #avoid reserved word
+		dbAppendTable(con, "coverage_runs", .) %>%
+		invisible
+
+  if (i %% 2L == 0L) invisible(gc())
 }
+con %>% dbCommit
 
-tmp_cov_runs_parquet <- tempfile(tmpdir=getwd(),pattern=".")
+#Expand to a per-base coverage table
+con %>%
+	dbExecute(
+		"
+	  CREATE TABLE coverage_perbase AS
+	  SELECT
+	    r.seqnames,
+	    CAST(gs AS INTEGER) AS pos,
+	    r.duplex_coverage,
+	    r.row_id
+	  FROM coverage_runs r
+	  CROSS JOIN LATERAL generate_series(r.start, r.end_pos) AS gs;
+	  "
+	)
 
-runs_list %>%
-	bind_rows %>%
-	compute_parquet(tmp_cov_runs_parquet)
-
-rm(runs_list)
-invisible(gc())
-
-#Convert runs to per-base table using SQL and write back to parquet
-con <- dbConnect(duckdb())
-on.exit(try(dbDisconnect(con, shutdown=TRUE), silent=TRUE), add=TRUE)
-
-dbExecute(con, sprintf("CREATE VIEW cov_runs AS SELECT * FROM read_parquet('%s')", tmp_cov_runs_parquet))
-
-tbl(con, sql("
-  SELECT
-    seqnames,
-    unnest(range(start, end)) AS pos,
-    duplex_coverage,
-    call_type, call_class, SBSindel_call_type, filtergroup, analyzein_chromgroups
-  FROM cov_runs
-")) %>%
-	compute_parquet(perbase_cov_parquet)
-
-invisible(file.remove(tmp_cov_runs_parquet))
-
-#Emit regions for seqkit to process
-tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
+#Extract sequences for all bases (except contig edges) from genome with seqkit and load into the database
 tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
 
-dbExecute(con, sprintf("
-  COPY (
-    SELECT seqnames || ':' || (pos-1) || '-' || (pos+1) AS region
-    FROM read_parquet('%s')
-  ) TO '%s' (HEADER, DELIMITER ',')
-", perbase_cov_parquet, tmpregions))
-
 invisible(system(paste(
-	yaml.config$seqkit_bin,"faidx --quiet -l",tmpregions,yaml.config$genome_fasta,"|",
+	yaml.config$seqkit_bin,"sliding -S '' -s1 -W3",yaml.config$genome_fasta,"|",
 	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
 	yaml.config$seqkit_bin,"fx2tab -Q |",
-	# Convert TSV -> CSV so duckplyr_df_from_file() can infer easily
-	"sed -E 's/:([0-9]+)-([0-9]+)\\t/,\\1,\\2,/' >", # chr,start,end to CSV columns
+	"awk -F '[:\\-\\t]' 'BEGIN {OFS=\"\t\"}{print $1, $2+1, $4}' >",
 	tmpseqs
 ), intern = FALSE))
 
+con %>%
+	dbExecute(
+		sprintf(
+			"
+	    CREATE TABLE tnc_map AS
+	    SELECT
+	      seqnames,
+	      CAST(pos AS INTEGER) AS pos,
+	      reftnc_plus_strand
+	    FROM read_csv(
+	      '%s',
+	      delim = '\t',
+	      header = false,
+	      columns = {'seqnames':'VARCHAR','pos':'INTEGER','reftnc_plus_strand':'VARCHAR'}
+	    );
+	    ",
+			tmpseqs
+		)
+) %>%
+	invisible
+
+invisible(file.remove(tmpseqs))
+
 #Join per-base coverage with seqkit results
-seqs_tbl <- duckplyr::duckplyr_df_from_file(tmpseqs) %>%
-	rename(seqnames = X1, start = X2, end = X3, reftnc_plus_strand = X4) %>%
-	mutate(
-		start = start %>% as.integer,
-		end = end %>% as.integer(end)
-	)
+ #Helpful indexes
+con %>% dbExecute("CREATE INDEX idx_cov_perbase_pos ON coverage_perbase(seqnames, pos);") %>% invisible
+con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
+con %>% dbExecute("CREATE INDEX idx_tnc_pos ON tnc_map(seqnames, pos);") %>% invisible
 
-perbase_cov_parquet %>%
-	duckplyr_df_from_file %>%
-	mutate(start = pos - 1L, end = pos + 1L) %>%
-	left_join(seqs_tbl, by = join_by(seqnames,start,end)) %>%
-	select(-start,-end) %>%
-	compute_parquet(perbase_annot_parquet)
+con %>%
+	dbExecute(
+	"
+  CREATE TABLE coverage_perbase_tnc AS
+  SELECT
+    p.seqnames,
+    p.pos,
+    p.duplex_coverage,
+    p.row_id,
+    t.reftnc_plus_strand
+  FROM coverage_perbase AS p
+  LEFT JOIN tnc_map AS t USING (seqnames, pos);
+  "
+) %>%
+	invisible
 
-invisible(file.remove(tmpregions,tmpseqs))
+#Drop tables no longer required
+con %>% dbExecute("DROP TABLE coverage_perbase;")
+con %>% dbExecute("DROP TABLE tnc_map;")
 
-cat(" DONE\n")
+#Add index
+con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase_tnc(row_id);")
+
+#Compact database
+con %>% dbExecute("CHECKPOINT;")
+con %>% dbExecute("PRAGMA vacuum;")
+
+cat("DONE\n")
 
 ######################
 ### Calculate trinucleotide distributions of interrogated bases and the genome

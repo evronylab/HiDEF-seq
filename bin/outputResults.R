@@ -492,7 +492,7 @@ finalCalls.bytype %>%
 ##TODO - OUTPUT UNIQUE CALLS to TSV and VCF
 
 #Output germline variant calls
- #Format list columns to comma-delimited
+ #Format list columns to comma-delimited *** UPDATE FROM PRIOR calcburdens CODE used for finalCalls.
 germlineVariantCalls.out <- germlineVariantCalls %>%
 	mutate(
 		across(

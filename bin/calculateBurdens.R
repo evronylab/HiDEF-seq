@@ -472,7 +472,7 @@ duckdb_file <- outputFile %>%
 
 con <- duckdb_file %>% duckdb %>% dbConnect
 on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
-con %>% dbExecute("PRAGMA memory_limit='8GB'; PRAGMA enable_progress_bar=false;") %>% invisible
+con %>% dbExecute("PRAGMA memory_limit='4GB'; PRAGMA enable_progress_bar=false;") %>% invisible
 
 con %>%
 	dbExecute("
@@ -521,24 +521,17 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 }
 con %>% dbCommit
 
-#Expand to a per-base coverage table
-con %>%
-	dbExecute(
-		"
-	  CREATE TABLE coverage_perbase AS
-	  SELECT
-	    r.seqnames,
-	    CAST(gs AS INTEGER) AS pos,
-	    r.duplex_coverage,
-	    r.row_id
-	  FROM coverage_runs r
-	  CROSS JOIN LATERAL generate_series(r.start, r.end_pos) AS gs;
-	  "
-	)
+#Compact database
+con %>% dbExecute("CHECKPOINT;")
 
-#Annotate per-base coverage with reference genome trinucleotide sequences
+cat("DONE\n")
 
- #Attach previously created genome trinucleotide duckdb
+######################
+### Calculate trinucleotide distributions of interrogated bases and the genome
+######################
+cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
+
+#Attach previously created genome trinucleotide duckdb
 genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
 
 con %>%
@@ -550,46 +543,45 @@ con %>%
 	) %>%
 	invisible
 
- #Helpful indexes
-con %>% dbExecute("CREATE INDEX idx_cov_perbase_seqnames_pos ON coverage_perbase(seqnames, pos);") %>% invisible
-con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
-con %>% dbExecute("CREATE INDEX idx_seqnames_pos ON genome_trinuc(seqnames, pos);") %>% invisible
-
+#Create output table
 con %>%
 	dbExecute(
 	"
-  CREATE TABLE coverage_perbase_tnc AS
-  SELECT
-    p.seqnames,
-    p.pos,
-    p.duplex_coverage,
-    p.row_id,
-    t.reftnc_plus_strand
-  FROM coverage_perbase AS p
-  LEFT JOIN genome_trinuc AS t USING (seqnames, pos);
-  "
-) %>%
+	  CREATE TABLE reftnc_plus_strand(
+	    row_id INTEGER,
+	    reftnc VARCHAR,
+	    count  BIGINT
+	  );
+	") %>%
 	invisible
 
-#Drop tables no longer required
-con %>% dbExecute("DROP TABLE coverage_perbase;")
-con %>% dbExecute("DROP TABLE tnc_map;")
+#Calculate reftnc_plus_strand trinucleotide distribution for final interrogated bases
+for(chr in yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames){
+	con %>%
+		dbExecute(
+			sprintf("
+	      INSERT INTO reftnc_plus_strand
+	      SELECT
+	        r.row_id,
+	        t.reftnc,
+	        SUM(r.duplex_coverage) AS count
+	      FROM coverage_runs r
+	      JOIN genome_trinuc.reftnc_plus_strand t
+	        ON t.seqnames = r.seqnames
+	       AND t.pos BETWEEN r.start AND r.end_pos
+	      WHERE r.seqnames = '%s'
+	      GROUP BY 1, 2;",
+			chr
+		)
+	) %>%
+		invisible
+	
+	con %>% dbExecute("CHECKPOINT;") %>% invisible
+}
 
-#Add index
-con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase_tnc(row_id);")
+#Calculate trinucleotide distribution of final interrogated genome bases.
 
-#Compact database
-con %>% dbExecute("CHECKPOINT;")
-con %>% dbExecute("PRAGMA vacuum;")
-
-cat("DONE\n")
-
-######################
-### Calculate trinucleotide distributions of interrogated bases and the genome
-######################
-cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
-
-#Calculate trinucleotide distribution of final interrogated genome bases. Performed memory-efficiently without expanding the duplex_coverage Rle.
+**make reftnc factor, complete to all reftnc values, etc.
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.coverage %>%

@@ -374,6 +374,9 @@ cat("DONE\n")
 
 ### output coverage and reference sequences of interrogated genome bases
 #Output, with a separate folder for each call_class, call_type, SBSindel_call_type combination
+
+**con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
+
 for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 	
 	prefix <- 

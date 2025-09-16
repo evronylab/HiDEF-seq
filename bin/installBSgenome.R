@@ -96,12 +96,12 @@ if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
 	con %>%
 		dbExecute(
 			sprintf(
-				"
-	    CREATE TABLE genome_trinuc AS
+			"
+	    CREATE TABLE reftnc_plus_strand AS
 	    SELECT
 	      seqnames,
 	      CAST(pos AS INTEGER) AS pos,
-	      reftnc_plus_strand
+	      reftnc
 	    FROM read_csv(
 	      '%s',
 	      delim = '\t',

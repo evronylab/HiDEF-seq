@@ -9,6 +9,7 @@ cat("#### Running installBSgenome ####\n")
 ### Load required libraries
 ######################
 suppressPackageStartupMessages(library(optparse))
+suppressPackageStartupMessages(library(fs))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
@@ -120,7 +121,7 @@ if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
 	
 	#Copy to cache_dir
 	if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
-		file.copy(genome_trinuc_duckdb_file, cache_dir)
+		file_move(genome_trinuc_duckdb_file, cache_dir)
 	}
 	
 	cat("DONE\n")

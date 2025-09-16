@@ -25,7 +25,6 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(DBI))
 suppressPackageStartupMessages(library(duckdb))
-suppressPackageStartupMessages(library(duckplyr))
 
 ######################
 ### Load configuration
@@ -461,25 +460,19 @@ invisible(gc())
 cat(" DONE\n")
 
 ######################
-### Calculate coverage and extract reference sequences of interrogated genome bases
+### Calculate coverage and annotate reference sequences of interrogated genome bases
 ######################
-cat("## Calculating coverage and extracting reference sequences of interrogated genome bases...")
- #Utilizes duckplyr and parquet files to reduce memory usage
+cat("## Calculating coverage and annotating reference sequences of interrogated genome bases...")
+ #Utilizes duckdb files to reduce memory usage
 
-#Create duck db with empty tables
+#Create duckdb with empty tables
 duckdb_file <- outputFile %>%
 	fs::path_ext_remove() %>%
 	str_c(".coverage_tnc.duckdb")
 
-if(duckdb_file %>% file.exists){duckdb_file %>% file.remove %>% invisible}
-if(duckdb_file %>% str_c(".wal") %>% file.exists){duckdb_file %>% str_c(".wal") %>% file.remove %>% invisible}
-if(duckdb_file %>% str_c(".tmp") %>% file.exists){duckdb_file %>% str_c(".tmp") %>% file.remove %>% invisible}
-if("con" %>% exists){con %>% dbDisconnect(shutdown = TRUE)}
-
 con <- duckdb_file %>% duckdb %>% dbConnect
 on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
-
-con %>% dbExecute("PRAGMA memory_limit='4GB'; PRAGMA enable_progress_bar=false;") %>% invisible
+con %>% dbExecute("PRAGMA memory_limit='8GB'; PRAGMA enable_progress_bar=false;") %>% invisible
 
 con %>%
 	dbExecute("
@@ -543,45 +536,24 @@ con %>%
 	  "
 	)
 
-#Extract sequences for all bases (except contig edges) from genome with seqkit and load into the database
-tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
+#Annotate per-base coverage with reference genome trinucleotide sequences
 
-invisible(system(paste(
-	yaml.config$seqkit_bin,"sliding -S '' -s1 -W3",yaml.config$genome_fasta,"|",
-	yaml.config$seqkit_bin,"seq -u |", #convert to upper case
-	yaml.config$seqkit_bin,"fx2tab -Q |",
-	"awk -F '[:\\-\\t]' 'BEGIN {OFS=\"\t\"}{print $1, $2+1, $4}' >",
-	tmpseqs
-), intern = FALSE))
+ #Attach previously created genome trinucleotide duckdb
+genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
 
 con %>%
 	dbExecute(
 		sprintf(
-			"
-	    CREATE TABLE tnc_map AS
-	    SELECT
-	      seqnames,
-	      CAST(pos AS INTEGER) AS pos,
-	      reftnc_plus_strand
-	    FROM read_csv(
-	      '%s',
-	      delim = '\t',
-	      header = false,
-	      columns = {'seqnames':'VARCHAR','pos':'INTEGER','reftnc_plus_strand':'VARCHAR'}
-	    );
-	    ",
-			tmpseqs
+			"ATTACH '%s' AS genome_trinuc (READ_ONLY);",
+			genome_trinuc_duckdb_file
 		)
-) %>%
+	) %>%
 	invisible
 
-invisible(file.remove(tmpseqs))
-
-#Join per-base coverage with seqkit results
  #Helpful indexes
-con %>% dbExecute("CREATE INDEX idx_cov_perbase_pos ON coverage_perbase(seqnames, pos);") %>% invisible
+con %>% dbExecute("CREATE INDEX idx_cov_perbase_seqnames_pos ON coverage_perbase(seqnames, pos);") %>% invisible
 con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
-con %>% dbExecute("CREATE INDEX idx_tnc_pos ON tnc_map(seqnames, pos);") %>% invisible
+con %>% dbExecute("CREATE INDEX idx_seqnames_pos ON genome_trinuc(seqnames, pos);") %>% invisible
 
 con %>%
 	dbExecute(
@@ -594,7 +566,7 @@ con %>%
     p.row_id,
     t.reftnc_plus_strand
   FROM coverage_perbase AS p
-  LEFT JOIN tnc_map AS t USING (seqnames, pos);
+  LEFT JOIN genome_trinuc AS t USING (seqnames, pos);
   "
 ) %>%
 	invisible

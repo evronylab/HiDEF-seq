@@ -116,6 +116,7 @@ if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
 	
 	invisible(file.remove(tmpseqs))
 	
+	con %>% dbExecute("CREATE INDEX idx_tnc_seq_pos ON reftnc_plus_strand(seqnames, pos);")
 	con %>% dbExecute("CHECKPOINT;")
 	con %>% dbDisconnect(shutdown = TRUE)
 	

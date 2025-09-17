@@ -46,13 +46,13 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-		make_option(c("-o", "--output"), type = "character", default=NULL,
-							help="output qs2 file")
+		make_option(c("-o", "--output_basename"), type = "character", default=NULL,
+							help="output basename")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output) ){
+if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
@@ -61,7 +61,7 @@ sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
-outputFile <- opt$output
+output_basename <- opt$output_basename
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -466,9 +466,7 @@ cat("## Calculating coverage and annotating reference sequences of interrogated 
  #Utilizes duckdb files to reduce memory usage
 
 #Create duckdb with empty tables
-duckdb_file <- outputFile %>%
-	fs::path_ext_remove() %>%
-	str_c(".coverage_tnc.duckdb")
+duckdb_file <- str_c(output_basename, ".coverage_tnc.duckdb")
 
 con <- duckdb_file %>% duckdb %>% dbConnect
 on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
@@ -555,44 +553,48 @@ con %>%
 	") %>%
 	invisible
 
-#Calculate reftnc_plus_strand trinucleotide distribution for final interrogated bases
-for(chr in yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames){
-	con %>%
-		dbExecute(
-			sprintf("
-	      INSERT INTO reftnc_plus_strand
-	      SELECT
-	        r.row_id,
-	        t.reftnc,
-	        SUM(r.duplex_coverage) AS count
-	      FROM coverage_runs r
-	      JOIN genome_trinuc.reftnc_plus_strand t
-	        ON t.seqnames = r.seqnames
-	       AND t.pos BETWEEN r.start AND r.end_pos
-	      WHERE r.seqnames = '%s'
-	      GROUP BY 1, 2;",
-			chr
-		)
-	) %>%
-		invisible
-	
-	con %>% dbExecute("CHECKPOINT;") %>% invisible
-}
+#Calculate reftnc_plus_strand trinucleotide distribution for final interrogated bases. JOIN is an inner join which will remove sites without a valid trinucleotide sequence.
+con %>%
+	dbExecute(
+		sprintf("
+      INSERT INTO reftnc_plus_strand
+      SELECT
+        r.row_id,
+        t.reftnc,
+        CAST(SUM(r.duplex_coverage) AS INTEGER) AS count
+      FROM coverage_runs r
+      JOIN genome_trinuc.reftnc_plus_strand t
+        ON t.seqnames = r.seqnames
+       AND t.pos >= r.start
+       AND t.pos <= r.end_pos
+      GROUP BY r.row_id, t.reftnc;",
+		chr
+	)
+) %>%
+	invisible
 
-#Add results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
+con %>% dbExecute("CHECKPOINT;") %>% invisible
+
+#Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	nest_join(
 		con %>%
-			dbExecute("SELECT * FROM reftnc_plus_strand;") %>%
-			as_tibble %>%
-			mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
-			complete(reftnc_pyr, fill = list(count = 0)) %>%
-			arrange(reftnc_pyr) %>%
-			filter(!is.na(reftnc_pyr)) %>%
-			mutate(fraction = count / sum(count)),
-		by = join_by(row_number() == row_id)
+			tbl("reftnc_plus_strand") %>%
+			filter(reftnc)
+			mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
+			complete(reftnc, fill = list(count = 0)) %>%
+			arrange(reftnc) %>%
+			filter(!is.na(reftnc)) %>% #This filters any reftnc's (such as 1 or 2 bp tnc from contig edges) that are not in trinucleotides_64, as setting levels = trinucleotides_64 makes anything not in trinucleotides_64 become NA
+			group_by(row_id) %>%
+			mutate(
+				count = count %>% as.integer,
+				fraction = count / sum(count)
+			) %>%
+			ungroup,
+		by = join_by(row_number() == row_id),
 		name = "bam.gr.filtertrack.reftnc_plus_strand"
 	) %>%
+	
 	mutate(
 		bam.gr.filtertrack.reftnc_minus_strand = bam.gr.filtertrack.reftnc_plus_strand %>%
 			map(function(x){
@@ -608,7 +610,6 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	)
 
 #Annotate reftnc_pyr and reftnc_both_strands
-
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_plus_strand %>%
@@ -632,13 +633,12 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 				bind_rows(x,y) %>%
 					group_by(reftnc) %>%
 					summarize(count = sum(count), .groups = "drop") %>%
-					complete(reftnc, fill = list(count = 0)) %>%
 					arrange(reftnc) %>%
-					filter(!is.na(reftnc)) %>%
 					mutate(fraction = count / sum(count))
 			}
 		)
-	)
+	) %>%
+	select(-bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
  #Function to extract trinucleotide distribution for selected chromosomes
@@ -1614,7 +1614,7 @@ qs_save(
 		sensitivity = sensitivity,
 		estimatedSBSMutationErrorProbability = estimatedSBSMutationErrorProbability
 	),
-	outputFile
+	str_c(output_basename,".qs")
 )
 
 cat("DONE\n")

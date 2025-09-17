@@ -37,19 +37,22 @@ option_list = list(
 							help="sample_id to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated calculateBurdens qs2 files"),
+	make_option(c("-d", "--duckdbs"), type = "character", default=NULL,
+							help="comma-separated coverage_tnc.duckdb files"),
 	make_option(c("-o", "--output_basename"), type = "character", default=NULL,
 							help="output basename")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$duckdbs) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id <- opt$sample_id
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
+calculateBurdensDuckDbs <- opt$duckdbs %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
 
 #Load the BSgenome reference
@@ -376,6 +379,49 @@ cat("DONE\n")
 #Output, with a separate folder for each call_class, call_type, SBSindel_call_type combination
 
 **con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
+
+calculateBurdensDuckDbs
+
+#Attach previously created genome trinucleotide duckdb
+genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
+
+con %>%
+	dbExecute(
+		sprintf(
+			"ATTACH '%s' AS genome_trinuc (READ_ONLY);",
+			genome_trinuc_duckdb_file
+		)
+	) %>%
+	invisible
+
+DBI::dbExecute(
+	con,
+	sprintf("
+    COPY (
+      SELECT
+        t.seqnames               AS chrom,           -- col1
+        t.pos - 1                AS start0,          -- col2 (BED start)
+        t.pos                    AS end1,            -- col3 (BED end)
+        t.reftnc                 AS reftnc,          -- col4
+        '.'                      AS dot,             -- col5
+        r.duplex_coverage        AS duplex_coverage  -- col6
+      FROM coverage_runs r
+      JOIN genome_trinuc.reftnc_plus_strand t
+        ON t.seqnames = r.seqnames
+       AND t.pos BETWEEN r.start AND r.end_pos
+      ORDER BY t.seqnames, t.pos
+    )
+    TO '%s' (DELIMITER '\t', HEADER FALSE);
+  ", out_tsv)
+)
+
+**stream output to bgzip, then do tabix - check that this actually streams.
+con <- dbConnect(duckdb::duckdb(), "mydb.duckdb")
+
+cmd <- pipe("gzip > out.tsv.gz", "w")
+dbExecute(con, "COPY (SELECT * FROM my_table) TO '/dev/stdout' (DELIMITER '\t', HEADER FALSE);", immediate=TRUE, resultFormat="raw") %>%
+	writeBin(cmd)
+close(cmd)
 
 for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
 	

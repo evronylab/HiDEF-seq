@@ -287,7 +287,7 @@ process splitBAM {
 process installBSgenome {
     cpus 1
     memory '16 GB'
-    time '8h'
+    time '12h'
     tag { "Install BSgenome reference" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
@@ -500,15 +500,13 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.coverage_tnc.duckdb")
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir "${calculateBurdens_output_dir}"
 
-.coverage_tnc.duckdb
-
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 
@@ -523,7 +521,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(calculateBurdensFiles), path(calculateBurdensDuckdbs)
+      tuple val(sample_id), path(calculateBurdensFiles)
     
     output:
       tuple val(sample_id)
@@ -532,7 +530,7 @@ process outputResultsSample {
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -d ${calculateBurdensDuckdbs.join(',')} -o ${params.analysis_id}.${sample_id}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${sample_id}
     """
 }
 
@@ -1064,8 +1062,7 @@ workflow {
           .map { sample, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
               def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
-              def calculateBurdensDuckdb = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.coverage_tnc.duckdb")
-              return tuple(sample_id, calculateBurdensFile, calculateBurdensDuckdb)
+              return tuple(sample_id, calculateBurdensFile)
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out

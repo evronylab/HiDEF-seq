@@ -13,8 +13,6 @@ suppressPackageStartupMessages(library(fs))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
-suppressPackageStartupMessages(library(DBI))
-suppressPackageStartupMessages(library(duckdb))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
@@ -73,56 +71,29 @@ if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
 ######################
 cat("## Extracting trinucleotide sequences...")
 
-genome_trinuc_duckdb_file <- str_c(yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
+genome_trinuc_file <- str_c(yaml.config$BSgenome$BSgenome_name,".bed.gz")
 
 if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
 	
-	#Extract sequences for all bases (except contig edges) from genome with seqkit and load into the database
+	#Extract sequences for all bases (except contig edges) from genome with seqkit and write to BED format (bgzipped, tabix indexed)
 	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
 	
-	invisible(system(paste(
-		yaml.config$seqkit_bin,"sliding -S '' -s1 -W3",yaml.config$genome_fasta,"|",
-		yaml.config$seqkit_bin,"seq -u |", #convert to upper case
-		yaml.config$seqkit_bin,"fx2tab -Q |",
-		"awk -F '[:\\-\\t]' 'BEGIN {OFS=\"\t\"}{print $1, $2+1, $4}' >",
-		tmpseqs
-	), intern = FALSE))
-	
-	con <- genome_trinuc_duckdb_file %>% duckdb %>% dbConnect
-	on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
-	con %>% dbExecute("PRAGMA memory_limit='8GB'; PRAGMA enable_progress_bar=false;") %>% invisible
-	
-	#Load data into database
-	con %>%
-		dbExecute(
-			sprintf(
-			"
-	    CREATE TABLE reftnc_plus_strand AS
-	    SELECT
-	      seqnames,
-	      CAST(pos AS INTEGER) AS pos,
-	      reftnc
-	    FROM read_csv(
-	      '%s',
-	      delim = '\t',
-	      header = false,
-	      columns = {'seqnames':'VARCHAR','pos':'INTEGER','reftnc':'VARCHAR'}
-	    );
-	    ",
-				tmpseqs
-			)
-		) %>%
-		invisible
-	
-	invisible(file.remove(tmpseqs))
-	
-	con %>% dbExecute("CREATE INDEX idx_tnc_seq_pos ON reftnc_plus_strand(seqnames, pos);")
-	con %>% dbExecute("CHECKPOINT;")
-	con %>% dbDisconnect(shutdown = TRUE)
+	invisible(
+		system(
+			paste(
+				yaml.config$seqkit_bin,"sliding -S '' -s1 -W3",yaml.config$genome_fasta,"|",
+				yaml.config$seqkit_bin,"seq -u |", #convert to upper case
+				yaml.config$seqkit_bin,"fx2tab -Q |",
+				"awk -F '[:\\-\\t]' 'BEGIN {OFS=\"\t\"}{print $1, $2, $2+1, $4}' |", #$2 is first position of 1-based trinucleotide position
+				yaml.config$bgzip_bin,"-c >",genome_trinuc_file,"&&",
+				yaml.config$tabix_bin,"-s 1 -b 2 -e 3",genome_trinuc_file
+			),
+		intern = FALSE)
+	)
 	
 	#Copy to cache_dir
-	if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
-		file_move(genome_trinuc_duckdb_file, cache_dir)
+	if(!file.exists(str_c(cache_dir,"/",genome_trinuc_file))){
+		file_move(genome_trinuc_file, cache_dir)
 	}
 	
 	cat("DONE\n")

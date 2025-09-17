@@ -22,8 +22,6 @@ suppressPackageStartupMessages(library(sigfit))
 suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
-suppressPackageStartupMessages(library(DBI))
-suppressPackageStartupMessages(library(duckdb))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################

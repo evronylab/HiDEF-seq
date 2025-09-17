@@ -106,7 +106,7 @@ if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
 	      '%s',
 	      delim = '\t',
 	      header = false,
-	      columns = {'seqnames':'VARCHAR','pos':'INTEGER','reftnc_plus_strand':'VARCHAR'}
+	      columns = {'seqnames':'VARCHAR','pos':'INTEGER','reftnc':'VARCHAR'}
 	    );
 	    ",
 				tmpseqs

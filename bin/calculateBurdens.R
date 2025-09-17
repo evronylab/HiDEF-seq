@@ -22,9 +22,9 @@ suppressPackageStartupMessages(library(sigfit))
 suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
-suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(DBI))
 suppressPackageStartupMessages(library(duckdb))
+suppressPackageStartupMessages(library(tidyverse))
 
 ######################
 ### Load configuration
@@ -543,7 +543,7 @@ con %>%
 	) %>%
 	invisible
 
-#Create output table
+#Create table to store reftnc_plus_strand trinucleotide distributions for interrogated bases
 con %>%
 	dbExecute(
 	"
@@ -579,75 +579,65 @@ for(chr in yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames){
 	con %>% dbExecute("CHECKPOINT;") %>% invisible
 }
 
-#Calculate trinucleotide distribution of final interrogated genome bases.
+#Add results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	nest_join(
+		con %>%
+			dbExecute("SELECT * FROM reftnc_plus_strand;") %>%
+			as_tibble %>%
+			mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
+			complete(reftnc_pyr, fill = list(count = 0)) %>%
+			arrange(reftnc_pyr) %>%
+			filter(!is.na(reftnc_pyr)) %>%
+			mutate(fraction = count / sum(count)),
+		by = join_by(row_number() == row_id)
+		name = "bam.gr.filtertrack.reftnc_plus_strand"
+	) %>%
+	mutate(
+		bam.gr.filtertrack.reftnc_minus_strand = bam.gr.filtertrack.reftnc_plus_strand %>%
+			map(function(x){
+				x %>%
+					mutate(
+						reftnc = reftnc %>%
+							DNAStringSet %>%
+							reverseComplement %>%
+							as.character %>%
+							factor(levels = trinucleotides_64)
+					)
+			})
+	)
 
-**make reftnc factor, complete to all reftnc values, etc.
+#Annotate reftnc_pyr and reftnc_both_strands
+
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	mutate(
-		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.coverage %>%
-			map(
-				function(x){
-					# per-chr reftnc_pyr counts without expanding Rle
-					map(x, function(y){
-						S4Vectors::split(y$duplex_coverage, y$reftnc_pyr) %>%
-							map(sum) %>%
-							unlist %>%
-							enframe(name = "reftnc_pyr", value = "count") %>%
-							mutate(reftnc_pyr = reftnc_pyr %>% factor(levels = trinucleotides_32_pyr))
-					}) %>%
-						
-						#sum across chroms
-						bind_rows %>%
-						group_by(reftnc_pyr) %>%
-						summarize(count = sum(count), .groups="drop") %>%
-						complete(reftnc_pyr, fill = list(count = 0)) %>%
-						arrange(reftnc_pyr) %>%
-						filter(!is.na(reftnc_pyr)) %>%
-						mutate(fraction = count / sum(count))
-				}
-			),
+		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_plus_strand %>%
+			map(function(x){
+				x %>%
+					mutate(
+						reftnc_pyr = reftnc %>%
+							fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
+							factor(levels = trinucleotides_32_pyr),
+						fraction = count / sum(count)
+						) %>%
+					arrange(reftnc_pyr) %>%
+					filter(!is.na(reftnc_pyr)) %>%
+					select(-reftnc)
+			}),
 		
-		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.coverage %>%
-			map(
-				function(x){
-					# per-chr reftnc counts without expanding Rle
-					map(x, function(y){
-						bind_rows(
-							S4Vectors::split(y$duplex_coverage, y$reftnc_plus_strand) %>%
-								map(sum) %>%
-								unlist %>%
-								enframe(name = "reftnc", value = "count") %>%
-								mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)),
-							
-							S4Vectors::split(y$duplex_coverage, y$reftnc_minus_strand) %>%
-								map(sum) %>%
-								unlist %>%
-								enframe(name = "reftnc", value = "count") %>%
-								mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
-						)
-					}) %>%
-						
-						#sum across chroms
-						bind_rows %>%
-						group_by(reftnc) %>%
-						summarize(count = sum(count), .groups="drop") %>%
-						complete(reftnc, fill = list(count = 0)) %>%
-						arrange(reftnc) %>%
-						filter(!is.na(reftnc)) %>%
-						mutate(fraction = count / sum(count))
-				}
-			),
-		
-		#Remove reftnc_plus_strand and reftnc_minus_strand that are no longer needed
-		bam.gr.filtertrack.coverage = bam.gr.filtertrack.coverage %>%
-			map(
-				function(x){
-					x %>%
-						map(function(y){
-								y %>% select(-reftnc_plus_strand,-reftnc_minus_strand)
-						})
-				}
-			)
+		bam.gr.filtertrack.reftnc_both_strands = map2(
+			x = bam.gr.filtertrack.reftnc_plus_strand,
+			y = bam.gr.filtertrack.reftnc_minus_strand,
+			function(x,y){
+				bind_rows(x,y) %>%
+					group_by(reftnc) %>%
+					summarize(count = sum(count), .groups = "drop") %>%
+					complete(reftnc, fill = list(count = 0)) %>%
+					arrange(reftnc) %>%
+					filter(!is.na(reftnc)) %>%
+					mutate(fraction = count / sum(count))
+			}
+		)
 	)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup

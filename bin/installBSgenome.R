@@ -73,7 +73,7 @@ cat("## Extracting trinucleotide sequences...")
 
 genome_trinuc_file <- str_c(yaml.config$BSgenome$BSgenome_name,".bed.gz")
 
-if(!file.exists(str_c(cache_dir,"/",genome_trinuc_duckdb_file))){
+if(!file.exists(str_c(cache_dir,"/",genome_trinuc_file))){
 	
 	#Extract sequences for all bases (except contig edges) from genome with seqkit and write to BED format (bgzipped, tabix indexed)
 	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")

@@ -223,7 +223,7 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Function to convert a SimpleRleList of coverage to non-zero runs (start, end, value)
+#Function to convert a SimpleRleList of coverage to non-zero runs (seqnames, start, end, duplex_coverage)
 coverage_rlelist_to_runs <- function(cov){
 	out <- vector("list", cov %>% length) %>%
 		set_names(cov %>% names)

@@ -461,61 +461,27 @@ cat(" DONE\n")
 ### Calculate coverage and annotate reference sequences of interrogated genome bases
 ######################
 cat("## Calculating coverage and annotating reference sequences of interrogated genome bases...")
- #Utilizes duckdb files to reduce memory usage
 
-#Create duckdb with empty tables
-duckdb_file <- str_c(output_basename, ".coverage_tnc.duckdb")
-
-con <- duckdb_file %>% duckdb %>% dbConnect
-on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
-con %>% dbExecute("PRAGMA memory_limit='8GB'; PRAGMA enable_progress_bar=false;") %>% invisible
-
-con %>%
-	dbExecute("
-	  CREATE TABLE metadata(
-	    call_type VARCHAR,
-	    call_class VARCHAR,
-	    analyzein_chromgroups VARCHAR,
-	    SBSindel_call_type VARCHAR,
-	    filtergroup VARCHAR,
-	    row_id INTEGER
-	  );
-	") %>%
-	invisible
-
-con %>%
-	dbExecute("
-	  CREATE TABLE coverage_runs(
-	    seqnames VARCHAR,
-	    start INTEGER,
-	    end_pos INTEGER,
-	    duplex_coverage INTEGER,
-	    row_id INTEGER
-	  );
-	") %>%
-	invisible
-
-con %>% dbBegin
+#Output coverage runs for each row of bam.gr.filtertrack.bytype
 for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	
-	bam.gr.filtertrack.bytype %>%
-		slice(i) %>%
-		mutate(row_id = i %>% as.integer) %>%
-		select(-bam.gr.filtertrack.coverage) %>%
-		dbAppendTable(con, "metadata", .) %>%
-		invisible
 	
 	bam.gr.filtertrack.bytype %>%
 		pluck("bam.gr.filtertrack.coverage", i) %>%
 		coverage_rlelist_to_runs %>%
-		mutate(row_id = i %>% as.integer) %>%
-		rename(end_pos = end)  %>% #avoid reserved word
-		dbAppendTable(con, "coverage_runs", .) %>%
-		invisible
-
-  if (i %% 2L == 0L) invisible(gc())
+		mutate(start = start - 1) %>% #Reformat to BED
+		write_tsv(str_c(i,".coverage_runs.tsv"))
 }
-con %>% dbCommit
+
+#Intersect genome trinucleotide sequences with coverage run files
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
+
+paste(
+	yaml.config$bedtools_bin, "intersect -sorted -a", genome_trinuc_file,
+	"-b", str_c(bam.gr.filtertrack.bytype %>% nrow %>% seq_len,".coverage_runs.tsv"),
+	"> "
+) %>%
+	system(intern=FALSE) %>% 
+	invisible
 
 #Order the coverage_runs table by seqnames, start instead of row_id for faster speed later
 con %>%

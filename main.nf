@@ -302,6 +302,37 @@ process installBSgenome {
 }
 
 /*
+  extractGenomeTrinucleotides: Extracts trinucleotides for every base in the genome
+*/
+process extractGenomeTrinucleotides {
+    cpus 1
+    memory '4 GB'
+    time '3h'
+    tag { "Extracts genome trinucleotides" }
+    container "${params.hidefseq_container}"
+
+    output:
+      path("${params.BSgenome.BSgenome_name}.bed.gz")
+      path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
+
+    storeDir "${params.cache_dir}"
+
+    script:
+    """
+    #Extract sequences for all bases (except contig edges) from genome with seqkit,
+    #convert to upper case, convert to BED format (column 2 of trinucleotides is start position of trinucleotide position),
+    #and bgzip + tabix index
+    ${params.seqkit_bin} sliding -S '' -s1 -W3 ${params.genome_fasta} | \
+      ${params.seqkit_bin} seq -u | \
+      ${params.seqkit_bin} fx2tab -Q | \
+      awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
+      ${params.bgzip_bin} -c > ${params.BSgenome.BSgenome_name}.bed.gz
+
+    ${params.tabix_bin} -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
+    """
+}
+
+/*
   processGermlineVCFs: Run processGermlineVCFs.R
 */
 process processGermlineVCFs {
@@ -729,6 +760,9 @@ workflow prepareFilters {
     // Run installBSgenome
     installBSgenome()
 
+    // Run extractGenomeTrinucleotides
+    extractGenomeTrinucleotides()
+
     // Create channel for individual_ids for processGermlineVCFs
     individual_ids_ch = Channel
       .from(params.individuals)
@@ -769,6 +803,7 @@ workflow prepareFilters {
     // Create a completion signal by collecting all outputs
     done_ch = installBSgenome.out
       .mix(
+        extractGenomeTrinucleotides.out,
         processGermlineVCFs.out,
         processGermlineBAMs.out,
         prepareRegionFilters.out

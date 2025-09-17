@@ -9,7 +9,6 @@ cat("#### Running installBSgenome ####\n")
 ### Load required libraries
 ######################
 suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(fs))
 suppressPackageStartupMessages(library(BSgenome))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(qs2))
@@ -64,39 +63,4 @@ if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
 	cat("DONE\n")
 }else{
   cat("Previously installed\n")
-}
-
-######################
-### Output duckdb of genome trinucleotide sequences
-######################
-cat("## Extracting trinucleotide sequences...")
-
-genome_trinuc_file <- str_c(yaml.config$BSgenome$BSgenome_name,".bed.gz")
-
-if(!file.exists(str_c(cache_dir,"/",genome_trinuc_file))){
-	
-	#Extract sequences for all bases (except contig edges) from genome with seqkit and write to BED format (bgzipped, tabix indexed)
-	tmpseqs <- tempfile(tmpdir=getwd(),pattern=".")
-	
-	invisible(
-		system(
-			paste(
-				yaml.config$seqkit_bin,"sliding -S '' -s1 -W3",yaml.config$genome_fasta,"|",
-				yaml.config$seqkit_bin,"seq -u |", #convert to upper case
-				yaml.config$seqkit_bin,"fx2tab -Q |",
-				"awk -F '[:\\-\\t]' 'BEGIN {OFS=\"\t\"}{print $1, $2, $2+1, $4}' |", #$2 is first position of 1-based trinucleotide position
-				yaml.config$bgzip_bin,"-c >",genome_trinuc_file,"&&",
-				yaml.config$tabix_bin,"-s 1 -b 2 -e 3",genome_trinuc_file
-			),
-		intern = FALSE)
-	)
-	
-	#Copy to cache_dir
-	if(!file.exists(str_c(cache_dir,"/",genome_trinuc_file))){
-		file_move(genome_trinuc_file, cache_dir)
-	}
-	
-	cat("DONE\n")
-}else{
-	cat("Previously extracted\n")
 }

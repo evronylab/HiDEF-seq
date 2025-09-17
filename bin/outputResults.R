@@ -382,6 +382,18 @@ cat("DONE\n")
 
 calculateBurdensDuckDbs
 
+Order by rowid:
+	con %>% dbExecute("
+  CREATE OR REPLACE TABLE coverage_runs_sorted AS
+  SELECT * FROM coverage_runs
+  ORDER BY row_id, seqnames, start;
+  DROP TABLE coverage_runs;
+  ALTER TABLE coverage_runs_sorted RENAME TO coverage_runs;
+  CHECKPOINT;
+") %>% invisible
+
+Then materialize a temp table for each rowid, then do the jointo genome_trinuc and stream to BED
+
 #Attach previously created genome trinucleotide duckdb
 genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
 

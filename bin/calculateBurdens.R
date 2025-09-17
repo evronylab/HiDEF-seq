@@ -470,7 +470,7 @@ duckdb_file <- str_c(output_basename, ".coverage_tnc.duckdb")
 
 con <- duckdb_file %>% duckdb %>% dbConnect
 on.exit(try(con %>% dbDisconnect(shutdown = TRUE), silent = TRUE), add = TRUE)
-con %>% dbExecute("PRAGMA memory_limit='4GB'; PRAGMA enable_progress_bar=false;") %>% invisible
+con %>% dbExecute("PRAGMA memory_limit='8GB'; PRAGMA enable_progress_bar=false;") %>% invisible
 
 con %>%
 	dbExecute("
@@ -519,6 +519,18 @@ for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
 }
 con %>% dbCommit
 
+#Order the coverage_runs table by seqnames, start instead of row_id for faster speed later
+con %>%
+	dbExecute("
+	  CREATE TABLE coverage_runs_sorted AS
+	  SELECT * FROM coverage_runs
+	  ORDER BY seqnames, start;
+	  DROP TABLE coverage_runs;
+	  ALTER TABLE coverage_runs_sorted RENAME TO coverage_runs;
+	  CHECKPOINT;
+		") %>%
+	invisible
+
 #Compact database
 con %>% dbExecute("CHECKPOINT;")
 
@@ -554,26 +566,42 @@ con %>%
 	invisible
 
 #Calculate reftnc_plus_strand trinucleotide distribution for final interrogated bases. JOIN is an inner join which will remove sites without a valid trinucleotide sequence.
-con %>%
+for (chr in yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames) {
+	
+	con %>%
+	dbExecute(
+		sprintf(
+			"CREATE TEMP TABLE coverage_runs_chr AS
+	    SELECT row_id, start, end_pos, duplex_coverage
+	    FROM coverage_runs
+	    WHERE seqnames = '%s'",
+			chr
+		)
+	) %>%
+	invisible
+	
+	con %>%
 	dbExecute(
 		sprintf("
-      INSERT INTO reftnc_plus_strand
-      SELECT
-        r.row_id,
-        t.reftnc,
-        CAST(SUM(r.duplex_coverage) AS INTEGER) AS count
-      FROM coverage_runs r
-      JOIN genome_trinuc.reftnc_plus_strand t
-        ON t.seqnames = r.seqnames
-       AND t.pos >= r.start
-       AND t.pos <= r.end_pos
-      GROUP BY r.row_id, t.reftnc;",
-		chr
-	)
-) %>%
-	invisible
-
-con %>% dbExecute("CHECKPOINT;") %>% invisible
+	    INSERT INTO reftnc_plus_strand
+	    SELECT
+	      r.row_id,
+	      t.reftnc,
+	      CAST(SUM(r.duplex_coverage) AS INTEGER) AS count
+	    FROM coverage_runs_chr AS r
+	    JOIN genome_trinuc.reftnc_plus_strand AS t
+	      ON t.seqnames = '%s'
+	     AND t.pos >= r.start
+	     AND t.pos <= r.end_pos
+	    GROUP BY r.row_id, t.reftnc;",
+			chr
+		)
+	) %>%
+		invisible
+	
+	con %>% dbExecute("DROP TABLE coverage_runs_chr;") %>% invisible
+	con %>% dbExecute("CHECKPOINT;") %>% invisible
+}
 
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%

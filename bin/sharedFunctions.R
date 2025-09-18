@@ -244,7 +244,7 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 				factor(levels = trinucleotides_64) %>%
 				fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
 				factor(levels = trinucleotides_32_pyr)
-		)%>%
+		) %>%
 		group_by(!!sym(tri_column)) %>%
 		summarize(!!sym(count_column) := sum(!!sym(count_column)), .groups = "drop") %>%
 		arrange(!!sym(tri_column))

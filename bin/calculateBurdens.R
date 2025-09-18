@@ -528,8 +528,15 @@ bam.gr.filtertrack.bytype %>%
 				yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
 				"-a", str_c(x$row_id,".bed"), "-b all.trinuc.bed",
 				"-g", yaml.config$genome_fai, "|",
-				"awk -v OFS='\t'", str_c("-v reftnc_file=", x$row_id, ".reftnc_plus_strand.tsv"),
-				"'{print $5,$6,$7,$4,$8; sum[$8]+=$4} END{for(k in sum){print row_id, k,sum[k] > reftnc_file}}' |",
+				"awk -v OFS='\t'", str_c("-v row_id=",x$row_id),
+				"'{print $5,$6,$7,$4,$8; sum[$8]+=$4}
+					END{
+						if(length(sum)==0){
+							print row_id, \"NA\", 0 > (row_id \".reftnc_plus_strand.tsv\")
+						}else{
+							for(k in sum){print row_id, k, sum[k] > (row_id \".reftnc_plus_strand.tsv\")}
+						}
+					}' |",
 				yaml.config$bgzip_bin, "-c >",
 				cov_output_file,
 				"&&",
@@ -546,22 +553,24 @@ file.remove("all.trinuc.bed") %>% invisible
 
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	rowid_to_column("row_id") %>%
 	nest_join(
 		list.files(pattern="*.reftnc_plus_strand.tsv", full.names=TRUE) %>%
-		read_tsv("reftnc_plus_strand.tsv", col_names = c("row_id", "reftnc", "duplex_coverage"), col_types="ici") %>%
+			read_tsv(col_names = c("row_id", "reftnc", "count"), col_types="ici") %>%
 			mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
+			group_by(row_id) %>%
 			complete(reftnc, fill = list(count = 0)) %>%
 			arrange(reftnc) %>%
 			filter(!is.na(reftnc)) %>% #This filters any reftnc's (such as '.' from contig edges) that are not in trinucleotides_64, as setting levels = trinucleotides_64 makes anything not in trinucleotides_64 become NA
-			group_by(row_id) %>%
 			mutate(
 				count = count %>% as.integer,
 				fraction = count / sum(count)
 			) %>%
 			ungroup,
-		by = join_by(row_number() == row_id),
+		by = "row_id",
 		name = "bam.gr.filtertrack.reftnc_plus_strand"
 	) %>%
+	select(-row_id) %>%
 	
 	mutate(
 		bam.gr.filtertrack.reftnc_minus_strand = bam.gr.filtertrack.reftnc_plus_strand %>%
@@ -588,20 +597,14 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_plus_strand %>%
 			map(function(x){
 				x %>%
-					mutate(
-						reftnc_pyr = reftnc %>%
-							fct_collapse(!!!trinucleotides_64_32_pyr_list) %>%
-							factor(levels = trinucleotides_32_pyr),
-						fraction = count / sum(count)
-						) %>%
-					arrange(reftnc_pyr) %>%
-					filter(!is.na(reftnc_pyr)) %>%
-					select(-reftnc)
+					trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+					rename(reftnc_pyr = reftnc) %>%
+					mutate(fraction = count / sum(count))
 			}),
 		
 		bam.gr.filtertrack.reftnc_both_strands = map2(
-			x = bam.gr.filtertrack.reftnc_plus_strand,
-			y = bam.gr.filtertrack.reftnc_minus_strand,
+			bam.gr.filtertrack.reftnc_plus_strand,
+			bam.gr.filtertrack.reftnc_minus_strand,
 			function(x,y){
 				bind_rows(x,y) %>%
 					group_by(reftnc) %>%
@@ -1095,11 +1098,7 @@ finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
 	mutate(
 		cov_sum = bam.gr.filtertrack.coverage %>%
 			map_dbl(function(x){
-					x %>%
-						map_dbl(function(y){
-							y$duplex_coverage %>% sum
-						}) %>%
-						sum
+					x %>% map_dbl(sum) %>% sum
 			}),
 		
 		interrogated_bases_or_bp = if_else(

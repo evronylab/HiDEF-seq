@@ -861,7 +861,7 @@ workflow calculateBurdens {
     calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    calculateBurdensChromgroupFiltergroup.out.main_results // Only emit the first tuple output (excludes the coverage .bed.gz[.tbi])
+    calculateBurdensChromgroupFiltergroup.out.main_results // Only emit the first tuple output (excludes the coverage .bed.gz[.tbi] outputs)
 
 }
 

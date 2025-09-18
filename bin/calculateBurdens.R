@@ -44,13 +44,13 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-		make_option(c("-o", "--output_basename"), type = "character", default=NULL,
-							help="output basename")
+		make_option(c("-o", "--output"), type = "character", default=NULL,
+							help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output) ){
 	stop("Missing input parameter(s)!")
 }
 
@@ -59,7 +59,7 @@ sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
-output_basename <- opt$output_basename
+outputFile <- opt$output
 
 #Load the BSgenome reference
 suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
@@ -458,125 +458,101 @@ invisible(gc())
 cat(" DONE\n")
 
 ######################
-### Calculate coverage and annotate reference sequences of interrogated genome bases
-######################
-cat("## Calculating coverage and annotating reference sequences of interrogated genome bases...")
-
-#Output coverage runs for each row of bam.gr.filtertrack.bytype
-for(i in bam.gr.filtertrack.bytype %>% nrow %>% seq_len){
-	
-	bam.gr.filtertrack.bytype %>%
-		pluck("bam.gr.filtertrack.coverage", i) %>%
-		coverage_rlelist_to_runs %>%
-		mutate(start = start - 1) %>% #Reformat to BED
-		write_tsv(str_c(i,".coverage_runs.tsv"))
-}
-
-#Intersect genome trinucleotide sequences with coverage run files
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
-
-paste(
-	yaml.config$bedtools_bin, "intersect -sorted -a", genome_trinuc_file,
-	"-b", str_c(bam.gr.filtertrack.bytype %>% nrow %>% seq_len,".coverage_runs.tsv"),
-	"> "
-) %>%
-	system(intern=FALSE) %>% 
-	invisible
-
-#Order the coverage_runs table by seqnames, start instead of row_id for faster speed later
-con %>%
-	dbExecute("
-	  CREATE TABLE coverage_runs_sorted AS
-	  SELECT * FROM coverage_runs
-	  ORDER BY seqnames, start;
-	  DROP TABLE coverage_runs;
-	  ALTER TABLE coverage_runs_sorted RENAME TO coverage_runs;
-	  CHECKPOINT;
-		") %>%
-	invisible
-
-#Compact database
-con %>% dbExecute("CHECKPOINT;")
-
-cat("DONE\n")
-
-######################
 ### Calculate trinucleotide distributions of interrogated bases and the genome
 ######################
 cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
 
-#Attach previously created genome trinucleotide duckdb
-genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
+#Output coverage runs for each row of bam.gr.filtertrack.bytype
+bam.gr.filtertrack.bytype %>%
+	mutate(row_id = row_number()) %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			x$bam.gr.filtertrack.coverage %>%
+				coverage_rlelist_to_runs %>%
+				mutate(start = start - 1) %>% #Convert to BED coordinates
+				write_tsv(str_c(x$row_id,".bed"), col_names = FALSE)
+			}
+	)
 
-con %>%
-	dbExecute(
-		sprintf(
-			"ATTACH '%s' AS genome_trinuc (READ_ONLY);",
-			genome_trinuc_duckdb_file
-		)
-	) %>%
+#Extract unique merged coverage runs
+paste(
+	"sort -m -k1,1n -k3,3n -k4,4n",
+	paste(
+		"<(awk -v OFS='\t' 'FNR==NR{ord[$1]=NR-1;next}{print ord[$1],$1,$2,$3}'",
+		yaml.config$genome_fai,str_c(bam.gr.filtertrack.bytype %>% nrow %>% seq_len,".bed"),
+		")",
+		collapse=" "
+	),
+	"| cut -f2- |",
+	yaml.config$bedtools_bin,"merge -i stdin > all.bed"
+) %>%
+	system2(command="/bin/bash", args="-s", input=.) %>% 
 	invisible
 
-#Create table to store reftnc_plus_strand trinucleotide distributions for interrogated bases
-con %>%
-	dbExecute(
-	"
-	  CREATE TABLE reftnc_plus_strand(
-	    row_id INTEGER,
-	    reftnc VARCHAR,
-	    count  BIGINT
-	  );
-	") %>%
+#Expand to per-base coverage runs and annotate with genome trinucleotide sequences
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
+
+paste(
+	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
+	yaml.config$bedtools_bin, "intersect -sorted -loj -wa -wb -a stdin -b",genome_trinuc_file, "-g", yaml.config$genome_fai,
+	"| cut -f 1-3,7 > all.trinuc.bed"
+) %>%
+	system2(command="/bin/bash", args="-s", input=.) %>% 
 	invisible
 
-#Calculate reftnc_plus_strand trinucleotide distribution for final interrogated bases. JOIN is an inner join which will remove sites without a valid trinucleotide sequence.
-for (chr in yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames) {
-	
-	con %>%
-	dbExecute(
-		sprintf(
-			"CREATE TEMP TABLE coverage_runs_chr AS
-	    SELECT row_id, start, end_pos, duplex_coverage
-	    FROM coverage_runs
-	    WHERE seqnames = '%s'",
-			chr
-		)
-	) %>%
-	invisible
-	
-	con %>%
-	dbExecute(
-		sprintf("
-	    INSERT INTO reftnc_plus_strand
-	    SELECT
-	      r.row_id,
-	      t.reftnc,
-	      CAST(SUM(r.duplex_coverage) AS INTEGER) AS count
-	    FROM coverage_runs_chr AS r
-	    JOIN genome_trinuc.reftnc_plus_strand AS t
-	      ON t.seqnames = '%s'
-	     AND t.pos >= r.start
-	     AND t.pos <= r.end_pos
-	    GROUP BY r.row_id, t.reftnc;",
-			chr
-		)
-	) %>%
-		invisible
-	
-	con %>% dbExecute("DROP TABLE coverage_runs_chr;") %>% invisible
-	con %>% dbExecute("CHECKPOINT;") %>% invisible
-}
+file.remove("all.bed") %>% invisible
+
+#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output: 1) final per-base BED output (bgzipped, tabix indexed): seqnames, start, end, duplex_coverage, reftnc_plus_strand; 2) counts for every reftnc_plus_strand trinucleotide context
+bam.gr.filtertrack.bytype %>%
+	mutate(row_id = row_number()) %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			cov_output_file <- str_c(
+				yaml.config$analysis_id,
+				sample_id_toanalyze,
+				chromgroup_toanalyze,
+				filtergroup_toanalyze,
+				x$call_class,
+				x$call_type,
+				x$SBSindel_call_type,
+				"coverage_reftnc",
+				"bed.gz",
+				sep="."
+			)
+			
+			paste(
+				yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
+				"-a", str_c(x$row_id,".bed"), "-b all.trinuc.bed",
+				"-g", yaml.config$genome_fai, "|",
+				"awk -v OFS='\t' -v reftnc_file=", str_c(x$row_id,".reftnc_plus_strand.tsv"),
+				"'{print $5,$6,$7,$4,$8; sum[$8]+=$4} END{for(k in sum){print row_id, k,sum[k] > reftnc_file}}' |",
+				yaml.config$bgzip_bin, "-c >",
+				cov_output_file,
+				"&&",
+				yaml.config$tabix_bin, "-@2 -s1 -b2 -e3", cov_output_file
+			) %>%
+				system2(command="/bin/bash", args="-s", input=.) %>% 
+				invisible
+			
+			file.remove(str_c(x$row_id,".bed")) %>% invisible
+		}
+	)
+
+file.remove("all.trinuc.bed") %>% invisible
 
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	nest_join(
-		con %>%
-			tbl("reftnc_plus_strand") %>%
-			filter(reftnc)
+		list.files(pattern="*.reftnc_plus_strand.tsv", full.names=TRUE) %>%
+		read_tsv("reftnc_plus_strand.tsv", col_names = c("row_id", "reftnc", "duplex_coverage"), col_types="ici") %>%
 			mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
 			complete(reftnc, fill = list(count = 0)) %>%
 			arrange(reftnc) %>%
-			filter(!is.na(reftnc)) %>% #This filters any reftnc's (such as 1 or 2 bp tnc from contig edges) that are not in trinucleotides_64, as setting levels = trinucleotides_64 makes anything not in trinucleotides_64 become NA
+			filter(!is.na(reftnc)) %>% #This filters any reftnc's (such as '.' from contig edges) that are not in trinucleotides_64, as setting levels = trinucleotides_64 makes anything not in trinucleotides_64 become NA
 			group_by(row_id) %>%
 			mutate(
 				count = count %>% as.integer,
@@ -600,6 +576,11 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 					)
 			})
 	)
+
+file.remove(
+	str_c(bam.gr.filtertrack.bytype %>% nrow %>% seq_len, ".reftnc_plus_strand.tsv")
+) %>%
+	invisible
 
 #Annotate reftnc_pyr and reftnc_both_strands
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
@@ -1606,7 +1587,7 @@ qs_save(
 		sensitivity = sensitivity,
 		estimatedSBSMutationErrorProbability = estimatedSBSMutationErrorProbability
 	),
-	str_c(output_basename,".qs")
+	outputFile
 )
 
 cat("DONE\n")

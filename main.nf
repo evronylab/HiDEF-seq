@@ -305,9 +305,9 @@ process installBSgenome {
   extractGenomeTrinucleotides: Extracts trinucleotides for every base in the genome
 */
 process extractGenomeTrinucleotides {
-    cpus 1
-    memory '4 GB'
-    time '3h'
+    cpus 2
+    memory '8 GB'
+    time '6h'
     tag { "Extracts genome trinucleotides" }
     container "${params.hidefseq_container}"
 
@@ -328,7 +328,7 @@ process extractGenomeTrinucleotides {
       awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
       ${params.bgzip_bin} -c > ${params.BSgenome.BSgenome_name}.bed.gz
 
-    ${params.tabix_bin} -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
+    ${params.tabix_bin} -@ 2 -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
     """
 }
 
@@ -521,7 +521,7 @@ process filterCallsChunk {
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
 process calculateBurdensChromgroupFiltergroup {
-    cpus 1
+    cpus 4
     memory '64 GB'
     time '24h'
     tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
@@ -531,15 +531,15 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.coverage_tnc.duckdb")
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: main_results
+      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.coverage_reftnc.bed.gz"), emit: coverage_bed
+      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.coverage_reftnc.bed.gz.tbi"), emit: coverage_tbi
 
     storeDir "${calculateBurdens_output_dir}"
 
-.coverage_tnc.duckdb
-
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 
@@ -554,7 +554,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(calculateBurdensFiles), path(calculateBurdensDuckdbs)
+      tuple val(sample_id), path(calculateBurdensFiles)
     
     output:
       tuple val(sample_id)
@@ -563,7 +563,7 @@ process outputResultsSample {
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -d ${calculateBurdensDuckdbs.join(',')} -o ${params.analysis_id}.${sample_id}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${sample_id}
     """
 }
 
@@ -861,7 +861,7 @@ workflow calculateBurdens {
     calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    calculateBurdensChromgroupFiltergroup.out
+    calculateBurdensChromgroupFiltergroup.out.main_results // Only emit the first tuple output (excludes the coverage .bed.gz[.tbi])
 
 }
 
@@ -1099,8 +1099,7 @@ workflow {
           .map { sample, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
               def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
-              def calculateBurdensDuckdb = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.coverage_tnc.duckdb")
-              return tuple(sample_id, calculateBurdensFile, calculateBurdensDuckdb)
+              return tuple(sample_id, calculateBurdensFile)
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out

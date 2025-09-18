@@ -37,22 +37,19 @@ option_list = list(
 							help="sample_id to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated calculateBurdens qs2 files"),
-	make_option(c("-d", "--duckdbs"), type = "character", default=NULL,
-							help="comma-separated coverage_tnc.duckdb files"),
 	make_option(c("-o", "--output_basename"), type = "character", default=NULL,
 							help="output basename")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$duckdbs) | is.null(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id <- opt$sample_id
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
-calculateBurdensDuckDbs <- opt$duckdbs %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
 
 #Load the BSgenome reference
@@ -379,8 +376,6 @@ cat("DONE\n")
 #Output, with a separate folder for each call_class, call_type, SBSindel_call_type combination
 
 **con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
-
-calculateBurdensDuckDbs
 
 Order by rowid:
 	con %>% dbExecute("

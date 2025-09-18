@@ -528,7 +528,7 @@ bam.gr.filtertrack.bytype %>%
 				yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
 				"-a", str_c(x$row_id,".bed"), "-b all.trinuc.bed",
 				"-g", yaml.config$genome_fai, "|",
-				"awk -v OFS='\t' -v reftnc_file=", str_c(x$row_id,".reftnc_plus_strand.tsv"),
+				"awk -v OFS='\t'", str_c("-v reftnc_file=", x$row_id, ".reftnc_plus_strand.tsv"),
 				"'{print $5,$6,$7,$4,$8; sum[$8]+=$4} END{for(k in sum){print row_id, k,sum[k] > reftnc_file}}' |",
 				yaml.config$bgzip_bin, "-c >",
 				cov_output_file,

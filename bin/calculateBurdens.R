@@ -223,40 +223,6 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 }
 
-#Function to convert a SimpleRleList of coverage to non-zero runs (seqnames, start, end, duplex_coverage)
-coverage_rlelist_to_runs <- function(cov){
-	out <- vector("list", cov %>% length) %>%
-		set_names(cov %>% names)
-	
-	for(i in cov %>% seq_along){
-		out[[i]] <- tibble(
-			seqnames = character(),
-			start = integer(),
-			end = integer(),
-			duplex_coverage = integer()
-		)
-		
-		r <- cov[[i]]
-		if(length(r) == 0L){next}
-		
-		rl <- r %>% runLength
-		rv <- r %>% runValue %>% as.integer
-		
-		nz <- which(rv != 0L)
-		if(length(nz) == 0L){next}
-		
-		ends <- cumsum(rl)
-		starts <- ends - rl + 1L
-		out[[i]] <- tibble(
-			seqnames = names(out)[i],
-			start = starts[nz],
-			end   = ends[nz],
-			duplex_coverage = rv[nz]
-		)
-	}
-	return(bind_rows(out))
-}
-
 #Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
 gr_1bp_cov <- function(gr, cov){
 	
@@ -469,10 +435,30 @@ bam.gr.filtertrack.bytype %>%
 		function(...){
 			x <- list(...)
 			
+			output_file <- str_c(x$row_id,".bed")
+			if(file.exists(output_file)){file.remove(output_file)}
+			file.create(output_file)
+			
 			x$bam.gr.filtertrack.coverage %>%
-				coverage_rlelist_to_runs %>%
-				mutate(start = start - 1) %>% #Convert to BED coordinates
-				write_tsv(str_c(x$row_id,".bed"), col_names = FALSE)
+				iwalk(
+					function(rle, seqname){
+						ends <- rle %>% runLength %>% cumsum
+						starts <- c(0L, head(ends, -1L)) #0-based starts
+						
+						vals <- runValue(rle)
+						nz <- vals != 0L
+						
+						if(any(nz) > 0){
+							data.frame(
+								seqname = seqname,
+								start = starts[nz],
+								end = ends[nz],
+								value = vals[nz]
+							) %>%
+								data.table::fwrite(output_file, sep="\t", col.names = FALSE, append = TRUE, showProgress = FALSE)
+						}
+					}
+				)
 			}
 	)
 

@@ -522,15 +522,8 @@ process filterCallsChunk {
 */
 process calculateBurdensChromgroupFiltergroup {
     cpus 2
-    memory { 
-      def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
-      baseMemory * (1 + 0.5*(task.attempt - 1))
-    }
-    time { 
-        def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
-        baseTime * (1 + (task.attempt - 1))
-    }
-    maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
+    memory '64 GB'
+    time '12h'
     tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     

@@ -1057,9 +1057,10 @@ workflow {
     extractCalls_out = extractCalls(splitBAMs_out, prepareFilters_out)
   }
 
-  //Prepare a channel with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs.
-  chromgroups_filtergroups_ch = Channel.fromList(params.call_types)
-    .flatMap { call_type ->
+  //Prepare a list with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs.
+  //Created as a list first instead of a channel to allow static calculation of its size for later downstream use
+  chromgroups_filtergroups_list = params.call_types
+    .collectMany { call_type ->
       def chromgroup_names
       if (call_type.analyzein_chromgroups == 'all') {
         chromgroup_names = params.chromgroups.collect { it.chromgroup }
@@ -1069,14 +1070,14 @@ workflow {
 
       call_type.SBSindel_call_types.collectMany{ SBSindel_call_type ->
         chromgroup_names.collect{ chromgroup ->
-          return tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
+          tuple(chromgroup.trim(), SBSindel_call_type.filtergroup)
         }
       }
     }
     .unique()
 
-  //Calculate length of chromgroups_filtergroups_ch channel for downstream use
-  def chromgroups_filtergroups_count = chromgroups_filtergroups_ch.count()
+  //Create a channel from the chromgroups_filtergroups_list
+  chromgroups_filtergroups_ch = Channel.fromList(chromgroups_filtergroups_list)
 
   // Run filterCalls workflow
   if (shouldRun("filterCalls")) {
@@ -1128,7 +1129,7 @@ workflow {
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
-        .groupTuple(by: 0, size: chromgroups_filtergroups_count) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
+        .groupTuple(by: 0, size: chromgroups_filtergroups_list.size()) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }

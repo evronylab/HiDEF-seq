@@ -427,8 +427,10 @@ cat(" DONE\n")
 ### Calculate trinucleotide distributions of interrogated bases and the genome
 ######################
 cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
+#Convert coverage Rle to coverage runs and write to disk
+ #Size of blocks while outputting to disk to minimize RAM usage
+chunk_runs <- 2e7
 
-#Output coverage runs for each row of bam.gr.filtertrack.bytype
 bam.gr.filtertrack.bytype %>%
 	mutate(row_id = row_number()) %>%
 	pwalk(
@@ -442,24 +444,45 @@ bam.gr.filtertrack.bytype %>%
 			x$bam.gr.filtertrack.coverage %>%
 				iwalk(
 					function(rle, seqname){
-						ends <- rle %>% runLength %>% cumsum
-						starts <- c(0L, head(ends, -1L)) #0-based starts
+						lens <- rle %>% runLength
+						vals <- rle %>% runValue
+						n <- lens %>% length
 						
-						vals <- runValue(rle)
-						nz <- vals != 0L
+						offset <- 0L
 						
-						if(any(nz) > 0){
+						for(lo in seq.int(1L, n, by = chunk_runs)){
+							hi <- min(lo + chunk_runs - 1L, n)
+							len_slice <- lens[lo:hi]
+							val_slice <- vals[lo:hi]
+							
+							nz <- which(val_slice != 0L)
+							if(length(nz) == 0){
+								offset <- offset + sum(len_slice)
+								next
+							}
+							
+							ends_chunk <- offset + cumsum(len_slice)
+							
+							starts_chunk_sub <- ends_chunk[nz]
+							gt1 <- nz > 1L
+							if(any(gt1)){starts_chunk_sub[gt1] <- ends_chunk[nz[gt1] - 1L]}
+							if(nz[1L] == 1L){starts_chunk_sub[1L] <- offset}
+
 							data.frame(
 								seqname = seqname,
-								start = starts[nz],
-								end = ends[nz],
-								value = vals[nz]
+								start = starts_chunk_sub,
+								end = ends_chunk[nz],
+								value = val_slice[nz]
 							) %>%
 								data.table::fwrite(output_file, sep="\t", col.names = FALSE, append = TRUE, showProgress = FALSE)
+							
+							offset <- ends_chunk[length(ends_chunk)]
+							
+							invisible(gc())
 						}
 					}
 				)
-			}
+		}
 	)
 
 #Extract unique merged coverage runs

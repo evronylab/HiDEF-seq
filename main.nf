@@ -194,7 +194,7 @@ process mergeAlignedSampleBAMs {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    storeDir "${processReads_output_dir}"
+    publishDir "${processReads_output_dir}", mode: 'link'
 
     script:
     """
@@ -255,7 +255,7 @@ process splitBAM {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
-    storeDir "${splitBAMs_output_dir}"
+    publishDir "${splitBAMs_output_dir}", mode: 'link'
 
     script:
     """
@@ -315,7 +315,7 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz")
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'link'
 
     script:
     """
@@ -348,7 +348,7 @@ process processGermlineVCFs {
     output:
       path "${individual_id}.germline_vcf_variants.qs2"
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'copy'
 
     script:
     """
@@ -373,7 +373,7 @@ process processGermlineBAMs {
       path("${germline_bam_file}.bw")
       path("${germline_bam_file}.vcf.gz*")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'link'
 
     script:
     """
@@ -426,7 +426,7 @@ process prepareRegionFilters {
     output:
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'link'
 
     script:
     """
@@ -478,7 +478,7 @@ process extractCallsChunk {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    storeDir "${extractCalls_output_dir}"
+    publishDir "${extractCalls_output_dir}", mode: 'link'
 
     script:
     """
@@ -509,7 +509,7 @@ process filterCallsChunk {
     output:
       tuple val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    storeDir "${filterCalls_output_dir}"
+    publishDir "${filterCalls_output_dir}", mode: 'link'
 
     script:
     """
@@ -521,9 +521,16 @@ process filterCallsChunk {
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
 process calculateBurdensChromgroupFiltergroup {
-    cpus 4
-    memory '64 GB'
-    time '24h'
+    cpus 2
+    memory { 
+      def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time { 
+        def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
     tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     
@@ -531,32 +538,16 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: main_results
+      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz"), emit: coverage_bed
+      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz.tbi"), emit: coverage_tbi
 
-    storeDir "${calculateBurdens_output_dir}"
+    publishDir "${calculateBurdens_output_dir}", mode: 'link', pattern: "${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"
+    publishDir "${outputResults_output_dir}/coverage", mode: 'link', pattern: "${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz*"
 
     script:
     """
-    set -euo pipefail
-
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
-    
-    #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}.${filtergroup}
-    
-    mkdir -p \$TARGET_DIR || {
-      echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
-      exit 1
-    }
-
-    for file in *.bed.gz*; do
-      if [[ -f \$file ]]; then  # Check file exists
-        mv \$file \$TARGET_DIR || {
-          echo "ERROR: Failed to move file \$file" >&2
-          exit 1
-       }
-      fi
-    done
     """
 }
 
@@ -576,7 +567,7 @@ process outputResultsSample {
     output:
       tuple val(sample_id)
 
-    storeDir "${outputResults_output_dir}"
+    publishDir "${outputResults_output_dir}", mode: 'link'
 
     script:
     """
@@ -878,7 +869,7 @@ workflow calculateBurdens {
     calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    calculateBurdensChromgroupFiltergroup.out
+    calculateBurdensChromgroupFiltergroup.out.main_results // Only emit the first tuple output (excludes the coverage .bed.gz[.tbi])
 
 }
 

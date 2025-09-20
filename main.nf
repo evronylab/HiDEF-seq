@@ -522,8 +522,15 @@ process filterCallsChunk {
 */
 process calculateBurdensChromgroupFiltergroup {
     cpus 2
-    memory '64 GB'
-    time '12h'
+    memory { 
+      def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time { 
+        def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
     tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     
@@ -650,7 +657,7 @@ workflow processReads {
     // Branch according to data type.
     if( params.reads_type == 'subreads' ) {
         // Run CCS in chunks.
-        chunkIDs = Channel.of(1..params.ccs_chunks)
+        chunkIDs = Channel.from(1..params.ccs_chunks)
 
         ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3]) } )
         
@@ -722,25 +729,21 @@ workflow processReads {
     // Create channels for counting ZMWs of BAMs created during processing
     if( params.reads_type == 'subreads' ) {
       countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
-        .concat(mergeCCSchunks.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") })
-        .collect(flat: false)
+        .mix(mergeCCSchunks.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") })
     }
     else if( params.reads_type == 'ccs' ) {
       countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
-        .collect(flat: false)
     }
 
-    countZMWs_ch = countZMWs_ch +
-          (
-          filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
-            .concat(
-              samples_to_align_ch.map { f -> tuple(f[2], file("${f[2]}.pbi"), "zmwcount.txt") },
-              pbmm2Align.out.collect(flat: false).flatMap().map { f -> tuple(f[2], f[3], "zmwcount.txt") }
-            )
-            .collect(flat: false)
-          )
+    countZMWs_ch = countZMWs_ch.mix
+      (
+        filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
+        samples_to_align_ch.map { f -> tuple(f[2], file("${f[2]}.pbi"), "zmwcount.txt") },
+        pbmm2Align.out.map { f -> tuple(f[2], f[3], "zmwcount.txt") }
+      )
 
-    countZMWs( countZMWs_ch.flatMap() )
+    // Count ZMWs
+    countZMWs( countZMWs_ch )
 
     // Group pbmm2Align outputs by sample_id for merging
     pbmm2_grouped_ch = pbmm2Align.out
@@ -764,7 +767,7 @@ workflow splitBAMs {
     alignedSamples_ch
     
     main:
-    chunkIDs = Channel.of(1..params.analysis_chunks)
+    chunkIDs = Channel.from(1..params.analysis_chunks)
 
     splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4]) } )
 
@@ -1041,7 +1044,7 @@ workflow {
   if (shouldRun("extractCalls")) {
     splitBAMs_out = splitBAMs_out ?:
       Channel.fromList(params.samples)
-          .combine(Channel.of(1..params.analysis_chunks))
+          .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
               def bamFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
@@ -1055,9 +1058,10 @@ workflow {
     extractCalls_out = extractCalls(splitBAMs_out, prepareFilters_out)
   }
 
-  //Prepare channel with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs
-  chromgroups_filtergroups_ch = Channel.fromList(params.call_types)
-    .flatMap { call_type ->
+  //Prepare a list with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs.
+  //We make a list instead of a channel so that we can calculate the length of the list as an integer for downstream use.
+  chromgroups_filtergroups_list = Channel.fromList(params.call_types)
+    .collectMany { call_type ->
       def chromgroup_names
       if (call_type.analyzein_chromgroups == 'all') {
         chromgroup_names = params.chromgroups.collect { it.chromgroup }
@@ -1073,11 +1077,14 @@ workflow {
     }
     .unique()
 
+  //Create a chromgroups_filtergroups_ch channel from chromgroups_filtergroups_list
+  chromgroups_filtergroups_ch = Channel.fromList(chromgroups_filtergroups_list)
+
   // Run filterCalls workflow
   if (shouldRun("filterCalls")) {
     extractCalls_out = extractCalls_out ?:
       Channel.fromList(params.samples)
-          .combine(Channel.of(1..params.analysis_chunks))
+          .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
               def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
@@ -1091,7 +1098,7 @@ workflow {
   if (shouldRun("calculateBurdens")) {
     filterCalls_out = filterCalls_out ?:
       Channel.fromList(params.samples)
-          .combine(Channel.of(1..params.analysis_chunks))
+          .combine(Channel.from(1..params.analysis_chunks))
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chunkID, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
@@ -1123,7 +1130,7 @@ workflow {
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
-        .groupTuple(by: 0, size: chromgroups_filtergroups_ch.count()) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
+        .groupTuple(by: 0, size: chromgroups_filtergroups_list.size()) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }

@@ -194,7 +194,7 @@ process mergeAlignedSampleBAMs {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    publishDir "${processReads_output_dir}", mode: 'link'
+    storeDir "${processReads_output_dir}"
 
     script:
     """
@@ -255,7 +255,7 @@ process splitBAM {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
 
-    publishDir "${splitBAMs_output_dir}", mode: 'link'
+    storeDir "${splitBAMs_output_dir}"
 
     script:
     """
@@ -315,7 +315,7 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz")
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
-    publishDir "${params.cache_dir}", mode: 'link'
+    storeDir "${params.cache_dir}"
 
     script:
     """
@@ -348,7 +348,7 @@ process processGermlineVCFs {
     output:
       path "${individual_id}.germline_vcf_variants.qs2"
 
-    publishDir "${params.cache_dir}", mode: 'copy'
+    storeDir "${params.cache_dir}"
 
     script:
     """
@@ -373,7 +373,7 @@ process processGermlineBAMs {
       path("${germline_bam_file}.bw")
       path("${germline_bam_file}.vcf.gz*")
 
-    publishDir "${params.cache_dir}", mode: 'link'
+    storeDir "${params.cache_dir}"
 
     script:
     """
@@ -426,7 +426,7 @@ process prepareRegionFilters {
     output:
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
-    publishDir "${params.cache_dir}", mode: 'link'
+    storeDir "${params.cache_dir}"
 
     script:
     """
@@ -478,7 +478,7 @@ process extractCallsChunk {
     output:
       tuple val(sample_id), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    publishDir "${extractCalls_output_dir}", mode: 'link'
+    storeDir "${extractCalls_output_dir}"
 
     script:
     """
@@ -509,7 +509,7 @@ process filterCallsChunk {
     output:
       tuple val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    publishDir "${filterCalls_output_dir}", mode: 'link'
+    storeDir "${filterCalls_output_dir}"
 
     script:
     """
@@ -542,12 +542,30 @@ process calculateBurdensChromgroupFiltergroup {
       path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz"), emit: coverage_bed
       path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz.tbi"), emit: coverage_tbi
 
-    publishDir "${calculateBurdens_output_dir}", mode: 'link', pattern: "${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"
-    publishDir "${outputResults_output_dir}/coverage", mode: 'link', pattern: "${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz*"
+    storeDir "${calculateBurdens_output_dir}"
 
     script:
     """
+    set -euo pipefail
+
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+
+    #Move bed.gz[.tbi] files safely (with checks) to output results directory.
+    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}.${filtergroup}
+
+    mkdir -p \$TARGET_DIR || {
+      echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
+      exit 1
+    }
+
+    for file in *.bed.gz*; do
+      if [[ -f \$file ]]; then  # Check file exists
+        mv \$file \$TARGET_DIR || {
+          echo "ERROR: Failed to move file \$file" >&2
+          exit 1
+        }
+      fi
+    done
     """
 }
 
@@ -567,11 +585,12 @@ process outputResultsSample {
     output:
       tuple val(sample_id)
 
-    publishDir "${outputResults_output_dir}", mode: 'link'
+    storeDir "${outputResults_output_dir}"
 
     script:
     """
     outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${sample_id}
+
     """
 }
 

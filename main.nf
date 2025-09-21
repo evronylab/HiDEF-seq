@@ -538,9 +538,7 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: main_results
-      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz"), emit: coverage_bed
-      path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.*.bed.gz.tbi"), emit: coverage_tbi
+      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir "${calculateBurdens_output_dir}"
 
@@ -551,7 +549,7 @@ process calculateBurdensChromgroupFiltergroup {
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}.${filtergroup}
+    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}
 
     mkdir -p \$TARGET_DIR || {
       echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
@@ -883,7 +881,7 @@ workflow calculateBurdens {
     calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
 
     emit:
-    calculateBurdensChromgroupFiltergroup.out.main_results // Only emit the first tuple output (excludes the coverage .bed.gz[.tbi])
+    calculateBurdensChromgroupFiltergroup.out
 
 }
 

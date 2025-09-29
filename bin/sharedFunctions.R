@@ -250,6 +250,48 @@ trinucleotides_64to32 <- function(x, tri_column, count_column){
 		arrange(!!sym(tri_column))
 }
 
+#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
+normalize_indels_for_vcf <- function(df, BSgenome_name){
+	
+	#Identify deletions and insertions
+	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
+	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
+	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
+	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
+	ins_or_del <- ins | del
+	
+	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
+	if(any(ins_or_del)){
+		df$start[ins_or_del] <- df$start[ins_or_del] - 1
+		
+		gr <- GRanges(
+			df$seqnames[ins_or_del],
+			IRanges(df$start[ins_or_del],	width = 1),
+			seqinfo = BSgenome_name %>% get %>% seqinfo
+		)
+		
+		start_base_ref <- df %>% nrow %>% character
+		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
+	}
+	
+	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
+	if(any(ins)){
+		df$ref_plus_strand[ins] <- start_base_ref[ins]
+		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
+	}
+	
+	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
+	if(any(del)){
+		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
+		df$alt_plus_strand[del] <- start_base_ref[del]
+	}
+	
+	#Remove 'end' column that is not needed for vcf, to avoid confusion
+	df$end <- NULL
+	
+	return(df)
+}
+
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)

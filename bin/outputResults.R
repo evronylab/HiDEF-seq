@@ -33,7 +33,7 @@ options(warn=2) #Stop script for any warnings
 option_list = list(
 	make_option(c("-c", "--config"), type = "character", default=NULL,
 							help="path to YAML configuration file"),
-	make_option(c("-s", "--sample_id"), type = "character", default=NULL,
+	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
 							help="sample_id to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated calculateBurdens qs2 files"),
@@ -43,12 +43,12 @@ option_list = list(
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id) | is.null(opt$files) | is.null(opt$output_basename) ){
+if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
 	stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
-sample_id <- opt$sample_id
+sample_id_toanalyze <- opt$sample_id_toanalyze
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
 
@@ -62,7 +62,7 @@ analysis_id <- yaml.config$analysis_id
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
   bind_rows %>%
-  filter(sample_id == sample_id) %>%
+  filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
 
  #call types
@@ -76,7 +76,7 @@ call_type <- yaml.config$call_types %>%
 #Display basic configuration parameters
 cat("> Processing:\n")
 cat("    individual_id:",individual_id,"\n")
-cat("    sample_id:",sample_id,"\n")
+cat("    sample_id:",sample_id_toanalyze,"\n")
 
 cat("DONE\n")
 
@@ -208,7 +208,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			.before = 1
 		) %>%
 		mutate(
@@ -220,7 +220,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			.before = 1
 		) %>%
 		mutate(
@@ -232,7 +232,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			filtergroup = !!filtergroup %>% factor,
 			.before = 1
@@ -243,7 +243,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			.before = 1
 		) %>%
@@ -255,7 +255,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			filtergroup = !!filtergroup %>% factor
 			.before = 1
@@ -266,7 +266,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			filtergroup = !!filtergroup %>% factor
 			.before = 1
@@ -277,7 +277,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			.before = 1
 		) %>%
@@ -289,7 +289,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			.before = 1
 		) %>%
@@ -301,7 +301,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		mutate(
 			analysis_id = !!analysis_id %>% factor,
 			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id %>% factor,
+			sample_id = !!sample_id_toanalyze %>% factor,
 			chromgroup = !!chromgroup %>% factor,
 			.before = 1
 		) %>%
@@ -314,7 +314,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			mutate(
 				analysis_id = !!analysis_id %>% factor,
 				individual_id = !!individual_id %>% factor,
-				sample_id = !!sample_id %>% factor,
+				sample_id = !!sample_id_toanalyze %>% factor,
 				chromgroup = !!chromgroup %>% factor,
 				.before = 1
 			) %>%
@@ -346,120 +346,6 @@ finalCalls.bytype <-
 finalCalls.reftnc_spectra <-
 finalCalls.burdens <-
 sensitivity <-
-
-######################
-### Output configuration parameters
-######################
-cat("## Outputting configuration parameters...")
-
-opt$config %>% file.copy(str_c(output_basename,".yaml.config.tsv"))
-
-run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
-
-cat("DONE\n")
-
-######################
-### Output filtering statistics
-######################
-cat("## Outputting filtering statistics...:")
-
-molecule_stats_by_run_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_run_id.tsv"))
-
-molecule_stats_by_analysis_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_analysis_id.tsv"))
-
-region_genome_filter_stats %>% write_tsv(str_c(output_basename,".region_genome_filter_stats.tsv"))
-
-cat("DONE\n")
-
-
-### output coverage and reference sequences of interrogated genome bases
-#Output, with a separate folder for each call_class, call_type, SBSindel_call_type combination
-
-**con %>% dbExecute("CREATE INDEX idx_cov_perbase_rowid ON coverage_perbase(row_id);") %>% invisible
-
-Order by rowid:
-	con %>% dbExecute("
-  CREATE OR REPLACE TABLE coverage_runs_sorted AS
-  SELECT * FROM coverage_runs
-  ORDER BY row_id, seqnames, start;
-  DROP TABLE coverage_runs;
-  ALTER TABLE coverage_runs_sorted RENAME TO coverage_runs;
-  CHECKPOINT;
-") %>% invisible
-
-Then materialize a temp table for each rowid, then do the jointo genome_trinuc and stream to BED
-
-#Attach previously created genome trinucleotide duckdb
-genome_trinuc_duckdb_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name,".trinuc.duckdb")
-
-con %>%
-	dbExecute(
-		sprintf(
-			"ATTACH '%s' AS genome_trinuc (READ_ONLY);",
-			genome_trinuc_duckdb_file
-		)
-	) %>%
-	invisible
-
-DBI::dbExecute(
-	con,
-	sprintf("
-    COPY (
-      SELECT
-        t.seqnames               AS chrom,           -- col1
-        t.pos - 1                AS start0,          -- col2 (BED start)
-        t.pos                    AS end1,            -- col3 (BED end)
-        t.reftnc                 AS reftnc,          -- col4
-        '.'                      AS dot,             -- col5
-        r.duplex_coverage        AS duplex_coverage  -- col6
-      FROM coverage_runs r
-      JOIN genome_trinuc.reftnc_plus_strand t
-        ON t.seqnames = r.seqnames
-       AND t.pos BETWEEN r.start AND r.end_pos
-      ORDER BY t.seqnames, t.pos
-    )
-    TO '%s' (DELIMITER '\t', HEADER FALSE);
-  ", out_tsv)
-)
-
-**stream output to bgzip, then do tabix - check that this actually streams.
-con <- dbConnect(duckdb::duckdb(), "mydb.duckdb")
-
-cmd <- pipe("gzip > out.tsv.gz", "w")
-dbExecute(con, "COPY (SELECT * FROM my_table) TO '/dev/stdout' (DELIMITER '\t', HEADER FALSE);", immediate=TRUE, resultFormat="raw") %>%
-	writeBin(cmd)
-close(cmd)
-
-for(i in seq_len(nrow(bam.gr.filtertrack.bytype))){
-	
-	prefix <- 
-		str_c(
-			bam.gr.filtertrack.bytype$call_class[i],
-			bam.gr.filtertrack.bytype$call_type[i],
-			bam.gr.filtertrack.bytype$SBSindel_call_type[i],
-			sep="."
-		)
-	
-	dir.create(prefix, showWarnings = FALSE)
-	
-	bam.gr.filtertrack.bytype %>%
-		pluck("bam.gr.filtertrack.coverage",i) %>%
-		** Fix to output each chromosome sequentially, since it is now a List
-		mutate(name = reftnc_pyr, score = coverage) %>% #rename to to allow output by 'export'
-		export(
-			con = str_c(
-				str_c(prefix,"/",output_basename),
-				prefix,
-				"bed",
-				sep="."
-			),
-			format = "bed",
-			index = TRUE
-		)
-}
-
-cat("DONE\n")
-
 
 #Output trinucleotide counts
 genome.reftnc_pyr
@@ -503,7 +389,7 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 
 cat("## Outputting final calls and germline variant calls...")
 
-#Output final calls to tsv and vcf, separately for each combination of call_class, call_type, SBSindel_call_type
+#Output final calls to vcf, separately for each combination of call_class, call_type, SBSindel_call_type
 finalCalls.bytype %>%
 	##**ADD here to rename strand in all the finalCalls tibbles (for tsv and for vcf, all and unique) to aligned_synthesized_strand, to help users understand more easily what the 'strand' column is
 	pwalk(
@@ -530,7 +416,8 @@ finalCalls.bytype %>%
 				)
 			
 			#vcf
-			x$finalCalls_for_vcf %>%
+			x$finalCalls_for_tsv %>%
+				normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
 				write_vcf_from_calls(
 					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 					out_vcf = str_c(
@@ -565,9 +452,7 @@ germlineVariantCalls.out %>%
 
  #vcf
 germlineVariantCalls.out %>% 
-	normalize_indels_for_vcf(
-		BSgenome_name = yaml.config$BSgenome$BSgenome_name
-	) %>%
+	normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
 	write_vcf_from_calls(
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 		out_vcf = str_c(output_basename,"germlineVariantCalls","vcf",sep=".")
@@ -593,3 +478,29 @@ Output Sensitivity
 - calculate for uncorrected and tnc_corrected burdens
 
 #Estimated SBS mutation error rate
+
+#Output RDS with configuration parameters and stats
+qs_save(
+	lst(
+		yaml.config,
+		run_metadata,
+		individual_id,
+		sample_id = sample_id_toanalyze,
+		molecule_stats.by_run_id,
+		molecule_stats.by_analysis_id,
+		region_genome_filter_stats,
+		genome.reftnc,
+		genome_chromgroup.reftnc,
+		finalCalls,
+		finalCalls_for_tsv.bytype,
+		germlineVariantCalls,
+		finalCalls.reftnc_spectra,
+		finalCalls.burdens,
+		genome.reftnc,
+		genome_chromgroup.reftnc,
+		sensitivity,
+		estimatedSBSMutationErrorProbability,
+		...
+	)
+	...
+)

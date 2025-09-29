@@ -19,7 +19,6 @@ suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(sigfit))
-suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
@@ -246,48 +245,6 @@ gr_1bp_cov <- function(gr, cov){
 	return(result)
 }
 
-#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
-normalize_indels_for_vcf <- function(df, BSgenome_name) {
-	
-	#Identify deletions and insertions
-	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
-	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
-	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
-	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
-	ins_or_del <- ins | del
-	
-	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
-	if(any(ins_or_del)){
-		df$start[ins_or_del] <- df$start[ins_or_del] - 1
-		
-		gr <- GRanges(
-			df$seqnames[ins_or_del],
-			IRanges(df$start[ins_or_del],	width = 1),
-			seqinfo = BSgenome_name %>% get %>% seqinfo
-		)
-		
-		start_base_ref <- df %>% nrow %>% character
-		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
-	}
-	
-	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
-	if(any(ins)){
-		df$ref_plus_strand[ins] <- start_base_ref[ins]
-		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
-	}
-	
-	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
-	if(any(del)){
-		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
-		df$alt_plus_strand[del] <- start_base_ref[del]
-	}
-	
-	#Remove 'end' column that is not needed for vcf, to avoid confusion
-	df$end <- NULL
-	
-	return(df)
-}
-
 ######################
 ### Load data from filterCalls files
 ######################
@@ -428,8 +385,8 @@ cat(" DONE\n")
 ######################
 cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
 #Convert coverage Rle to coverage runs and write to disk
- #Size of blocks while outputting to disk to minimize RAM usage
-chunk_runs <- 2e7
+ 
+chunk_runs <- 1e7 #Size of blocks to write to disk. Lower number takes longer, but decreases peak RAM.
 
 bam.gr.filtertrack.bytype %>%
 	mutate(row_id = row_number()) %>%
@@ -744,16 +701,16 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsf and for vcf output. Used for burden, spectra, and vcf output.
-finalCalls.bytype <- call_types_toanalyze %>%
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Used for burden, spectra, and vcf output.
+finalCalls_for_tsv.bytype <- call_types_toanalyze %>%
 	nest_join(
 		finalCalls,
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
 	) %>%
 	mutate(
-		#Format finalCalls list columns to be comma-delimited bounded by square brackets
-		finalCalls = finalCalls %>%
+		#Reformat list columns to be comma-delimited bounded by square brackets.
+		finalCalls_for_tsv = finalCalls %>%
 			map(
 				function(x){
 					x %>%
@@ -766,10 +723,9 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				}
 			),
 		
-		#Format all calls for tsv output
 		finalCalls_for_tsv = if_else(
 			call_class %in% c("SBS","indel") & SBSindel_call_type == "mutation",
-			finalCalls %>% map(
+			finalCalls_for_tsv %>% map(
 				function(x){
 					x %>%
 						group_by( #Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
@@ -797,7 +753,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 						)
 				}
 			),
-			finalCalls %>% map(
+			finalCalls_for_tsv %>% map(
 				function(x){
 					x %>%
 						select(
@@ -822,37 +778,12 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				}
 			),
 			NA
-		),
-		
-		#Format all calls for vcf output
-		finalCalls_for_vcf = finalCalls_for_tsv %>% map(
-			function(x){
-				x %>% 
-					normalize_indels_for_vcf(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name
-					)
-			}
-		),
-		
-		#Format unique calls for vcf output
-		finalCalls_unique_for_vcf = if_else(
-			SBSindel_call_type == "mutation",
-			finalCalls_unique_for_tsv %>%
-				map(
-					function(x){
-						x %>% 
-							normalize_indels_for_vcf(
-								BSgenome_name = yaml.config$BSgenome$BSgenome_name
-							)
-					}
-				),
-			NA
 		)
 	) %>%
 	select(-finalCalls)
 
 #Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
-finalCalls.reftnc_spectra <- finalCalls.bytype %>%
+finalCalls.reftnc_spectra <- finalCalls_for_tsv.bytype %>%
 	mutate(
 		
 		finalCalls.reftnc_pyr = pmap(
@@ -973,10 +904,11 @@ BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
 		finalCalls.refindel_spectrum = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
+			list(call_class, SBSindel_call_type, finalCalls_for_tsv),
 			function(x,y,z){
 				if(x == "indel" & y == "mutation"){
 					z %>%
+						normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
 						rename(
 							CHROM = seqnames, POS = start,
 							REF = ref_plus_strand, ALT = alt_plus_strand
@@ -991,10 +923,11 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		),
 		
 		finalCalls_unique.refindel_spectrum = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
+			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
 			function(x,y,z){
 				if(x == "indel" & y == "mutation"){
 					z %>%
+						normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
 						rename(
 							CHROM = seqnames, POS = start,
 							REF = ref_plus_strand, ALT = alt_plus_strand
@@ -1090,7 +1023,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf))
+	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv))
 
 cat("DONE\n")
 
@@ -1123,7 +1056,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 	left_join(
 		bind_rows(
 			#Not unique calls
-			finalCalls.bytype %>%
+			finalCalls_for_tsv.bytype %>%
 				mutate(
 					num_calls = finalCalls_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
@@ -1134,7 +1067,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				),
 		
 			#Unique calls (only mutations)
-			finalCalls.bytype %>%
+			finalCalls_for_tsv.bytype %>%
 				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
 					num_calls = finalCalls_unique_for_tsv %>% map_dbl(nrow),
@@ -1573,27 +1506,27 @@ cat("DONE\n")
 ######################
 cat("## Saving results...")
 qs_save(
-	list(
-		yaml.config = yaml.config,
-		run_metadata = run_metadata,
-		individual_id = individual_id,
+	lst(
+		yaml.config,
+		run_metadata,
+		individual_id,
 		sample_id = sample_id_toanalyze,
 		chromgroup = chromgroup_toanalyze,
 		filtergroup = filtergroup_toanalyze,
 		call_types = call_types_toanalyze,
-		molecule_stats.by_run_id = molecule_stats.by_run_id,
-		molecule_stats.by_analysis_id = molecule_stats.by_analysis_id,
-		region_genome_filter_stats = region_genome_filter_stats,
+		molecule_stats.by_run_id,
+		molecule_stats.by_analysis_id,
+		region_genome_filter_stats,
 		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype,
-		genome.reftnc = genome.reftnc,
-		genome_chromgroup.reftnc = genome_chromgroup.reftnc,
-		finalCalls = finalCalls,
-		germlineVariantCalls = germlineVariantCalls,
-		finalCalls.bytype = finalCalls.bytype,
-		finalCalls.reftnc_spectra = finalCalls.reftnc_spectra,
-		finalCalls.burdens = finalCalls.burdens,
-		sensitivity = sensitivity,
-		estimatedSBSMutationErrorProbability = estimatedSBSMutationErrorProbability
+		finalCalls,
+		finalCalls_for_tsv.bytype,
+		germlineVariantCalls,
+		finalCalls.reftnc_spectra,
+		finalCalls.burdens,
+		genome.reftnc,
+		genome_chromgroup.reftnc,
+		sensitivity,
+		estimatedSBSMutationErrorProbability
 	),
 	outputFile
 )

@@ -347,6 +347,30 @@ finalCalls.reftnc_spectra <-
 finalCalls.burdens <-
 sensitivity <-
 
+######################
+### Output configuration parameters
+######################
+cat("## Outputting configuration parameters...")
+
+opt$config %>% file.copy(str_c(output_basename,".yaml.config.tsv"))
+
+run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
+
+cat("DONE\n")
+
+######################
+### Output filtering statistics
+######################
+cat("## Outputting filtering statistics...:")
+
+molecule_stats_by_run_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_run_id.tsv"))
+
+molecule_stats_by_analysis_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_analysis_id.tsv"))
+
+region_genome_filter_stats %>% write_tsv(str_c(output_basename,".region_genome_filter_stats.tsv"))
+
+cat("DONE\n")
+
 #Output trinucleotide counts
 genome.reftnc_pyr
 genome.reftnc_both_strands
@@ -389,7 +413,7 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 
 cat("## Outputting final calls and germline variant calls...")
 
-#Output final calls to vcf, separately for each combination of call_class, call_type, SBSindel_call_type
+#Output final calls to tsv and vcf, separately for each combination of call_class, call_type, SBSindel_call_type
 finalCalls.bytype %>%
 	##**ADD here to rename strand in all the finalCalls tibbles (for tsv and for vcf, all and unique) to aligned_synthesized_strand, to help users understand more easily what the 'strand' column is
 	pwalk(
@@ -416,8 +440,7 @@ finalCalls.bytype %>%
 				)
 			
 			#vcf
-			x$finalCalls_for_tsv %>%
-				normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
+			x$finalCalls_for_vcf %>%
 				write_vcf_from_calls(
 					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 					out_vcf = str_c(
@@ -435,7 +458,7 @@ finalCalls.bytype %>%
 ##TODO - OUTPUT UNIQUE CALLS to TSV and VCF
 
 #Output germline variant calls
- #Format list columns to comma-delimited *** UPDATE FROM PRIOR calcburdens CODE used for finalCalls.
+#Format list columns to comma-delimited *** UPDATE FROM PRIOR calcburdens CODE used for finalCalls.
 germlineVariantCalls.out <- germlineVariantCalls %>%
 	mutate(
 		across(
@@ -444,15 +467,17 @@ germlineVariantCalls.out <- germlineVariantCalls %>%
 		)
 	)
 
- #tsv
+#tsv
 germlineVariantCalls.out %>%
 	write_tsv(
 		str_c(output_basename,"germlineVariantCalls","tsv",sep=".")
 	)
 
- #vcf
+#vcf
 germlineVariantCalls.out %>% 
-	normalize_indels_for_vcf(BSgenome_name = yaml.config$BSgenome$BSgenome_name) %>%
+	normalize_indels_for_vcf(
+		BSgenome_name = yaml.config$BSgenome$BSgenome_name
+	) %>%
 	write_vcf_from_calls(
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 		out_vcf = str_c(output_basename,"germlineVariantCalls","vcf",sep=".")

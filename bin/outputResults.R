@@ -91,6 +91,7 @@ for(i in chromgroups){
 	fs::dir_create(str_c(i,"/germlineVariantCalls"))
 	fs::dir_create(str_c(i,"/finalCalls.spectra"))
 	fs::dir_create(str_c(i,"/interrogatedBases.spectra"))
+	fs::dir_create(str_c(i,"/genome.spectra"))
 }
 
 #Display basic configuration parameters
@@ -829,8 +830,29 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 		}
 	)
 
-genome.reftnc,
-genome_chromgroup.reftnc
+for(i in chromgroups){
+	genome.reftnc %>%
+		select(reftnc_pyr) %>%
+		unnest(reftnc_pyr) %>%
+		write_tsv(str_c(i,"/genome.spectra/genome.reftnc_pyr.tsv"))
+	
+	genome_chromgroup.reftnc %>%
+		filter(chromgroup == i) %>%
+		select(chromgroup, reftnc_pyr) %>%
+		unnest(reftnc_pyr) %>%
+		write_tsv(str_c(i,"/genome.spectra/",i,".genome_chromgroup.reftnc_pyr.tsv"))
+		
+	genome.reftnc %>%
+		select(reftnc_both_strands) %>%
+		unnest(reftnc_both_strands) %>%
+		write_tsv(str_c(i,"/genome.spectra/genome.reftnc_both_strands.tsv"))
+	
+	genome_chromgroup.reftnc %>%
+		filter(chromgroup == i) %>%
+		select(chromgroup, reftnc_both_strands) %>%
+		unnest(reftnc_both_strands) %>%
+		write_tsv(str_c(i,"/genome.spectra/",i,".genome_chromgroup.reftnc_both_strands.tsv"))
+}
 
 cat("DONE\n")
 
@@ -876,7 +898,7 @@ qs_save(
 		region_genome_filter_stats,
 		finalCalls,
 		finalCalls_for_tsv,
-		finalCalls_unique_for_tsv
+		finalCalls_unique_for_tsv,
 		germlineVariantCalls,
 		finalCalls.reftnc_spectra,
 		bam.gr.filtertrack.bytype.coverage_tnc,

@@ -556,7 +556,7 @@ process calculateBurdensChromgroupFiltergroup {
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}
+    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}/coverage_reftnc
 
     mkdir -p \$TARGET_DIR || {
       echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2

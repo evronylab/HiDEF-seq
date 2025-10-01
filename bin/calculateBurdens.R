@@ -245,48 +245,6 @@ gr_1bp_cov <- function(gr, cov){
 	return(result)
 }
 
-#Function to re-anchor indels from HiDEF-seq calls to the style of VCF format so that ref_plus_strand and alt_plus_strand contain the base preceding the indel
-normalize_indels_for_vcf <- function(df, BSgenome_name){
-	
-	#Identify deletions and insertions
-	# insertions: ref_plus_strand == ""; alt_plus_strand = inserted bases
-	# deletions: ref_plus_strand = deleted bases; alt_plus_strand == ""
-	ins <- !nzchar(df$ref_plus_strand) & nzchar(df$alt_plus_strand)
-	del <- nzchar(df$ref_plus_strand) & !nzchar(df$alt_plus_strand)
-	ins_or_del <- ins | del
-	
-	#Normalize start position of insertions and deletions to start = start - 1, and extract sequence of the new start position
-	if(any(ins_or_del)){
-		df$start[ins_or_del] <- df$start[ins_or_del] - 1
-		
-		gr <- GRanges(
-			df$seqnames[ins_or_del],
-			IRanges(df$start[ins_or_del],	width = 1),
-			seqinfo = BSgenome_name %>% get %>% seqinfo
-		)
-		
-		start_base_ref <- df %>% nrow %>% character
-		start_base_ref[ins_or_del] <- getSeq(BSgenome_name %>% get, gr) %>% as.character
-	}
-	
-	#Normalize insertion sequences: ref_plus_strand = new start position base; alt_plus_strand = new start position base + inserted bases
-	if(any(ins)){
-		df$ref_plus_strand[ins] <- start_base_ref[ins]
-		df$alt_plus_strand[ins] <- str_c(start_base_ref[ins], df$alt_plus_strand[ins])
-	}
-	
-	#Normalize deletion sequences: ref_plus_strand = new start position base + deleted bases; alt_plus_strand = new start position base
-	if(any(del)){
-		df$ref_plus_strand[del] <- str_c(start_base_ref[del], df$ref_plus_strand[del])
-		df$alt_plus_strand[del] <- start_base_ref[del]
-	}
-	
-	#Remove 'end' column that is not needed for vcf, to avoid confusion
-	df$end <- NULL
-	
-	return(df)
-}
-
 ######################
 ### Load data from filterCalls files
 ######################
@@ -791,7 +749,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 								function(y){
 									y %>% as.character %>% replace_na("NA") %>% str_c(collapse=",")
 								},
-								.names="{.col}.ref_plus_minus_strand_read"
+								.names="{.col}.refstrand_plus_minus_read"
 							),
 							.groups = "drop"
 						)
@@ -919,7 +877,8 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						count(channel, name = "count") %>%
 						complete(channel, fill = list(count = 0)) %>%
 						arrange(channel) %>%
-						filter(!is.na(channel))
+						filter(!is.na(channel)) %>%
+						mutate(fraction = count / sum(count))
 				}else{
 					NULL
 				}
@@ -938,7 +897,8 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						count(channel, name = "count") %>%
 						complete(channel, fill = list(count = 0)) %>%
 						arrange(channel) %>%
-						filter(!is.na(channel))
+						filter(!is.na(channel)) %>%
+						mutate(fraction = count / sum(count))
 				}else{
 					NULL
 				}
@@ -957,7 +917,8 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						count(channel, name = "count") %>%
 						complete(channel, fill = list(count = 0)) %>%
 						arrange(channel) %>%
-						filter(!is.na(channel))
+						filter(!is.na(channel)) %>%
+						mutate(fraction = count / sum(count))
 				}else{
 					NULL
 				}
@@ -1030,6 +991,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 					function(y, rn){
 						if(is.null(y)){return(NULL)}
 						y %>%
+							select(channel, count) %>%
 							pivot_wider(names_from = channel, values_from = count) %>%
 							mutate(rowname = rn) %>%
 							column_to_rownames("rowname")
@@ -1060,6 +1022,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 								) %>%
 									factor(levels = sbs192_labels.sigfit)
 							) %>%
+							select(channel, count) %>%
 							pivot_wider(names_from = channel, values_from = count) %>%
 							mutate(rowname = rn) %>%
 							column_to_rownames("rowname")

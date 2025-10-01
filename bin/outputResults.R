@@ -66,12 +66,22 @@ individual_id <- yaml.config$samples %>%
   pull(individual_id)
 
  #call types
-call_type <- yaml.config$call_types %>%
+call_types <- yaml.config$call_types %>%
 	enframe(name=NULL) %>%
 	unnest_wider(value) %>%
 	unnest_longer(SBSindel_call_types) %>%
 	unnest_wider(SBSindel_call_types) %>%
 	select(-starts_with("MDB"))
+
+chromgroups <-  yaml.config$chromgroups %>%
+	enframe(name=NULL) %>%
+	unnest_wider(value) %>%
+	pull(chromgroup)
+
+filtergroups <-  yaml.config$filtergroups %>%
+	enframe(name=NULL) %>%
+	unnest_wider(value) %>%
+	pull(filtergroup)
 
 #Display basic configuration parameters
 cat("> Processing:\n")
@@ -172,187 +182,239 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 cat("## Loading data from calculateBurdens files...\n")
 
 #Create lists for data loading
+run_metadata <- list()
 molecule_stats.by_run_id <- list()
 molecule_stats.by_analysis_id <- list()
 region_genome_filter_stats <- list()
-bam.gr.filtertrack.bytype.coverage_tnc <- list()
 finalCalls <- list()
+finalCalls.bytype = list()
 germlineVariantCalls <- list()
-finalCalls.bytype <- list()
 finalCalls.reftnc_spectra <- list()
 finalCalls.burdens <- list()
+bam.gr.filtertrack.bytype.coverage_tnc <- list()
+genome.reftnc <- list()
+genome_chromgroup.reftnc <- list()
 sensitivity <- list()
+estimatedSBSMutationErrorProbability <- list()
 
 #Loop over all calculateBurdens
 for(i in seq_along(calculateBurdensFiles)){
 	
 	#Load calculateBurdensFile
 	calculateBurdensFile <- qs_read(calculateBurdensFiles[i])
-	chromgroup <- calculateBurdensFile$chromgroup
-	filtergroup <- calculateBurdensFile$filtergroup
 	
-	cat(" > chromgroup/filtergroup:", chromgroup, "/", filtergroup, "...")
+	#Annotations to add to tables
+	sample_annotations <- list(
+		analysis_id = analysis_id %>% factor,
+		individual_id = individual_id %>% factor,
+		sample_id = sample_id_toanalyze %>% factor
+	)
 	
-	#Load data that is identical in all calculateBurdensFiles
-	if(i == 1){
-		#Run metadata
-		run_metadata <- calculateBurdensFile %>% pluck("run_metadata")
-		
-		#Whole genome trinucleotide counts and fractions
-		genome.reftnc_pyr <- calculateBurdensFile %>% pluck("genome.reftnc","reftnc_pyr")
-		genome.reftnc_both_strands <- calculateBurdensFile %>% pluck("genome.reftnc","reftnc_both_strands")
-	}
+	chromgroup_filtergroup_annotations <- list(
+		chromgroup = calculateBurdensFile$chromgroup %>%
+			factor(levels = chromgroups),
+		filtergroup = calculateBurdensFile$filtergroup %>%
+			factor(levels = filtergroups)
+	)
 	
-	#Load filtering stats
-	molecule_stats.by_run_id[[i]] <- calculateBurdensFile$molecule_stats.by_run_id %>%
+	cat(" > chromgroup:", calculateBurdensFile$chromgroup, "/", "filtergroup:", calculateBurdensFile$filtergroup, "\n")
+	
+	#Run metadata
+	run_metadata[[i]] <- calculateBurdensFile %>%
+		pluck("run_metadata") %>%
+		mutate(!!!sample_annotations, .before = 1)
+	
+	#Filtering stats
+	molecule_stats.by_run_id[[i]] <- calculateBurdensFile %>%
+		pluck("molecule_stats.by_run_id") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
+			!!!sample_annotations,
+			chromgroup = chromgroup %>% factor(levels = c("all_chroms","all_chromgroups",chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		mutate(
-			chromgroup = chromgroup %>% factor,
-			filtergroup = filtergroup %>% factor
-		)
+		relocate(run_id, .after = filtergroup)
 	
-	molecule_stats.by_analysis_id[[i]] <- calculateBurdensFile$molecule_stats.by_analysis_id %>%
+	molecule_stats.by_analysis_id[[i]] <- calculateBurdensFile %>%
+		pluck("molecule_stats.by_analysis_id") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			.before = 1
-		) %>%
-		mutate(
-			chromgroup = chromgroup %>% factor,
-			filtergroup = filtergroup %>% factor
-		)
-	
-	region_genome_filter_stats[[i]] <- calculateBurdensFile$region_genome_filter_stats %>%
-		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
-			filtergroup = !!filtergroup %>% factor,
+			!!!sample_annotations,
+			chromgroup = chromgroup %>% factor(levels = c("all_chroms","all_chromgroups",chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		)
 	
-	#Load HiDEF-seq bam genome coverage and trinucleotide counts, fractions, and ratio to genome
-	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile$bam.gr.filtertrack.bytype.coverage_tnc %>%
+	region_genome_filter_stats[[i]] <- calculateBurdensFile %>%
+		pluck("region_genome_filter_stats") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
+			!!!sample_annotations,
+			!!!chromgroup_filtergroup_annotations,
+			.before = 1
+		)
+	
+	#Final calls
+	finalCalls[[i]] <- calculateBurdensFile %>%
+		pluck("finalCalls") %>%
+		mutate(
+			!!!sample_annotations,
+			!!!chromgroup_filtergroup_annotations,
+			.before = 1
+		)
+	
+	#finalCalls for tsv and vcf output
+	finalCalls.bytype[[i]] <- calculateBurdensFile %>%
+		pluck("finalCalls.bytype") %>%
+		mutate(
+			!!!sample_annotations,
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, .after = chromgroup) %>%
+		relocate(filtergroup, call_class, .after = chromgroup) %>%
 		select(-analyzein_chromgroups)
-	
-	#Final calls for single table output
-	finalCalls[[i]] <- calculateBurdensFile$finalCalls %>%
-		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
-			filtergroup = !!filtergroup %>% factor
-			.before = 1
-		)
 	
 	#Germline variant calls
-	germlineVariantCalls[[i]] <- calculateBurdensFile$germlineVariantCalls %>%
+	germlineVariantCalls[[i]] <- calculateBurdensFile %>%
+		pluck("germlineVariantCalls") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
-			filtergroup = !!filtergroup %>% factor
+			!!!sample_annotations,
+			!!!chromgroup_filtergroup_annotations,
 			.before = 1
 		)
 	
-	#finalCalls for tsv and VCF output
-	finalCalls.bytype[[i]] <- calculateBurdensFile$finalCalls.bytype %>%
-		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
-			.before = 1
-		) %>%
-		relocate(filtergroup, .after = chromgroup) %>%
-		select(-analyzein_chromgroups)
-	
 	#Trinucleotide context counts and fractions of finalCalls
-	finalCalls.reftnc_spectra[[i]] <- calculateBurdensFile$finalCalls.reftnc_spectra %>%
+	finalCalls.reftnc_spectra[[i]] <- calculateBurdensFile %>%
+		pluck("finalCalls.reftnc_spectra") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
+			!!!sample_annotations,
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, .after = chromgroup) %>%
+		relocate(filtergroup, call_class, .after = chromgroup) %>%
 		select(-analyzein_chromgroups)
 	
 	#Burdens
-	finalCalls.burdens[[i]] <- calculateBurdensFile$finalCalls.burdens %>%
+	finalCalls.burdens[[i]] <- calculateBurdensFile %>%
+		pluck("finalCalls.burdens") %>%
 		mutate(
-			analysis_id = !!analysis_id %>% factor,
-			individual_id = !!individual_id %>% factor,
-			sample_id = !!sample_id_toanalyze %>% factor,
-			chromgroup = !!chromgroup %>% factor,
+			!!!sample_annotations,
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, .after = chromgroup) %>%
+		relocate(filtergroup, call_class, .after = chromgroup) %>%
+		select(-analyzein_chromgroups)
+
+	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
+	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile %>%
+		pluck("bam.gr.filtertrack.bytype.coverage_tnc") %>%
+		mutate(
+			!!!sample_annotations,
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			filtergroup = filtergroup %>% factor(levels = filtergroups),
+			.before = 1
+		) %>%
+		relocate(filtergroup, call_class, .after = chromgroup) %>%
 		select(-analyzein_chromgroups)
 	
+	#Whole genome trinucleotide counts and fractions
+	genome.reftnc[[i]] <- calculateBurdensFile %>%
+		pluck("genome.reftnc") %>%
+		enframe %>%
+		pivot_wider(names_from = name, values_from = value)
+	
+	#Genome chromgroup trinucleotide counts and fractions
+		genome_chromgroup.reftnc[[i]] <- calculateBurdensFile %>%
+			pluck("genome_chromgroup.reftnc") %>%
+			enframe %>%
+			pivot_wider(names_from = name, values_from = value) %>%
+				mutate(
+					chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = chromgroups),
+					.before = 1
+				)
+	
 	#Sensitivity
-	if(!is.null(calculateBurdensFile$sensitivity)){
-		sensitivity[[i]] <- calculateBurdensFile$sensitivity %>%
+	if(! calculateBurdensFile %>% pluck("sensitivity") %>% is.null){
+		sensitivity[[i]] <- calculateBurdensFile %>%
+			pluck("sensitivity") %>%
 			mutate(
-				analysis_id = !!analysis_id %>% factor,
-				individual_id = !!individual_id %>% factor,
-				sample_id = !!sample_id_toanalyze %>% factor,
-				chromgroup = !!chromgroup %>% factor,
+				!!!sample_annotations,
+				chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+				filtergroup = filtergroup %>% factor(levels = filtergroups),
 				.before = 1
 			) %>%
-			relocate(filtergroup, .after = chromgroup) %>%
+			relocate(filtergroup, call_class, .after = chromgroup) %>%
 			select(-analyzein_chromgroups)
 	}
 	
-	#estiamted SBS mutation error probability
-	if(!is.null(calculateBurdensFile$estimatedSBSMutationErrorProbability)){
-		estimatedSBSMutationErrorProbability[[i]] <- calculateBurdensFile$estimatedSBSMutationErrorProbability
+	#estimated SBS mutation error probability
+	if(! calculateBurdensFile %>% pluck("estimatedSBSMutationErrorProbability") %>% is.null){
+		estimatedSBSMutationErrorProbability[[i]] <- calculateBurdensFile %>%
+			pluck("estimatedSBSMutationErrorProbability") %>%
+			enframe %>%
+			pivot_wider(names_from = name, values_from = value) %>%
+			mutate(
+				!!!sample_annotations,
+				!!!chromgroup_filtergroup_annotations,
+				.before = 1
+			)
 	}
 	
 	#Remove temporary objects
-	rm(calculcateBurdensFile)
+	rm(calculateBurdensFile)
 	invisible(gc())
-	
-	cat("DONE\n")
-
 }
 
-#Combine data across chromgroups/filtergroups
-molecule_stats.by_run_id <-
-molecule_stats.by_analysis_id <-
-region_genome_filter_stats <-
-bam.gr.filtertrack.bytype.coverage_tnc <-
-finalCalls <-
-germlineVariantCalls <-
-finalCalls.bytype <-
-finalCalls.reftnc_spectra <-
-finalCalls.burdens <-
-sensitivity <-
+#Combine data
+run_metadata <- run_metadata %>%
+	bind_rows %>%
+	distinct
+
+molecule_stats.by_run_id <- molecule_stats.by_run_id %>%
+	bind_rows %>%
+	distinct
+
+molecule_stats.by_analysis_id <- molecule_stats.by_analysis_id %>%
+	bind_rows %>%
+	distinct
+
+region_genome_filter_stats <- region_genome_filter_stats %>% bind_rows
+
+finalCalls <- finalCalls %>% bind_rows
+
+finalCalls.bytype <- finalCalls.bytype %>% bind_rows
+	
+germlineVariantCalls <- germlineVariantCalls %>% bind_rows
+	
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>% bind_rows
+	
+finalCalls.burdens <- finalCalls.burdens %>% bind_rows
+
+bam.gr.filtertrack.bytype.coverage_tnc <- bam.gr.filtertrack.bytype.coverage_tnc %>% bind_rows
+
+genome.reftnc <- genome.reftnc %>%
+	bind_rows %>%
+	distinct
+
+genome_chromgroup.reftnc <- genome_chromgroup.reftnc %>%
+	bind_rows %>%
+	distinct
+
+sensitivity <- sensitivity %>% bind_rows
+	
+estimatedSBSMutationErrorProbability <- estimatedSBSMutationErrorProbability %>% bind_rows
+
+invisible(gc())
+
+cat(" DONE\n")
 
 ######################
 ### Output configuration parameters
 ######################
 cat("## Outputting configuration parameters...")
 
-opt$config %>% file.copy(str_c(output_basename,".yaml.config.tsv"))
+opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv"))
 
 run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
 
@@ -361,51 +423,40 @@ cat("DONE\n")
 ######################
 ### Output filtering statistics
 ######################
-cat("## Outputting filtering statistics...:")
+cat("## Outputting filtering statistics...")
 
-molecule_stats_by_run_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_run_id.tsv"))
-
-molecule_stats_by_analysis_id %>% write_tsv(str_c(output_basename,".molecule_stats_by_analysis_id.tsv"))
-
-region_genome_filter_stats %>% write_tsv(str_c(output_basename,".region_genome_filter_stats.tsv"))
-
-cat("DONE\n")
-
-#Output trinucleotide counts
-genome.reftnc_pyr
-genome.reftnc_both_strands
-
-#bam.gr.filtertracks
-for(i in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
-	for(j in seq_len(nrow(bam.gr.filtertrack.bytype))){
+for(i in chromgroups){
+	#Create output folders once
+	dir_create(i)
+	
+	for(j in filtergroups){
 		
-		prefix <- str_c(
-			bam.gr.filtertrack.bytype$call_class[j],
-			bam.gr.filtertrack.bytype$call_type[j],
-			bam.gr.filtertrack.bytype$SBSindel_call_type[j],
-			sep = "."
-		)
+		#molecule_stats.by_run_id
+		 #Outupt all_chroms and all_chromgroups stats to each output file
+		molecule_stats.by_run_id %>%
+			filter(
+				chromgroup %in% c("all_chroms", "all_chromgroups") |
+					(chromgroup == i & filtergroup == j)
+				) %>%
+			write_tsv(str_c(i,"/",output_basename,i,j,"molecule_stats.by_run_id.tsv",sep="."))
 		
-		bam.gr.filtertrack.bytype %>%
-			pluck(i,j) %>%
-			write_tsv(
-				file = str_c(
-					str_c(prefix,"/",output_basename),
-					prefix,
-					i,
-					"tsv",
-					sep="."
-				)
-			)
+		#molecule_stats.by_analysis_id
+		molecule_stats.by_analysis_id %>%
+			filter(
+				chromgroup %in% c("all_chroms", "all_chromgroups") |
+					(chromgroup == i & filtergroup == j)
+			) %>%
+			write_tsv(str_c(i,"/",output_basename,i,j,"molecule_stats.by_analysis_id.tsv",sep="."))
+		
+		#region_genome_filter_stats
+		region_genome_filter_stats %>%
+			filter(chromgroup == i & filtergroup == j) %>%
+			write_tsv(str_c(i,"/",output_basename,i,j,"region_genome_filter_stats.tsv",sep="."))
+
 	}
 }
 
-#genome
-for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chromgroup.reftnc_both_strands","genome_chromgroup.reftnc_duplex_pyr")){
-	i %>%
-		get %>%
-		write_tsv(str_c(output_basename,i,"tsv",sep="."))
-}
+cat("DONE\n")
 
 ######################
 ### Output final calls and germline variant calls
@@ -414,6 +465,7 @@ for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chrom
 cat("## Outputting final calls and germline variant calls...")
 
 #Output final calls to tsv and vcf, separately for each combination of call_class, call_type, SBSindel_call_type
+
 finalCalls.bytype %>%
 	##**ADD here to rename strand in all the finalCalls tibbles (for tsv and for vcf, all and unique) to aligned_synthesized_strand, to help users understand more easily what the 'strand' column is
 	pwalk(
@@ -487,6 +539,45 @@ rm(germlineVariantCalls.out)
 
 cat("DONE\n")
 
+
+#Output trinucleotide counts
+genome.reftnc_pyr
+genome.reftnc_both_strands
+
+#bam.gr.filtertracks
+for(i in c("bam.gr.filtertrack.reftnc_duplex_pyr","bam.gr.filtertrack.reftnc_both_strands","bam.gr.filtertrack.reftnc_both_strands_pyr")){
+	for(j in seq_len(nrow(bam.gr.filtertrack.bytype))){
+		
+		prefix <- str_c(
+			bam.gr.filtertrack.bytype$call_class[j],
+			bam.gr.filtertrack.bytype$call_type[j],
+			bam.gr.filtertrack.bytype$SBSindel_call_type[j],
+			sep = "."
+		)
+		
+		bam.gr.filtertrack.bytype %>%
+			pluck(i,j) %>%
+			write_tsv(
+				file = str_c(
+					str_c(prefix,"/",output_basename),
+					prefix,
+					i,
+					"tsv",
+					sep="."
+				)
+			)
+	}
+}
+
+#genome
+for(i in c("genome.reftnc_both_strands","genome.reftnc_duplex_pyr","genome_chromgroup.reftnc_both_strands","genome_chromgroup.reftnc_duplex_pyr")){
+	i %>%
+		get %>%
+		write_tsv(str_c(output_basename,i,"tsv",sep="."))
+}
+
+
+
 ##Call spectra
 #tables
 
@@ -514,18 +605,16 @@ qs_save(
 		molecule_stats.by_run_id,
 		molecule_stats.by_analysis_id,
 		region_genome_filter_stats,
-		genome.reftnc,
-		genome_chromgroup.reftnc,
 		finalCalls,
-		finalCalls_for_tsv.bytype,
+		finalCalls.bytype,
 		germlineVariantCalls,
 		finalCalls.reftnc_spectra,
 		finalCalls.burdens,
+		bam.gr.filtertrack.bytype.coverage_tnc,
 		genome.reftnc,
 		genome_chromgroup.reftnc,
 		sensitivity,
-		estimatedSBSMutationErrorProbability,
-		...
+		estimatedSBSMutationErrorProbability
 	)
-	...
+	str_c(output_basename,".qs2")
 )

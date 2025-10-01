@@ -189,16 +189,19 @@ process mergeAlignedSampleBAMs {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(bamFiles), path(pbiFiles)
+      tuple val(individual_id), val(sample_id), path(bamFiles), path(pbiFiles)
 
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+      tuple val(individual_id), val(sample_id),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
     storeDir "${processReads_output_dir}"
 
     script:
     """
-    sample_basename=${params.analysis_id}.${sample_id}.ccs.filtered.aligned
+    sample_basename=${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned
 
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
@@ -250,10 +253,14 @@ process splitBAM {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"), path("${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"), val(chunkID)
+      tuple val(individual_id), val(sample_id),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
+      val(chunkID)
 
     storeDir "${splitBAMs_output_dir}"
 
@@ -473,16 +480,16 @@ process extractCallsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
     
     output:
-      tuple val(sample_id), path("${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
+      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
     storeDir "${extractCalls_output_dir}"
 
     script:
     """
-    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
+    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -504,16 +511,16 @@ process filterCallsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup)
+      tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
     storeDir "${filterCalls_output_dir}"
 
     script:
     """
-    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
+    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -535,10 +542,10 @@ process calculateBurdensChromgroupFiltergroup {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
     
     output:
-      tuple val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir "${calculateBurdens_output_dir}"
 
@@ -546,7 +553,7 @@ process calculateBurdensChromgroupFiltergroup {
     """
     set -euo pipefail
 
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
     TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}
@@ -578,16 +585,16 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(sample_id), path(calculateBurdensFiles)
+      tuple val(individual_id), val(sample_id), path(calculateBurdensFiles)
     
     output:
-      tuple val(sample_id)
+      tuple val(individual_id), val(sample_id)
 
     storeDir "${outputResults_output_dir}"
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${sample_id}
+    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
 
     """
 }
@@ -639,6 +646,11 @@ workflow processReads {
         def pbi_file = file("${run.reads_file}.pbi")
         return tuple(run.run_id, reads_file, pbi_file)
     }
+
+    // Map sample_id -> individual_id
+    samples_meta_ch = Channel.fromList(params.samples)
+        .map { s -> tuple(s.sample_id, s.individual_id) }
+        .unique()
     
     // Create barcodes FASTA for each run
     barcodes_ch = runs_ch.map { run ->
@@ -748,6 +760,10 @@ workflow processReads {
           return tuple(sample_id, bamFile, pbiFile)
       }
       .groupTuple(by: 0) // Group by sample_id
+      .join(samples_meta_ch)
+      .map { sample_id, bamFiles, pbiFiles, individual_id ->
+        return tuple(individual_id, sample_id, bamFiles, pbiFiles)
+      }
 
     // Merge BAM files by sample_id across runs
     mergeAlignedSampleBAMs(pbmm2_grouped_ch)
@@ -766,7 +782,7 @@ workflow splitBAMs {
     main:
     chunkIDs = Channel.from(1..params.analysis_chunks)
 
-    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4]) } )
+    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4], it[5]) } )
 
     emit:
     splitBAM.out
@@ -1023,10 +1039,11 @@ workflow {
       Channel.fromList(params.samples)
           .map { sample ->
               def sample_id = sample.sample_id
-              def bamFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${processReads_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
-              return tuple(sample_id, bamFile, pbiFile, baiFile)
+              def individual_id = sample.individual_id
+              def bamFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+              return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile)
           }
 
     splitBAMs_out = splitBAMs(processReads_out)
@@ -1044,10 +1061,11 @@ workflow {
           .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
-              def bamFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
-              def pbiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
-              def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
-              return tuple(sample_id, bamFile, pbiFile, baiFile, chunkID)
+              def individual_id = sample.individual_id
+              def bamFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
+              def pbiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
+              def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
+              return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
 
     prepareFilters_out = prepareFilters_out ?: Channel.value(true)
@@ -1084,8 +1102,9 @@ workflow {
           .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
               def sample_id = sample.sample_id
-              def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
-              return tuple(sample_id, extractCallsFile, chunkID)
+              def individual_id = sample.individual_id
+              def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
+              return tuple(individual_id, sample_id, extractCallsFile, chunkID)
           }
 
     filterCalls_out = filterCalls(extractCalls_out.combine(chromgroups_filtergroups_ch))
@@ -1099,17 +1118,18 @@ workflow {
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chunkID, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
-              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
-              return tuple(sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
+              def individual_id = sample.individual_id
+              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
+              return tuple(individual_id, sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
           }
 
     def filterCalls_grouped_ch = filterCalls_out
-        .groupTuple(by: [0, 1, 2], size: params.analysis_chunks) // Group by sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
-        .map { sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+        .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
+        .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
             // Sort by chunkID
             def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
             def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
-            return tuple(sample_id, chromgroup, filtergroup, sortedfilterCallsFiles)
+            return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles)
         }
 
     calculateBurdens_out = calculateBurdens(filterCalls_grouped_ch)
@@ -1122,12 +1142,13 @@ workflow {
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chromgroup, filtergroup ->
               def sample_id = sample.sample_id
-              def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
-              return tuple(sample_id, calculateBurdensFile)
+              def individual_id = sample.individual_id
+              def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+              return tuple(individual_id, sample_id, calculateBurdensFile)
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
-        .groupTuple(by: 0, size: chromgroups_filtergroups_list.size()) // Group by sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
+        .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch)
   }

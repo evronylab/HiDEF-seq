@@ -521,6 +521,7 @@ bam.gr.filtertrack.bytype %>%
 			
 			cov_output_file <- str_c(
 				yaml.config$analysis_id,
+				individual_id,
 				sample_id_toanalyze,
 				chromgroup_toanalyze,
 				filtergroup_toanalyze,

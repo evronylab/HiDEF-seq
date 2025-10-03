@@ -192,7 +192,9 @@ process pbmm2Align {
     output:
       tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
 
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }), mode:"copy", pattern: ".command.log",
+    publishDir { dirSampleLogs(individual_id, sample_id) },
+      mode:"copy",
+      pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
 
     
@@ -224,8 +226,8 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    storeDir ({ "${dirProcessReads(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirProcessReads(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
@@ -293,8 +295,8 @@ process splitBAM {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
       val(chunkID)
 
-    storeDir ({ "${dirSplitBAMs(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirSplitBAMs(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
@@ -542,8 +544,8 @@ process extractCallsChunk {
     output:
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    storeDir ({ "${dirExtractCalls(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirExtractCalls(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log" }
@@ -577,8 +579,8 @@ process filterCallsChunk {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    storeDir ({ "${dirFilterCalls(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirFilterCalls(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log" }
@@ -612,8 +614,8 @@ process calculateBurdensChromgroupFiltergroup {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
-    storeDir ({ "${dirCalculateBurdens(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirCalculateBurdens(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log" }
@@ -660,8 +662,8 @@ process outputResultsSample {
       tuple val(individual_id), val(sample_id), emit: out_ch
       path("${params.analysis_id}.${individual_id}.${sample_id}.*"), emit: out_files
 
-    storeDir ({ "${dirOutputResults(individual_id, sample_id)}" })
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    storeDir { dirOutputResults(individual_id, sample_id) }
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
       pattern: ".command.log",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
@@ -689,7 +691,7 @@ process removeIntermediateFilesProcess {
     output:
       val(true)
     
-    publishDir ({ "${dirSampleLogs(individual_id, sample_id)}" }),
+    publishDir { dirSampleLogs(individual_id, sample_id) },
       pattern: ".command.log",
       mode: "copy",
       saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }

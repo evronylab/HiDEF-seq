@@ -725,6 +725,14 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
+#strand_identical_cols: Columns that are identical between strands, used for pivot_wider for SBSindel_call_type == "mutation" call tables below. Not including call_class,call_type,SBSindel_call_type as these are removed from finalCalls after the below nest_join.
+strand_identical_cols = c(
+	"analysis_chunk", "run_id", "zm",
+	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
+	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
+	"indel_width"
+)
+
 #Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
 	bind_rows(
@@ -743,7 +751,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		name = "finalCalls"
 	) %>%
 	mutate(
-		#Reformat list columns to be comma-delimited bounded by square brackets.
+		#Reformat list columns to be comma-delimited.
 		finalCalls = finalCalls %>%
 			map(
 				function(x){
@@ -751,7 +759,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 						mutate(
 							across(
 								where(is.list),
-								function(y){y %>% map_chr(function(v){str_c("[",str_c(v, collapse = ","),"]")})}
+								function(y){y %>% map_chr(function(v){str_c(v, collapse = ",")})}
 							)
 						)
 				}
@@ -763,40 +771,27 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			finalCalls %>% map(
 				function(x){
 					x %>%
-						group_by( #Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
-							analysis_chunk,run_id,zm,
-							seqnames,start,end,ref_plus_strand,alt_plus_strand,
-							reftnc_plus_strand,alttnc_plus_strand,reftnc_pyr,alttnc_pyr,
-							indel_width
+						
+						#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
+						mutate(
+							strand = strand %>%
+								fct_recode(
+									refstrand_plus_read  = "+",
+									refstrand_minus_read = "-"
+								)
 						) %>%
-						arrange(strand) %>% #Sort by reference genome aligned strand
-						summarize(
-							across( #Collapse to one row fields that differ between strands
-								c(strand,start_queryspace,end_queryspace,
-								qual,qual.opposite_strand,sa,sa.opposite_strand,
-								sm,sm.opposite_strand,sx,sx.opposite_strand,
-								ref_synthesized_strand,alt_synthesized_strand,
-								ref_template_strand,alt_template_strand,
-								reftnc_synthesized_strand,alttnc_synthesized_strand,
-								reftnc_template_strand,alttnc_template_strand),
-								function(y){
-									y %>% as.character %>% replace_na("NA") %>% str_c(collapse=",")
-								},
-								.names="{.col}.refstrand_plus_minus_read"
-							),
-							.groups = "drop"
+						
+						#Collapse to one row those fields that differ between strands
+						pivot_wider(
+							#id_cols: Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
+							id_cols = all_of(strand_identical_cols),
+							names_from = strand,
+							values_from = -all_of(c("strand", strand_identical_cols)),
+							names_glue = "{.value}_{var}"
 						)
 				}
 			),
-			finalCalls %>% map(
-				function(x){
-					x %>%
-						select(
-							-c(germline_vcf_types_detected,germline_vcf_files_detected,deletion.bothstrands.startendmatch),
-							-ends_with(".passfilter")
-						)
-				}
-			)
+			finalCalls
 		),
 		
 		#Format unique calls for tsv output
@@ -806,8 +801,8 @@ finalCalls.bytype <- call_types_toanalyze %>%
 				function(x){
 					x %>%
 						distinct(
-							seqnames,start,end,ref_plus_strand,alt_plus_strand,
-							reftnc_plus_strand,alttnc_plus_strand,reftnc_pyr,alttnc_pyr,
+							seqnames, start, end, ref_plus_strand, alt_plus_strand,
+							reftnc_plus_strand, alttnc_plus_strand, reftnc_pyr, alttnc_pyr,
 							indel_width
 						)
 				}
@@ -1300,6 +1295,7 @@ cat("DONE\n")
 ######################
 #Create sensitivity tibble, set default sensitivity to 1 and source to 'default' for all call_types, except for call_class == 'MDB' whose source is set to 'yaml.config' and sensitivity is set per the yaml.config.
 sensitivity <- call_types_toanalyze %>%
+	select(-starts_with("MDB")) %>%
 	mutate(
 		sensitivity = if("MDB_sensitivity" %in% names(.)){
 			if_else(call_class == "MDB", MDB_sensitivity, 1, ptype = numeric())
@@ -1307,8 +1303,7 @@ sensitivity <- call_types_toanalyze %>%
 			1
 		},
 		sensitivity_source = if_else(call_class == "MDB", "yaml.config", "default")
-	) %>%
-	select(-starts_with("MDB"))
+	)
 
 #Create set of high-quality germline variants for sensitivity analysis if use_chromgroup is defined and is the current chromgroup
 if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup == chromgroup_toanalyze){
@@ -1501,8 +1496,12 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	cat("DONE\n")
 	
 }else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
-	cat("## Skipping sensitivity calculation since use_chromgroup not in currently analyzed chromgroup.\n")
-	sensitivity <- NULL #Remove sensitivity tibble so it is not used.
+	cat("## All sensitivities set to NA since the currently analyzed chromgroup is not equal to sensitivity_parameters$use_chromgroup.\n")
+	sensitivity <- sensitivity %>%
+		mutate(
+			sensitivity = NA,
+			sensitivity_source = if_else(call_class == "MDB", "yaml.config", "other_chromgroup")
+		)
 }else if(is.null(sensitivity_parameters$use_chromgroup)){
 	cat("## All sensitivities set to 1 since use_chromgroup not defined.\n")
 }

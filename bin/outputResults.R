@@ -615,6 +615,16 @@ rm(finalCalls.bytype)
 invisible(gc())
 
 #Output germline variant calls
+
+ #strand_identical_cols: Columns that are identical between strands, used for pivot_wider for SBSindel_call_type == "mutation" call table below. Not including call_class,call_type,SBSindel_call_type as these are removed from finalCalls after the below nest_join.
+strand_identical_cols = c(
+	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
+	"analysis_chunk", "run_id", "zm",
+	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
+	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
+	"indel_width"
+)
+
  #Reformat list columns to be comma-delimited bounded by square brackets.
 for(i in chromgroups){
 	for(j in filtergroups){
@@ -628,32 +638,26 @@ for(i in chromgroups){
 			mutate(
 				across(
 					where(is.list),
-					function(x){x %>% map_chr(function(v){str_c("[",str_c(v, collapse = ","),"]")})}
+					function(x){x %>% map_chr(function(v){str_c(v, collapse = ",")})}
 				)
 			) %>%
-			group_by( #Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
-				analysis_id,individual_id,sample_id,chromgroup,filtergroup,
-				analysis_chunk,run_id,zm,
-				seqnames,start_refspace,end_refspace,ref_plus_strand,alt_plus_strand,
-				reftnc_plus_strand,alttnc_plus_strand,reftnc_pyr,alttnc_pyr,
-				indel_width
+			
+			#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
+			mutate(
+				strand = strand %>%
+					fct_recode(
+						refstrand_plus_read  = "+",
+						refstrand_minus_read = "-"
+					)
 			) %>%
-			arrange(refstrand) %>% #Sort by reference genome aligned strand
-			summarize(
-				across( #Collapse to one row fields that differ between strands
-					c(refstrand,start_queryspace,end_queryspace,
-						qual,qual.opposite_strand,sa,sa.opposite_strand,
-						sm,sm.opposite_strand,sx,sx.opposite_strand,
-						ref_synthesized_strand,alt_synthesized_strand,
-						ref_template_strand,alt_template_strand,
-						reftnc_synthesized_strand,alttnc_synthesized_strand,
-						reftnc_template_strand,alttnc_template_strand),
-					function(y){
-						y %>% as.character %>% replace_na("NA") %>% str_c(collapse=",")
-					},
-					.names="{.col}.refstrand_plus_minus_read"
-				),
-				.groups = "drop"
+			
+			#Collapse to one row those fields that differ between strands
+			pivot_wider(
+				#id_cols: Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
+				id_cols = all_of(strand_identical_cols),
+				names_from = strand,
+				values_from = -all_of(c("strand", strand_identical_cols)),
+				names_glue = "{.value}_{var}"
 			)
 		
 		#tsv
@@ -863,7 +867,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting sensitivity...")
 
-- Assign the use_chromgroup sensitivity to all chromgroups, or if use_chromgroup is null, every chromgroup will already have the default sensitivity tibble assigned by the calculateBurdens script
+For rows with call_class != "MDB" and sensitivity_source == "other_chromgroup", copy sensitivity column value from row with the same filtergroup with sensitivity_source = "calculated", and change the updated rows sensitivity source to "calculated_other_chromgroup". If there is no such "calculated" row, then set the rows sensitivity to 1 and update teh rows sensitivity source to "default_other_chromgroup".
 
 cat("DONE\n")
 

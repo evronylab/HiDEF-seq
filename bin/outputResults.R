@@ -688,7 +688,7 @@ cat("DONE\n")
 ######################
 ### Output trinucleotide distributions
 ######################
-#Output trinucleotide counts
+#Note: this also outputs SBS/mismatch-ss trinucleotide distriutions which were retained in finalCalls.reftnc_spectra from upstream calculateBurdens both for calculating SBS mutation error probability and for these spectrum diagnostic plots to assess mismatches for every chromgroup/filtergroup even if was not configured as a call_type for this chromgroup/filtergroup.
 
 cat("## Outputting trinucleotide distributions...")
 

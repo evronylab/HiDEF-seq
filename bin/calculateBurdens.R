@@ -518,6 +518,29 @@ bam.gr.filtertrack.bytype %>%
 
 file.remove("all.trinuc.bed") %>% invisible
 
+#Remove coverage_reftnc.bed.gz and coverage_reftnc.bed.gz.tbi files for SBS/mismatch-ss if it is not in call_types_toanalyze, since the data is only being retained for calculation of SBS mutation error probability.
+if(
+	call_types_toanalyze %>%
+		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+		nrow == 0
+	){
+	cov_output_file <- str_c(
+		yaml.config$analysis_id,
+		individual_id,
+		sample_id_toanalyze,
+		chromgroup_toanalyze,
+		filtergroup_toanalyze,
+		"SBS",
+		"SBS",
+		"mismatch-ss",
+		"coverage_reftnc",
+		"bed.gz",
+		sep="."
+	)
+	
+	file.remove(cov_output_file, str_c(cov_output_file,".tbi")) %>% invisible
+}
+
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	rowid_to_column("row_id") %>%
@@ -702,8 +725,18 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Used for burden, spectra, and vcf output.
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
+	bind_rows(
+		tibble(
+			call_type = "SBS",
+			call_class = "SBS",
+			analyzein_chromgroups = "all",
+			SBSindel_call_type = "mismatch-ss",
+			filtergroup = filtergroup_toanalyze
+		)
+	) %>%
+	distinct %>%
 	nest_join(
 		finalCalls,
 		by = join_by(call_class, call_type, SBSindel_call_type),
@@ -809,7 +842,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 	) %>%
 	select(-finalCalls)
 
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types (including SBS/mismatch-ss even if not in call_types_toanalyze, for downstream SBS mutation error calculation), calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 	mutate(
 		
@@ -860,6 +893,13 @@ finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 				}
 			}
 		)
+	)
+
+#Remove SBS/mismatch-ss from finalCalls.bytype if it is not part of call_types_toanalyze, since it was only retained until here in order to calculate SBS mutation error probability.
+finalCalls.bytype <- finalCalls.bytype %>%
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	)
 
 #Extract SBS spectra
@@ -1118,6 +1158,12 @@ finalCalls.burdens <- finalCalls.burdens %>%
 
  #Join trinucleotide distributions of calls and genome
 finalCalls.reftnc_spectra.genome_correction <- finalCalls.reftnc_spectra %>%
+	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability. 
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	) %>%
+	
 	left_join(
 		bam.gr.filtertrack.bytype %>% select(-bam.gr.filtertrack.coverage),
 		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
@@ -1465,69 +1511,68 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 ### Calculate estimated SBS mutation error rates per trinucleotide call channel and total error rate
 ######################
 cat("## Calculating estimated SBS mutation error probability per trinucleotide call channel and total error probability...")
-#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels (i) using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
+#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
+estimatedSBSMutationErrorProbability <- list()
 
-if(call_types_toanalyze %>% filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>% nrow == 1){
+#Calculate burden of each trinucleotide call channel
+estimatedSBSMutationErrorProbability_by_channel <- left_join(
+	#SBS mismatch-ss calls template_strand spectrum
+	finalCalls.reftnc_spectra %>%
+		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+		pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
+		mutate(reftnc = channel %>% str_sub(1,3)),
+
+	#Interrogated bases spectrum
+	bam.gr.filtertrack.bytype %>%
+		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+		pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
+		select(reftnc, count),
 	
-	estimatedSBSMutationErrorProbability <- list()
-	
-	#Calculate burden of each trinucleotide call channel
-	estimatedSBSMutationErrorProbability_by_channel <- left_join(
-		#SBS mismatch-ss calls template_strand spectrum
-		finalCalls.reftnc_spectra %>%
-			filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
-			pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
-			mutate(reftnc = channel %>% str_sub(1,3)),
-	
-		#Interrogated bases spectrum
-		bam.gr.filtertrack.bytype %>%
-			filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
-			pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
-			select(reftnc, count),
-		
-		by = "reftnc",
-		suffix = c(".calls",".interrogated_bases")
+	by = "reftnc",
+	suffix = c(".calls",".interrogated_bases")
+) %>%
+	mutate(
+		burden = count.calls / count.interrogated_bases
 	) %>%
-		mutate(
-			burden = count.calls / count.interrogated_bases
-		) %>%
-		select(channel, burden)
-	
-	#Multiply each trinucleotide call channel burden by its reverse complement's burden to obtain the error probability for each channel
-	estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationErrorProbability_by_channel %>%
-		mutate(
-			channel_rc = str_c(
-				channel %>% str_sub(1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
-				">",
-				channel %>% str_sub(5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
-			) %>%
-				factor(levels = sbs192_labels)
-		) %>%
-		left_join(
-			x = select(., channel, channel_rc, burden),
-			y = select(., channel_rc, burden),
-			by = join_by(channel == channel_rc),
-			suffix = c("",".rc")
-		) %>%
-		mutate(
-			error_prob = burden * burden.rc,
-			channel_pyr = if_else(channel %>% str_sub(2,2) %in% c("C","T"), channel, channel_rc) %>%
-				factor(levels = sbs96_labels.sigfit)
-		) %>%
-		group_by(channel_pyr) %>%
-		summarize(error_prob = sum(error_prob, na.rm = TRUE)) %>%
-		arrange(channel_pyr)
+	select(channel, burden)
 
-	estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
-		pull(error_prob) %>% 
-		sum
-	
-	rm(estimatedSBSMutationErrorProbability_by_channel)
-	
-}else{
-	cat("Skipping since this filtergroup does not analyze SBS mismatch-ss calls.\n")
-	estimatedSBSMutationErrorProbability <- NULL
-}
+#Remove SBS/mismatch-ss from bam.gr.filtertrack.bytype if it is not part of call_types_toanalyze, since it was only retained until here in order to calculate SBS mutation error probability.
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	)
+
+#Multiply each trinucleotide call channel burden by its reverse complement's burden to obtain the error probability for each channel
+estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationErrorProbability_by_channel %>%
+	mutate(
+		channel_rc = str_c(
+			channel %>% str_sub(1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+			">",
+			channel %>% str_sub(5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+		) %>%
+			factor(levels = sbs192_labels)
+	) %>%
+	left_join(
+		x = select(., channel, channel_rc, burden),
+		y = select(., channel_rc, burden),
+		by = join_by(channel == channel_rc),
+		suffix = c("",".rc")
+	) %>%
+	mutate(
+		error_prob = burden * burden.rc,
+		channel_pyr = if_else(channel %>% str_sub(2,2) %in% c("C","T"), channel, channel_rc) %>%
+			factor(levels = sbs96_labels.sigfit)
+	) %>%
+	group_by(channel_pyr) %>%
+	summarize(error_prob = sum(error_prob, na.rm = TRUE)) %>%
+	arrange(channel_pyr)
+
+estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
+	pull(error_prob) %>% 
+	sum
+
+rm(estimatedSBSMutationErrorProbability_by_channel)
 
 cat("DONE\n")
 

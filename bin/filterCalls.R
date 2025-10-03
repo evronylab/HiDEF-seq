@@ -1916,9 +1916,21 @@ max_finalcalls_eachstrand.filter <- calls %>%
 		.groups="drop"
 	)
 
-#Subtract filtered molecules from bam.gr.filtertrack, creating a new bam.gr.filtertrack.bytype for each call_type x SBSindel_call_type combination being analyzed. Perform for both standard and 'except_germline_filters' filter trackers.
+#Subtract filtered molecules from bam.gr.filtertrack, creating a new bam.gr.filtertrack.bytype for each call_type x SBSindel_call_type combination being analyzed. For only bam.gr.filtertrack.bytype, also add a row for SBS/mismatch-ss (if not already there) for later calculation of SBS mutation error probability. Perform for both standard and 'except_germline_filters' filter trackers.
 bam.gr.filtertrack.bytype <- call_types_toanalyze %>%
-	select(-starts_with("MDB")) %>% #remove MDB configuration parameters that are not needed here
+	#Remove MDB configuration parameters from call_types_toanalyze that are not needed here and add SBS/mismatch-ss
+	select(-starts_with("MDB")) %>%
+	bind_rows(
+		tibble(
+			call_type = "SBS",
+			call_class = "SBS",
+			analyzein_chromgroups = "all",
+			SBSindel_call_type = "mismatch-ss",
+			filtergroup = filtergroup_toanalyze
+		)
+	) %>%
+	distinct %>%
+	
 	mutate(
 		bam.gr.filtertrack = if_else(
 			call_class == "indel",
@@ -1981,6 +1993,11 @@ bam.gr.filtertrack.except_germline_filters.bytype <- call_types_toanalyze %>%
 molecule_stats <- molecule_stats %>%
 	bind_rows(
 		bam.gr.filtertrack.bytype %>%
+			#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
+			semi_join(
+				call_types_toanalyze,
+				by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+			) %>%
 			mutate(
 				numbases = pmap(
 						list(bam.gr.filtertrack, call_type, SBSindel_call_type),

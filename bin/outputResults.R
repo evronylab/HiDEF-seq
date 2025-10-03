@@ -84,14 +84,16 @@ filtergroups <-  yaml.config$filtergroups %>%
 	pull(filtergroup)
 
 #Create output directories
+filterStats_dir <- "/filterStats/"
+finalCalls_dir <- "/finalCalls/"
+germlineVariantCalls_dir <- "/germlineVariantCalls/"
+finalCalls.spectra_dir <- "/finalCalls.spectra/"
+interrogatedBases.spectra_dir <- "/interrogatedBases.spectra/"
+genome.spectra_dir <- "/genome.spectra/"
+
 for(i in chromgroups){
-	fs::dir_create(i)
-	fs::dir_create(str_c(i,"/filterstats"))
-	fs::dir_create(str_c(i,"/finalCalls"))
-	fs::dir_create(str_c(i,"/germlineVariantCalls"))
-	fs::dir_create(str_c(i,"/finalCalls.spectra"))
-	fs::dir_create(str_c(i,"/interrogatedBases.spectra"))
-	fs::dir_create(str_c(i,"/genome.spectra"))
+	for(j in c(filterStats_dir, finalCalls_dir, germlineVariantCalls_dir, finalCalls.spectra_dir, interrogatedBases.spectra_dir, genome.spectra_dir))
+	fs::dir_create(str_c(i,"/",j))
 }
 
 #Display basic configuration parameters
@@ -500,7 +502,7 @@ cat("## Outputting filtering statistics...")
 for(i in chromgroups){
 	for(j in filtergroups){
 		
-		output_basename_full <- str_c(str_c(i,"/filterstats/",output_basename), i, j, sep=".")
+		output_basename_full <- str_c(str_c(i,filterStats_dir,output_basename), i, j, sep=".")
 		
 		#molecule_stats.by_run_id
 		 #Outupt all_chroms and all_chromgroups stats to each output file
@@ -544,7 +546,7 @@ finalCalls.bytype %>%
 			x <- list(...)
 			
 			output_basename_full <- str_c(
-				str_c(x$chromgroup,"/finalCalls/",output_basename),
+				str_c(x$chromgroup,finalCalls_dir,output_basename),
 				x$chromgroup,
 				x$filtergroup,
 				x$call_class,
@@ -618,7 +620,7 @@ for(i in chromgroups){
 	for(j in filtergroups){
 
 		#Output path
-		output_basename_full <- str_c(str_c(i,"/germlineVariantCalls/",output_basename),i,j,sep=".")
+		output_basename_full <- str_c(str_c(i,germlineVariantCalls_dir,output_basename),i,j,sep=".")
 		
 		#Create and format output tibble
 		germlineVariantCalls.out <- germlineVariantCalls %>%
@@ -710,7 +712,7 @@ finalCalls.reftnc_spectra %>%
 			x <- list(...)
 			
 			output_basename_full <- str_c(
-				str_c(x$chromgroup,"/finalCalls.spectra/",output_basename),
+				str_c(x$chromgroup,finalCalls.spectra_dir,output_basename),
 				x$chromgroup,
 				x$filtergroup,
 				x$call_class,
@@ -794,7 +796,7 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 			x <- list(...)
 			
 			output_basename_full <- str_c(
-				str_c(x$chromgroup,"/interrogatedBases.spectra/",output_basename),
+				str_c(x$chromgroup,interrogatedBases.spectra_dir,output_basename),
 				x$chromgroup,
 				x$filtergroup,
 				x$call_class,
@@ -834,24 +836,24 @@ for(i in chromgroups){
 	genome.reftnc %>%
 		select(reftnc_pyr) %>%
 		unnest(reftnc_pyr) %>%
-		write_tsv(str_c(i,"/genome.spectra/genome.reftnc_pyr.tsv"))
+		write_tsv(str_c(i,genome.spectra_dir,"genome.reftnc_pyr.tsv"))
 	
 	genome_chromgroup.reftnc %>%
 		filter(chromgroup == i) %>%
 		select(chromgroup, reftnc_pyr) %>%
 		unnest(reftnc_pyr) %>%
-		write_tsv(str_c(i,"/genome.spectra/",i,".genome_chromgroup.reftnc_pyr.tsv"))
+		write_tsv(str_c(i,genome.spectra_dir,i,".genome_chromgroup.reftnc_pyr.tsv"))
 		
 	genome.reftnc %>%
 		select(reftnc_both_strands) %>%
 		unnest(reftnc_both_strands) %>%
-		write_tsv(str_c(i,"/genome.spectra/genome.reftnc_both_strands.tsv"))
+		write_tsv(str_c(i,genome.spectra_dir,"genome.reftnc_both_strands.tsv"))
 	
 	genome_chromgroup.reftnc %>%
 		filter(chromgroup == i) %>%
 		select(chromgroup, reftnc_both_strands) %>%
 		unnest(reftnc_both_strands) %>%
-		write_tsv(str_c(i,"/genome.spectra/",i,".genome_chromgroup.reftnc_both_strands.tsv"))
+		write_tsv(str_c(i,genome.spectra_dir,i,".genome_chromgroup.reftnc_both_strands.tsv"))
 }
 
 cat("DONE\n")

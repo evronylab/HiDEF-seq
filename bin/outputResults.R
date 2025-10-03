@@ -90,6 +90,9 @@ germlineVariantCalls_dir <- "/germlineVariantCalls/"
 finalCalls.spectra_dir <- "/finalCalls.spectra/"
 interrogatedBases.spectra_dir <- "/interrogatedBases.spectra/"
 genome.spectra_dir <- "/genome.spectra/"
+sensitivity_dir <- "/sensitivity/"
+finalCalls.burdens <- "/finalCalls.burdens/"
+estimatedSBSMutationErrorProbability_dir <- "/estimatedSBSMutationErrorProbability/"
 
 for(i in chromgroups){
 	for(j in c(filterStats_dir, finalCalls_dir, germlineVariantCalls_dir, finalCalls.spectra_dir, interrogatedBases.spectra_dir, genome.spectra_dir))
@@ -867,7 +870,45 @@ cat("DONE\n")
 ######################
 cat("## Outputting sensitivity...")
 
-For rows with call_class != "MDB" and sensitivity_source == "other_chromgroup", copy sensitivity column value from row with the same filtergroup with sensitivity_source = "calculated", and change the updated rows sensitivity source to "calculated_other_chromgroup". If there is no such "calculated" row, then set the rows sensitivity to 1 and update teh rows sensitivity source to "default_other_chromgroup".
+#For rows with sensitivity_source == "other_chromgroup", copy sensitivity column value from row with the same chromgroup/filtergroup that has sensitivity_source = "calculated", and change the row's sensitivity source to "calculated_other_chromgroup". If there is no such "calculated" row, then set the row's sensitivity to 1 and the sensitivity source to "default_other_chromgroup".
+sensitivity <- sensitivity %>%
+	group_by(chromgroup, filtergroup) %>%
+	mutate(
+		sensitivity.new = if_else(
+			sensitivity_source == "other_chromgroup",
+			first(sensitivity[sensitivity_source == "calculated"], default = NA),
+			sensitivity
+		),
+		
+		sensitivity_source = case_when(
+			sensitivity_source == "other_chromgroup" & is.na(sensitivity) ~ "default_other_chromgroup",
+			sensitivity_source == "other_chromgroup" & !is.na(sensitivity) ~ "calculated_other_chromgroup",
+			.default = sensitivity_source
+		),
+		
+		sensitivity = sensitivity.new %>% replace_na(1)
+	) %>%
+	ungroup %>% 
+	select(-sensitivity.new)
+
+#Output as tsv
+sensitivity %>%
+	nest_by(chromgroup, filtergroup) %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			output_basename_full <- str_c(
+				str_c(x$chromgroup, sensitivity_dir, output_basename),
+				x$chromgroup,
+				x$filtergroup,
+				sep="."
+			)
+			
+			x$data %>% write_tsv(str_c(output_basename_full, ".sensitivity.tsv"))
+			
+		}
+	)
 
 cat("DONE\n")
 
@@ -885,6 +926,25 @@ cat("DONE\n")
 ### Output estimated SBS mutation error probability
 ######################
 cat("## Outputting estimated SBS mutation error probability...")
+
+#Output as tsv
+estimatedSBSMutationErrorProbability %>%
+	nest_by(chromgroup, filtergroup) %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			output_basename_full <- str_c(
+				str_c(x$chromgroup, estimatedSBSMutationErrorProbability_dir, output_basename),
+				x$chromgroup,
+				x$filtergroup,
+				sep="."
+			)
+			
+			x$data %>% write_tsv(str_c(output_basename_full, ".estimatedSBSMutationErrorProbability.tsv"))
+			
+		}
+	)
 
 cat("DONE\n")
 

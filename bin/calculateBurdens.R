@@ -1496,14 +1496,14 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	cat("DONE\n")
 	
 }else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
-	cat("## All sensitivities set to NA since the currently analyzed chromgroup is not equal to sensitivity_parameters$use_chromgroup.\n")
+	cat("## All non-MDB sensitivities set to NA since the currently analyzed chromgroup is not equal to sensitivity_parameters$use_chromgroup.\n")
 	sensitivity <- sensitivity %>%
 		mutate(
-			sensitivity = NA,
-			sensitivity_source = if_else(call_class == "MDB", "yaml.config", "other_chromgroup")
+			sensitivity = if_else(call_class == "MDB", sensitivity, NA_real_),
+			sensitivity_source = if_else(call_class == "MDB", sensitivity_source, "other_chromgroup")
 		)
 }else if(is.null(sensitivity_parameters$use_chromgroup)){
-	cat("## All sensitivities set to 1 since use_chromgroup not defined.\n")
+	cat("## All non-MDB sensitivities set to 1 since use_chromgroup not defined.\n") #Already set to default of 1 upon above initialization
 }
 
 ######################

@@ -9,7 +9,7 @@ process makeBarcodesFasta {
     cpus 1
     memory '2 GB'
     time '10m'
-    tag "Make Barcodes Fasta"
+    tag "makeBarcodesFasta"
     container "${params.hidefseq_container}"
 
     input:
@@ -17,6 +17,11 @@ process makeBarcodesFasta {
     
     output:
       tuple val(run_id), path("barcodes.fasta")
+
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
       """
@@ -38,7 +43,7 @@ process ccsChunk {
     cpus 8
     memory '32 GB'
     time '24h'
-    tag { "CCS chunk ${chunkID}" }
+    tag { "ccsChunk: chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -49,8 +54,12 @@ process ccsChunk {
       path "statistics/*.ccs_report.*", emit: report
       path "statistics/*.summary.json", emit: summary
 
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
+    publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
+    publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.chunk${chunkID}.command.log" }
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -77,7 +86,7 @@ process mergeCCSchunks {
     cpus 2
     memory '8 GB'
     time '6h'
-    tag "Merge CCS chunks"
+    tag "mergeCCSchunks"
     container "${params.hidefseq_container}"
     
     input:
@@ -85,6 +94,11 @@ process mergeCCSchunks {
 
     output:
       tuple val(run_id), path("${run_id}.ccs.bam"), path("${run_id}.ccs.bam.pbi")
+
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
 
     script:
     """
@@ -101,7 +115,7 @@ process filterAdapter {
     cpus 8
     memory '16 GB'
     time '10h'
-    tag "Filter Bad Adapters"
+    tag "filterAdapter"
     container "${params.hidefseq_container}"
     
     input:
@@ -109,6 +123,11 @@ process filterAdapter {
     
     output:
       tuple val(run_id), path("${run_id}.ccs.filtered.bam"), path("${run_id}.ccs.filtered.bam.pbi")
+
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
     """
@@ -126,7 +145,7 @@ process limaDemux {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag "Lima Demultiplexing"
+    tag "limaDemux"
     container "${params.hidefseq_container}"
     
     input:
@@ -137,8 +156,12 @@ process limaDemux {
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
     
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.summary"
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy', pattern: "*.lima.counts"
+    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.summary"
+    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.counts"
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
     """
@@ -160,21 +183,25 @@ process pbmm2Align {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag { "pbmm2 Alignment: ${sample_id}" }
+    tag { "pbmm2Align: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(run_id), val(sample_id), path(bamFile)
+      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
     
     output:
-      tuple val(run_id), val(sample_id), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
+      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
+
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" }, mode:"copy", pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
+
     
     script:
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} ${run_id}.${sample_id}.ccs.filtered.aligned.bam
-    pbindex ${run_id}.${sample_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     """
 }
 
@@ -185,7 +212,7 @@ process mergeAlignedSampleBAMs {
     cpus 4
     memory '64 GB'
     time '6h'
-    tag { "Merge aligned sample BAMs: ${sample_id}" }
+    tag { "mergeAlignedSampleBAMs: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -197,7 +224,11 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    storeDir "${processReads_output_dir}"
+    storeDir { "${dirProcessReads(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
 
     script:
     """
@@ -223,7 +254,7 @@ process countZMWs {
     cpus 1
     memory '8 GB'
     time '1h'
-    tag "Count ZMWs"
+    tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -232,7 +263,7 @@ process countZMWs {
     output:
       path "*"
     
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy'
+    publishDir "${sharedLogsDir}", mode: "copy"
     
     script:
     """
@@ -249,7 +280,7 @@ process splitBAM {
     cpus 2
     memory '32 GB'
     time '4h'
-    tag { "Split BAM: ${sample_id}" }
+    tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -262,7 +293,12 @@ process splitBAM {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
       val(chunkID)
 
-    storeDir "${splitBAMs_output_dir}"
+    storeDir { "${dirSplitBAMs(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
+
 
     script:
     """
@@ -295,12 +331,17 @@ process installBSgenome {
     cpus 1
     memory '16 GB'
     time '8h'
-    tag { "Install BSgenome reference" }
+    tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
       
     output:
       val(true)
+
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
 
     script:
     """
@@ -315,7 +356,7 @@ process extractGenomeTrinucleotides {
     cpus 2
     memory '8 GB'
     time '6h'
-    tag { "Extracts genome trinucleotides" }
+    tag { "extractGenomeTrinucleotides" }
     container "${params.hidefseq_container}"
 
     output:
@@ -323,6 +364,10 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
     storeDir "${params.cache_dir}"
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.command.log" }
 
     script:
     """
@@ -346,7 +391,7 @@ process processGermlineVCFs {
     cpus 1
     memory '16 GB'
     time '4h'
-    tag { "Process Germline VCFs" }
+    tag { "processGermlineVCFs: ${individual_id}" }
     container "${params.hidefseq_container}"
       
     input:
@@ -356,6 +401,10 @@ process processGermlineVCFs {
       path "${individual_id}.germline_vcf_variants.qs2"
 
     storeDir "${params.cache_dir}"
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${individual_id}.${task.process}.command.log" }
 
     script:
     """
@@ -370,7 +419,7 @@ process processGermlineBAMs {
     cpus 2
     memory '16 GB'
     time '24h'
-    tag { "Process Germline BAMs: ${germline_bam_file}" }
+    tag { "processGermlineBAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -381,6 +430,10 @@ process processGermlineBAMs {
       path("${germline_bam_file}.vcf.gz*")
 
     storeDir "${params.cache_dir}"
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${germline_bam_file}.${task.process}.command.log" }
 
     script:
     """
@@ -424,7 +477,7 @@ process prepareRegionFilters {
     cpus 2
     memory '64 GB'
     time '24h'
-    tag { "Prepare region filters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
+    tag { "prepareRegionFilters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -434,6 +487,10 @@ process prepareRegionFilters {
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
     storeDir "${params.cache_dir}"
+    publishDir "${sharedLogsDir}",
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log" }
 
     script:
     """
@@ -476,7 +533,7 @@ process extractCallsChunk {
         baseTime * (1 + (task.attempt - 1))
     }
     maxRetries params.maxRetries_extractCallsChunk
-    tag { "Extract Calls: ${sample_id} -> chunk ${chunkID}" }
+    tag { "extractCallsChunk: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -485,7 +542,11 @@ process extractCallsChunk {
     output:
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    storeDir "${extractCalls_output_dir}"
+    storeDir { "${dirExtractCalls(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log" }
 
     script:
     """
@@ -507,7 +568,7 @@ process filterCallsChunk {
         baseTime * (1 + (task.attempt - 1))
     }
     maxRetries params.maxRetries_filterCallsChunk
-    tag { "Filter Calls: ${sample_id} -> chunk ${chunkID}" }
+    tag { "filterCallsChunk: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -516,7 +577,11 @@ process filterCallsChunk {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    storeDir "${filterCalls_output_dir}"
+    storeDir { "${dirFilterCalls(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log" }
 
     script:
     """
@@ -538,7 +603,7 @@ process calculateBurdensChromgroupFiltergroup {
         baseTime * (1 + (task.attempt - 1))
     }
     maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
-    tag { "Calculate burdens: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    tag { "calculateBurdensChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
     
     input:
@@ -547,7 +612,11 @@ process calculateBurdensChromgroupFiltergroup {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
-    storeDir "${calculateBurdens_output_dir}"
+    storeDir { "${dirCalculateBurdens(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log" }
 
     script:
     """
@@ -556,7 +625,7 @@ process calculateBurdensChromgroupFiltergroup {
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${outputResults_output_dir}/${sample_id}/${chromgroup}/coverage_reftnc
+    TARGET_DIR=${dirOutputResults(individual_id, sample_id)}/${chromgroup}/coverage_reftnc
 
     mkdir -p \$TARGET_DIR || {
       echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
@@ -581,16 +650,21 @@ process outputResultsSample {
     cpus 1
     memory '32 GB'
     time '2h'
-    tag { "Output results: ${sample_id}" }
+    tag { "outputResultsSample: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
       tuple val(individual_id), val(sample_id), path(calculateBurdensFiles)
     
     output:
-      tuple val(individual_id), val(sample_id)
+      tuple val(individual_id), val(sample_id), emit: out_ch
+      path("${params.analysis_id}.${individual_id}.${sample_id}.*"), emit: out_files
 
-    storeDir "${outputResults_output_dir}"
+    storeDir { "${dirOutputResults(individual_id, sample_id)}" }
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      mode: "copy",
+      pattern: ".command.log",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
 
     script:
     """
@@ -600,33 +674,37 @@ process outputResultsSample {
 }
 
 /*
-  removeIntermediateFiles: Removes intermediate files to save disk space after successful completion.
+  removeIntermediateFilesProcess: Removes intermediate files to save disk space after successful completion.
 */
 process removeIntermediateFilesProcess {
     cpus 1
     memory '2 GB'
     time '2h'
-    tag "Remove intermediate files"
+    tag { "removeIntermediateFilesProcess: ${sample_id}" }
     container "${params.hidefseq_container}"
     
     input:
-      val(outputResults_out)
+      tuple val(individual_id), val(sample_id)
     
     output:
-      path "removeIntermediateFiles.log.txt"
+      val(true)
     
-    publishDir "${params.analysis_output_dir}/logs", mode: 'copy'
-    
+    publishDir { "${dirSampleLogs(individual_id, sample_id)}" },
+      pattern: ".command.log",
+      mode: "copy",
+      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
+
     script:
-    """
-    echo "Starting cleanup of intermediate files." > removeIntermediateFiles.log.txt
-    
-    rm -rf ${splitBAMs_output_dir}
-    rm -rf ${extractCalls_output_dir}
-    rm -rf ${filterCalls_output_dir}
-    rm -rf ${calculateBurdens_output_dir}
-    
-    echo "Cleanup completed." >> removeIntermediateFiles.log.txt
+     """
+    set -euo pipefail
+    echo "Starting cleanup of intermediate files for ${params.analysis_id}.${individual_id}.${sample_id}."
+
+    rm -rf "${dirSplitBAMs(individual_id, sample_id)}"
+    rm -rf "${dirExtractCalls(individual_id, sample_id)}"
+    rm -rf "${dirFilterCalls(individual_id, sample_id)}"
+    rm -rf "${dirCalculateBurdens(individual_id, sample_id)}"
+
+    echo "Cleanup completed."
     """
 }
 
@@ -646,11 +724,6 @@ workflow processReads {
         def pbi_file = file("${run.reads_file}.pbi")
         return tuple(run.run_id, reads_file, pbi_file)
     }
-
-    // Map sample_id -> individual_id
-    samples_meta_ch = Channel.fromList(params.samples)
-        .map { s -> tuple(s.sample_id, s.individual_id) }
-        .unique()
     
     // Create barcodes FASTA for each run
     barcodes_ch = runs_ch.map { run ->
@@ -719,6 +792,8 @@ workflow processReads {
       }
 
     // Create samples to align channel by matching run samples with demux BAMs
+    def sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
+
     samples_to_align_ch = Channel.fromList(params.runs)
         .flatMap { run ->
             run.samples.collect { sample ->
@@ -730,7 +805,7 @@ workflow processReads {
             return barcode_id == demux_barcode_id
         }
         .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-            return tuple(run_id, sample_id, demux_bam)
+            return tuple(run_id, sample_to_individual[sample_id], sample_id, demux_bam)
         }
 
     // Run pbmm2 alignment for each sample.
@@ -747,8 +822,8 @@ workflow processReads {
 
     countZMWs_ch = countZMWs_ch.mix(
         filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
-        samples_to_align_ch.map { f -> tuple(f[2], file("${f[2]}.pbi"), "zmwcount.txt") },
-        pbmm2Align.out.map { f -> tuple(f[2], f[3], "zmwcount.txt") }
+        samples_to_align_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
+        pbmm2Align.out.map { f -> tuple(f[3], f[4], "zmwcount.txt") }
       )
 
     // Count ZMWs
@@ -756,14 +831,10 @@ workflow processReads {
 
     // Group pbmm2Align outputs by sample_id for merging
     pbmm2_grouped_ch = pbmm2Align.out
-      .map { run_id, sample_id, bamFile, pbiFile ->
-          return tuple(sample_id, bamFile, pbiFile)
+      .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+          return tuple(individual_id, sample_id, bamFile, pbiFile)
       }
-      .groupTuple(by: 0) // Group by sample_id
-      .join(samples_meta_ch)
-      .map { sample_id, bamFiles, pbiFiles, individual_id ->
-        return tuple(individual_id, sample_id, bamFiles, pbiFiles)
-      }
+      .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
 
     // Merge BAM files by sample_id across runs
     mergeAlignedSampleBAMs(pbmm2_grouped_ch)
@@ -910,7 +981,8 @@ workflow outputResults {
     outputResultsSample(calculateBurdens_out)
 
     emit:
-    outputResultsSample.out
+      out_ch: outputResultsSample.out_ch
+      out_files: outputResultsSample.out_files
 
 }
 
@@ -923,7 +995,7 @@ workflow removeIntermediateFiles {
     removeIntermediateFilesProcess(outputResults_out)
 
     emit:
-    removeIntermediateFiles.out
+    removeIntermediateFilesProcess.out
 
 }
 
@@ -937,18 +1009,21 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.DumperOptions
 
 //Define output directories
-logs_output_dir="${params.analysis_output_dir}/logs"
-processReads_output_dir="${params.analysis_output_dir}/processReads"
-splitBAMs_output_dir="${params.analysis_output_dir}/splitBAMs"
-extractCalls_output_dir="${params.analysis_output_dir}/extractCalls"
-filterCalls_output_dir="${params.analysis_output_dir}/filterCalls"
-calculateBurdens_output_dir="${params.analysis_output_dir}/calculateBurdens"
-outputResults_output_dir="${params.analysis_output_dir}/outputResults"
+sharedLogsDir = "${params.analysis_output_dir}/sharedLogs"
+
+def sampleBaseDir = { individual_id, sample_id -> "${params.analysis_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}" }
+def dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
+def dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processReads" }
+def dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
+def dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
+def dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
+def dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
+def dirOutputResults = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/outputResults" }
 
 workflow {
 
   // Save copy of parameters file to logs directory
-  def logsDir = file("${logs_output_dir}")
+  def logsDir = file("${sharedLogsDir}")
   logsDir.mkdirs()
 
   def options = new DumperOptions()
@@ -1038,11 +1113,11 @@ workflow {
     processReads_out = processReads_out ?:
       Channel.fromList(params.samples)
           .map { sample ->
-              def sample_id = sample.sample_id
               def individual_id = sample.individual_id
-              def bamFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${processReads_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
+              def sample_id = sample.sample_id
+              def bamFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
+              def pbiFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
+              def baiFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
               return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile)
           }
 
@@ -1060,11 +1135,11 @@ workflow {
       Channel.fromList(params.samples)
           .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
-              def sample_id = sample.sample_id
               def individual_id = sample.individual_id
-              def bamFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
-              def pbiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
-              def baiFile = file("${splitBAMs_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
+              def sample_id = sample.sample_id
+              def bamFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
+              def pbiFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
+              def baiFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
               return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
           }
 
@@ -1101,9 +1176,9 @@ workflow {
       Channel.fromList(params.samples)
           .combine(Channel.from(1..params.analysis_chunks))
           .map { sample, chunkID ->
-              def sample_id = sample.sample_id
               def individual_id = sample.individual_id
-              def extractCallsFile = file("${extractCalls_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
+              def sample_id = sample.sample_id
+              def extractCallsFile = file("${dirExtractCalls(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
               return tuple(individual_id, sample_id, extractCallsFile, chunkID)
           }
 
@@ -1117,9 +1192,9 @@ workflow {
           .combine(Channel.from(1..params.analysis_chunks))
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chunkID, chromgroup, filtergroup ->
-              def sample_id = sample.sample_id
               def individual_id = sample.individual_id
-              def filterCallsFile = file("${filterCalls_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
+              def sample_id = sample.sample_id
+              def filterCallsFile = file("${dirFilterCalls(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
               return tuple(individual_id, sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
           }
 
@@ -1141,23 +1216,22 @@ workflow {
       Channel.fromList(params.samples)
           .combine(chromgroups_filtergroups_ch)
           .map { sample, chromgroup, filtergroup ->
-              def sample_id = sample.sample_id
               def individual_id = sample.individual_id
-              def calculateBurdensFile = file("${calculateBurdens_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+              def sample_id = sample.sample_id
+              def calculateBurdensFile = file("${dirCalculateBurdens(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
               return tuple(individual_id, sample_id, calculateBurdensFile)
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
         .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
-    outputResults_out = outputResults(calculateBurdens_grouped_ch)
+    outputResults_out = outputResults(calculateBurdens_grouped_ch).out_ch
   }
 
   // Run removeIntermediateFiles workflow (conditional)
   if (shouldRun("removeIntermediateFiles") && params.remove_intermediate_files) {
-    outputResults_out = outputResults_out ?
-      outputResults_out.collect().map { true } :
-      Channel.value(true)
+    outputResults_out = outputResults_out ?:
+      Channel.fromList(params.samples).map { s -> tuple(s.individual_id, s.sample_id) }
 
     removeIntermediateFiles(outputResults_out)
   }

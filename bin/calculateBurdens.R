@@ -1274,7 +1274,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 rm(finalCalls.reftnc_spectra.genome_correction, finalCalls.reftnc_spectra.genome_correction.SBSmutations, finalCalls.reftnc_spectra.genome_correction.SBSnonmutations)
 invisible(gc())
 
-#Calculate Poisson 95% confidence intervals for number of calls and burdens
+#Calculate burdens and Poisson 95% confidence intervals for number of calls and burdens
 finalCalls.burdens <- finalCalls.burdens %>%
 	mutate(
 		ci = num_calls %>% map( function(x){cipoisson(x)} ),

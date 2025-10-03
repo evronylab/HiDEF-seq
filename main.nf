@@ -1,5 +1,5 @@
 /*****************************************************************
- * Global variables/functions
+ * Global variables and functions
  *****************************************************************/
 
 //Library imports
@@ -1198,7 +1198,7 @@ process outputResultsSample {
     
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
-      path("${params.analysis_id}.${individual_id}.${sample_id}.*"), emit: out_files
+      path("**/${params.analysis_id}.${individual_id}.${sample_id}.*"), emit: out_files
 
     storeDir { dirOutputResults(individual_id, sample_id) }
     publishDir { dirSampleLogs(individual_id, sample_id) },

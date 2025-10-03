@@ -893,7 +893,7 @@ sensitivity <- sensitivity %>%
 
 #Output as tsv
 sensitivity %>%
-	nest_by(chromgroup, filtergroup) %>%
+	nest_by(chromgroup, filtergroup, .keep = TRUE) %>%
 	pwalk(
 		function(...){
 			x <- list(...)
@@ -902,6 +902,9 @@ sensitivity %>%
 				str_c(x$chromgroup, sensitivity_dir, output_basename),
 				x$chromgroup,
 				x$filtergroup,
+				x$call_class,
+				x$call_type,
+				x$SBSindel_call_type,
 				sep="."
 			)
 			
@@ -917,8 +920,57 @@ cat("DONE\n")
 ######################
 cat("## Outputting call burdens...")
 
--> Use sensitivity from matching filtergroup and from use_chromgroup, or from any analysis if use_chromgroup is null (since all identically set SBS and indel senstivity to 1)
-- calculate for uncorrected and tnc_corrected burdens
+#Add burdens corrected for sensitivity, and retain sensitivity and sensitivity_source columns in finalCalls.burdens tibble
+finalCalls.burdens <- finalCalls.burdens %>%
+	bind_rows(
+		finalCalls.burdens %>%
+			left_join(
+				sensitivity %>%
+					select(
+						analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type,
+						sensitivity, sensitivity_source
+						),
+				by = join_by(analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type)
+			) %>%
+			
+			#Calculate corrected counts, burdens, and Poisson 95% confidence intervals for number of calls and burdens
+			mutate(
+				num_calls = num_calls / sensitivity,
+				sensitivity_corrected = TRUE,
+				
+				ci = num_calls %>% map( function(x){cipoisson(x)} ),
+				
+				num_calls_lci = map_dbl(ci,1),
+				num_calls_uci = map_dbl(ci,2),
+				
+				burden_calls = num_calls / interrogated_bases_or_bp,
+				burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
+				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
+			) %>%
+			select(-ci)
+	)
+
+#Output as tsv
+finalCalls.burdens %>%
+	nest_by(chromgroup, filtergroup, .keep = TRUE) %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			
+			output_basename_full <- str_c(
+				str_c(x$chromgroup, finalCalls.burdens_dir, output_basename),
+				x$chromgroup,
+				x$filtergroup,
+				x$call_class,
+				x$call_type,
+				x$SBSindel_call_type,
+				sep="."
+			)
+			
+			x$data %>% write_tsv(str_c(output_basename_full, ".finalCalls.burdens.tsv"))
+			
+		}
+	)
 
 cat("DONE\n")
 
@@ -929,7 +981,7 @@ cat("## Outputting estimated SBS mutation error probability...")
 
 #Output as tsv
 estimatedSBSMutationErrorProbability %>%
-	nest_by(chromgroup, filtergroup) %>%
+	nest_by(chromgroup, filtergroup, .keep = TRUE) %>%
 	pwalk(
 		function(...){
 			x <- list(...)
@@ -938,6 +990,9 @@ estimatedSBSMutationErrorProbability %>%
 				str_c(x$chromgroup, estimatedSBSMutationErrorProbability_dir, output_basename),
 				x$chromgroup,
 				x$filtergroup,
+				x$call_class,
+				x$call_type,
+				x$SBSindel_call_type,
 				sep="."
 			)
 			

@@ -191,14 +191,14 @@ germline_vcf_types: #define one germline_vcf_type for each used for above germli
     SBS_min_VAF: 
     SBS_min_GQ: 
     SBS_min_QUAL: 
-    indel_FILTERS: #Put filters in quotations to avoid bare '.' from being read as NA
+    indel_FILTERS: 
       - 
     indel_min_Depth: 
     indel_min_VAF: 
     indel_min_GQ: 
     indel_min_QUAL: 
-    indel_inspad:  # set to NA to disable this filter
-    indel_delpad:  # set to NA to disable this filter
+    indel_inspad: m2b15 # set to NA to disable this filter
+    indel_delpad: m2b15 # set to NA to disable this filter
 
 ###
 ### Call filters

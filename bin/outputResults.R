@@ -112,6 +112,9 @@ cat("DONE\n")
 #Function to write vcf from finalCalls/germlineCalls
 write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	
+	#Repair names in 'calls' so they are compatible with DataFrame objects required by VariantAnnotation (i.e. change '-' to '.' in column names)
+	names(calls) <- names(calls) %>% vctrs::vec_as_names(repair = "universal", quiet = TRUE)
+	
 	#Fixed fields
 	CHROM <- calls$seqnames
 	POS <- calls$start_refspace
@@ -134,9 +137,9 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	
 	fixed <- DataFrame(REF = REF, ALT = ALT, QUAL = QUAL, FILTER = FILTER)
 	
-	# INFO: everything except the basic VCF columns and fields you want to drop
+	# INFO: everything except the basic VCF columns
 	info_cols <- names(calls) %>%
-		setdiff(c("seqnames","start_refspace","ref_plus_strand","alt_plus_strand","qual"))
+		setdiff(c("seqnames","start_refspace","ref_plus_strand","alt_plus_strand"))
 	
 	#Convert factor columns to character
 	info_df <- calls %>%
@@ -410,50 +413,25 @@ finalCalls.bytype <- finalCalls.bytype %>%
 	bind_rows %>%
 	#Rename columns for greater clarity in final output
 	mutate(
-		finalCalls_for_tsv = finalCalls_for_tsv %>%
-			map(function(x){
+		across(
+			c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf),
+			function(x){
 				x %>%
-					rename(
-						refstrand.refstrand_plus_minus_read = strand.refstrand_plus_minus_read,
-						start_refspace = start,
-						end_refspace = end
-					)
-			}),
-		
-		finalCalls_unique_for_tsv = finalCalls_unique_for_tsv %>%
-			map(function(x){
-				if(!is.null(x)){
-					x %>%
-						rename(
-							start_refspace = start,
-							end_refspace = end
-						)
-				}else{
-					x
-				}
-			}),
-		
-		finalCalls_for_vcf = finalCalls_for_vcf %>%
-			map(function(x){
-				x %>%
-					rename(
-						refstrand.refstrand_plus_minus_read = strand.refstrand_plus_minus_read,
-						start_refspace = start
-					)
-			}),
-		
-		finalCalls_unique_for_vcf = finalCalls_unique_for_vcf %>%
-			map(function(x){
-				if(!is.null(x)){
-					x %>%
-						rename(
-							start_refspace = start
-						)
-				}else{
-					x
-				}
-			})
+					map(function(y){
+						if(!is.null(y)){
+							y %>%
+								rename(
+									refstrand = any_of("strand"),
+									start_refspace = start,
+									end_refspace = any_of("end")
+								)
+						}else{
+							y
+						}
+					})
+			}
 		)
+	)
 
 germlineVariantCalls <- germlineVariantCalls %>%
 	bind_rows %>%
@@ -619,25 +597,79 @@ invisible(gc())
 
 #Output germline variant calls
 
- #strand_identical_cols: Columns that are identical between strands, used for pivot_wider for SBSindel_call_type == "mutation" call table below. Not including call_class,call_type,SBSindel_call_type as these are removed from finalCalls after the below nest_join.
-strand_identical_cols = c(
+ #Define columns that are identical between strands to either '_keep' or '_discard' in the subsequent pivot_wider. Discarding SBSindel_call_type as this equals "mutation" for all calls.
+strand_identical_cols_keep <- c(
 	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
 	"analysis_chunk", "run_id", "zm",
-	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
+	"call_class", "call_type",
+	"seqnames", "start_refspace", "end_refspace", "ref_plus_strand", "alt_plus_strand",
 	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
 	"indel_width"
 )
 
- #Reformat list columns to be comma-delimited bounded by square brackets.
+strand_identical_cols_discard <- c(
+	"refstrand",
+	"SBSindel_call_type",
+	"call_class.opposite_strand", "call_type.opposite_strand",
+	"alt_plus_strand.opposite_strand", "deletion.bothstrands.startendmatch"
+)
+
 for(i in chromgroups){
 	for(j in filtergroups){
 
 		#Output path
 		output_basename_full <- str_c(str_c(i,germlineVariantCalls_dir,output_basename),i,j,sep=".")
 		
+		#Define germline filter columns to keep in the output
+		region_read_filters_cols_keep <- yaml.config$region_filters %>%
+			map("read_filters") %>%
+			flatten %>%
+			enframe(name=NULL) %>%
+			unnest_wider(value) %>%
+			mutate(region_filter_threshold_file = str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+			filter(
+				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
+				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
+			) %>%
+			filter(is_germline_filter==TRUE) %>%
+			pull(region_filter_threshold_file) %>%
+			basename %>%
+			str_c("region_read_filter_",.,".passfilter")
+		
+		region_genome_filters_cols_keep <- yaml.config$region_filters %>%
+			map("genome_filters") %>%
+			flatten %>%
+			enframe(name=NULL) %>%
+			unnest_wider(value) %>%
+			mutate(region_filter_threshold_file = str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+			filter(
+				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
+				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
+			) %>%
+			filter(is_germline_filter==TRUE) %>%
+			pull(region_filter_threshold_file) %>%
+			basename %>%
+			str_c("region_genome_filter_",.,".passfilter")
+		
+		germline_filter_cols_keep <- c(
+			"germline_vcf.passfilter",
+			germlineVariantCalls %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
+			"max_BAMVariantReads.passfilter",
+			"max_BAMVAF.passfilter",
+			region_read_filters_cols_keep,
+			region_genome_filters_cols_keep,
+			"germline_vcf_types_detected", "germline_vcf_files_detected"
+		)
+		
 		#Create and format output tibble
 		germlineVariantCalls.out <- germlineVariantCalls %>%
+			#Remove passfilter columns (since all true), except germline filter columns
+			select(-(contains("passfilter") & !all_of(germline_filter_cols_keep))) %>%
+			
+			#Select current chromgroup/filtergroup
 			filter(chromgroup == i, filtergroup == j) %>%
+			
+			#Reformat list columns to be comma-delimited
 			mutate(
 				across(
 					where(is.list),
@@ -647,20 +679,19 @@ for(i in chromgroups){
 			
 			#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
 			mutate(
-				strand = strand %>%
+				refstrand = refstrand %>%
 					fct_recode(
 						refstrand_plus_read  = "+",
 						refstrand_minus_read = "-"
 					)
 			) %>%
 			
-			#Collapse to one row those fields that differ between strands
+			#Collapse to one row per mutation
 			pivot_wider(
-				#id_cols: Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
-				id_cols = all_of(strand_identical_cols),
-				names_from = strand,
-				values_from = -all_of(c("strand", strand_identical_cols)),
-				names_glue = "{.value}_{var}"
+				id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
+				names_from = refstrand,
+				values_from = -all_of(c(strand_identical_cols_keep, germline_filter_cols_keep, strand_identical_cols_discard)),
+				names_glue = "{.value}_{refstrand}"
 			)
 		
 		#tsv

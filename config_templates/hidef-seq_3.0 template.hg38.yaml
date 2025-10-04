@@ -1,0 +1,354 @@
+---
+###############################
+### HiDEF-seq Configuration ###
+###############################
+
+###
+### Sequencing data and samples
+###
+analysis_id: 
+
+reads_type:  # subreads or ccs; must be the same type for all reads_files
+
+runs: # can specify multiple run_id entries
+  - run_id: 
+    reads_file: 
+    samples:
+      - sample_id: 
+        barcode_id: 
+        barcode: 
+      - sample_id: 
+        barcode_id: 
+        barcode: 
+      - sample_id: 
+        barcode_id: 
+        barcode: 
+
+samples:
+  - sample_id: 
+    individual_id: 
+    tissue: 
+  - sample_id: 
+    individual_id: 
+    tissue: 
+  - sample_id: 
+    individual_id: 
+    tissue: 
+
+###
+### Individuals
+###
+individuals:
+  - individual_id: 
+    sex:  # male or female
+    germline_bam_file: 
+    germline_bam_type: # Illumina or PacBio
+    germline_vcf_files: # can define any number of germlien_vcf_files
+      - germline_vcf_file: 
+        germline_vcf_type:  # any value possible; each configured in the germline_vcf_types section
+      - germline_vcf_file: 
+        germline_vcf_type: 
+  - individual_id: 
+    sex: 
+    germline_bam_file: 
+    germline_bam_type: 
+    germline_vcf_files:
+      - germline_vcf_file: 
+        germline_vcf_type: 
+      - germline_vcf_file: 
+        germline_vcf_type: 
+
+###
+### Output folders
+###
+analysis_output_dir: 
+cache_dir:  # cannot be under the /home folder to ensure mounting by container.
+
+###
+### HiDEF-seq container
+###
+hidefseq_container: # HiDEF-seq v3 docker path or singularity sif file
+
+# Tool paths inside HiDEF-seq container
+conda_base_script: /hidef/miniconda3/etc/profile.d/conda.sh
+conda_pbbioconda_env: /hidef/bin/pbconda
+samtools_bin: samtools
+bcftools_bin: bcftools
+bedGraphToBigWig_bin: /hidef/bin/bedGraphToBigWig
+wiggletools_bin: /hidef/bin/WiggleTools/bin/wiggletools
+wigToBigWig_bin: /hidef/bin/wigToBigWig
+seqkit_bin: /hidef/bin/seqkit
+bedtools_bin: bedtools
+bgzip_bin: bgzip
+tabix_bin: tabix
+
+# Optional ccs_ld_preload parameter for ccs; if not set to anything, the relevant code is skipped. This parameter is needed due to a known issue in how ONNX interacts with some SLURM environments. A custom version of libpthread-setaffinity.so created by NYU HPC overcomes an issue where ccs's --pbdc option uses ONNX that creates new threads, assigns the thread affinity to CPU cores, and it only assigns to CPU cores index 0, even though CPI core 0 is not always available on an HPC Cluster because of cgroup. This custom C code overwrites the default pthread_setaffinity_np inside the library libc.so with LD_PRELOAD. css will load that pthread_setaffinity_np function first, set the correct cpuset from cgroup, then call the original pthread_setaffinity_np in libc.so to set CPU affinity. See https://github.com/microsoft/onnxruntime/issues/8313 for details.
+ccs_ld_preload: /hidef/bin/pbconda/lib/libpthread-setaffinity.so
+
+###
+### Pipeline parameters
+###
+ccs_chunks: 30 # for processReads workflow
+lima_min_score: 80
+
+analysis_chunks: 40 # for splitBAMs, extractCalls, and filterCalls
+
+mem_extractCallsChunk: 64GB # each retry will increase by half of this amount
+time_extractCallsChunk: 4h # each retry will increase by this same amount
+maxRetries_extractCallsChunk: 3
+mem_filterCallsChunk: 64GB # each retry will increase by half of this amount
+time_filterCallsChunk: 8h # each retry will increase by this same amount
+maxRetries_filterCallsChunk: 3
+mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
+time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
+maxRetries_calculateBurdensChromgroupFiltergroup: 3
+
+remove_intermediate_files:  #true or false
+
+###
+### Genome reference
+###
+genome_fasta: hg38.fa
+genome_fai: hg38.fa.fai
+genome_mmi: hg38.mmi
+BSgenome:
+  BSgenome_name: BSgenome.Hsapiens.UCSC.hg38 # run BSGenome available.genomes() function to see all available, or set to the BSgenome_name of below BSGenome_file
+  BSgenome_file:  # optional tar.gz of custom BSgenome that is not in available.genomes()
+sex_chromosomes: chrX,chrY # comma-delimited
+mitochondrial_chromosome: 
+chromgroups: 
+  - chromgroup: 1-22X
+    chroms: chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX #comma-delimited
+  - chromgroup: mito
+    chroms: chrM
+
+###
+### extractCalls workflow
+###
+# Initial read alignment filters
+min_strand_overlap: 0.9
+
+# Call types
+call_types:
+  - call_type: SBS # SBS for call_class SBS; insertion or deletion for call_class indel; specific MDB name for call_class MDB
+    call_class: SBS # SBS, indel, or MDB
+    analyzein_chromgroups: # comma-separated list, or 'all'
+    SBSindel_call_types:
+      - SBSindel_call_type: mutation #mutation, mismatch-ss, mismatch-ds, mismatch-os (MDB only), match (MDB only)
+        filtergroup: lenient
+      - SBSindel_call_type: mismatch-ss
+        filtergroup: strict
+      - SBSindel_call_type: mismatch-ds
+        filtergroup: strict
+  - call_type: insertion
+    call_class: indel
+    analyzein_chromgroups: all
+    SBSindel_call_types:
+      - SBSindel_call_type: mutation
+        filtergroup: strict
+      - SBSindel_call_type: mismatch-ss
+        filtergroup: strict
+      - SBSindel_call_type: mismatch-ds
+        filtergroup: strict
+  - call_type: deletion
+    call_class: indel
+    analyzein_chromgroups: all
+    SBSindel_call_types:
+      - SBSindel_call_type: mutation
+        filtergroup: strict
+      - SBSindel_call_type: mismatch-ss
+        filtergroup: strict
+      - SBSindel_call_type: mismatch-ds
+        filtergroup: strict
+  - call_type: 
+    call_class: MDB
+    analyzein_chromgroups:
+    MDB_bamtag: # only for MDB
+    MDB_min_score: # only for MDB
+    MDB_sensitivity: # only for MDB; sensitivity to detect MDB for sensitivity correction
+    MDB_base_opposite_strand:  # only for MDB; filter to require specific base on opposite strand or null if no filter
+    SBSindel_call_types:
+      - SBSindel_call_type: mutation
+        filtergroup: 
+      - SBSindel_call_type: mismatch-ss
+        filtergroup: 
+      - SBSindel_call_type: mismatch-ds
+        filtergroup: 
+      - SBSindel_call_type: mismatch-os
+        filtergroup: 
+      - SBSindel_call_type: match
+        filtergroup: 
+
+###
+### Germline VCF filters
+###
+# These filters, except for inspad/delpad filters, are not applied to MDB calls.
+germline_vcf_types: #define one germline_vcf_type for each used for above germline_vcf_files
+  - germline_vcf_type: 
+    SBS_FILTERS: #Put filters in quotations to avoid bare '.' from being read as NA
+      - 
+    SBS_min_Depth: 
+    SBS_min_VAF: 
+    SBS_min_GQ: 
+    SBS_min_QUAL: 
+    indel_FILTERS: #Put filters in quotations to avoid bare '.' from being read as NA
+      - 
+    indel_min_Depth: 
+    indel_min_VAF: 
+    indel_min_GQ: 
+    indel_min_QUAL: 
+    indel_inspad:  # set to NA to disable this filter
+    indel_delpad:  # set to NA to disable this filter
+
+###
+### Call filters
+###
+filtergroups:
+  - filtergroup: lenient
+    min_rq_eachstrand: .99
+    min_rq_avgstrands: 0
+    min_ec_eachstrand: 5
+    min_ec_avgstrands: 0
+    min_mapq_eachstrand: 60
+    min_mapq_avgstrands: 0
+    max_num_SBScalls_eachstrand: 999999
+    max_num_SBScalls_stranddiff: 5
+    max_num_SBSmutations: 999999
+    max_num_indelcalls_eachstrand: 999999
+    max_num_indelcalls_stranddiff: 999999
+    max_num_indelmutations: 20
+    max_num_softclipbases_eachstrand: 999999
+    max_num_softclipbases_avgstrands: 30
+    max_num_SBScalls_postVCF_eachstrand: 999999
+    max_num_SBSmutations_postVCF: 999999
+    max_num_indelcalls_postVCF_eachstrand: 999999
+    max_num_indelmutations_postVCF: 999999
+    min_qual: 93 # filter applied to both strands for all call types
+    min_qual_method: all # how to filter min_qual for insertions/deletions with qual length > 1: mean, all, or any
+    read_trim_bp: 10
+    ccsindel_inspad: m2b15 # set to m0b0 to turn off
+    ccsindel_delpad: m2b15 # set to m0b0 to turn off
+    min_BAMTotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
+    max_BAMVariantReads: 3 # applied only to SBS
+    max_BAMVAF: 0.05 # applied only to SBS
+    min_frac_subreads_cvg: 0.5 # filter applied to both strands for all call types
+    min_num_subreads_match: 0 # filter applied to both strands for all call types
+    min_frac_subreads_match: 0.5 # filter applied to both strands for all call types
+    min_subreads_cvgmatch_method: all # how to filter min_frac_subreads_cvg and min_num/frac_subreads_match for insertions/deletions with sa/sm/sx tag lengths > 1: mean, all, or any
+    max_finalcalls_eachstrand: 1 # filter applied independently for each call_type/SBSindel_call_type combo. If either strand fails, the entire molecule is filtered.
+  - filtergroup: strict
+    min_rq_eachstrand: .999
+    min_rq_avgstrands: 0
+    min_ec_eachstrand: 20
+    min_ec_avgstrands: 0
+    min_mapq_eachstrand: 60
+    min_mapq_avgstrands: 0
+    max_num_SBScalls_eachstrand: 999999
+    max_num_SBScalls_stranddiff: 5
+    max_num_SBSmutations: 999999
+    max_num_indelcalls_eachstrand: 999999
+    max_num_indelcalls_stranddiff: 999999
+    max_num_indelmutations: 20
+    max_num_softclipbases_eachstrand: 999999
+    max_num_softclipbases_avgstrands: 30
+    max_num_SBScalls_postVCF_eachstrand: 999999
+    max_num_SBSmutations_postVCF: 8
+    max_num_indelcalls_postVCF_eachstrand: 999999
+    max_num_indelmutations_postVCF: 999999
+    min_qual: 93
+    min_qual_method: all
+    read_trim_bp: 10
+    ccsindel_inspad: m2b15
+    ccsindel_delpad: m2b15
+    min_BAMTotalReads: 15
+    max_BAMVariantReads: 3
+    max_BAMVAF: 0.05
+    min_frac_subreads_cvg: 0.5
+    min_num_subreads_match: 0
+    min_frac_subreads_match: 0.6
+    min_subreads_cvgmatch_method: all
+    max_finalcalls_eachstrand: 1
+
+###
+### Region filters
+###
+region_filters:
+  - read_filters: # define any number of read filters
+    - region_filter_file: hg38.segdups.bw # bigWig file
+      binsize: 1
+      threshold: gte0.1 # lt (<), lte (<=), gt (>), gte (>=) followed by a number (no space between)
+      padding: 0
+      read_threshold: gte0.00001
+      applyto_chromgroups: all # comma-separated list, or 'all'
+      applyto_filtergroups: all # comma-separated list, or 'all'
+      is_germline_filter: false # true/false if this filter specifically removes germline variants, such as a gnomAD variant filter. This prevents this filter from being applied in sensitivity calculations that analyze germline variants.
+    - region_filter_file: hg38.telomeres.bw
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      read_threshold: gte0.00001
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+    - region_filter_file: hg38.centromeres.bw
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      read_threshold: gte0.00001
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+    - region_filter_file: hg38.satellites.bw
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      read_threshold: gte0.2
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+  - genome_filters: # define any number of genome filters
+    - region_filter_file: hg38.satellites.bw
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+    - region_filter_file: [gnomAD genomes SNVs AF >= 0.001 bigWig]
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: true
+    - region_filter_file: [gnomAD genomes indels AF >= 0.001 bigWig]
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      applyto_chromgroups: all
+      applyto_filtergroups: strict
+      is_germline_filter: true
+
+###
+### Sensitivity calculation
+###
+#Settings to select variants for sensitivity calculation for SBS and indels
+# Filters are applied separately for each germline_vcf_file and all filters
+# must pass in all germline VCF files. Note: MDB sensitivities are set in the
+# call_types section. 
+sensitivity_parameters:
+  use_chromgroup: 1-22X # chromgroup to use for calculating sensitivity that is used for all chromgroups. If blank, sensitivity calculation is skipped and sensitivity for all SBS and indel call types is set to 1. Sex chromosomes and mitochondrial chromosome are always excluded from sensitivity analysis, due to complication of pseudo-autosomal regions.
+  sensitivity_vcf: [gnomAD genomes SNVs and indels AF >= 0.001 vcf]
+  genotype: heterozygous #heterozygous or homozygous
+  SBS_min_Depth_quantile: 0.5
+  SBS_min_VAF: 0.3
+  SBS_max_VAF: 0.7
+  SBS_min_GQ_quantile: 0.5
+  SBS_min_QUAL_quantile: 0.5
+  SBS_min_variant_detections: 100 #minimum number of times high-confidence germline variants were detected (counts 1 per zmw) to use to calculate sensitivity, otherwise sensitivity is set to 1
+  indel_min_Depth_quantile: 0.5
+  indel_min_VAF: 0.3
+  indel_max_VAF: 0.7
+  indel_min_GQ_quantile: 0.5
+  indel_min_QUAL_quantile: 0.5
+  indel_min_variant_detections: 100

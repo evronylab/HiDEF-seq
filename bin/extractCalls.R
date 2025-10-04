@@ -353,7 +353,7 @@ cat("DONE\n")
 ######################
 ### Define function to extract calls
 ######################
-extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar.ops.input = NULL, MDB_score_bamtag.input = NULL, MDB_score_min.input = NULL){
+extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar.ops.input = NULL, MDB_bamtag.input = NULL, MDB_min_score.input = NULL){
   #cigar.ops.input for the call_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
   #score_bamtag.input: tag in the BAM file containing the MDB score data (MDB only)
   #score_min.input: minimum score of MDBs to extract (MDB only)

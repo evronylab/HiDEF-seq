@@ -277,7 +277,7 @@ for(i in seq_along(filterCallsFiles)){
 		#germline-related filters that are excluded when calculating sensitivity
 		germline_filters <- c(
 			"germline_vcf.passfilter",
-			str_subset(filterCallsFile %>% pluck("calls") %>% colnames, "germline_vcf_indel_region_filter"),
+			filterCallsFile %>% pluck("calls") %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
 			"max_BAMVariantReads.passfilter",
 			"max_BAMVAF.passfilter",
 			region_read_filters_config %>%
@@ -725,16 +725,27 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
 	
-#strand_identical_cols: Columns that are identical between strands, used for pivot_wider for SBSindel_call_type == "mutation" call tables below. Not including call_class,call_type,SBSindel_call_type as these are removed from finalCalls after the below nest_join.
-strand_identical_cols = c(
-	"analysis_chunk", "run_id", "zm",
+#Define columns that are identical between zm and strands to either '_keep' or '_discard' in the subsequent pivot_wider for SBSindel_call_type == "mutation" call tables. Not including call_class, call_type, SBSindel_call_type as these are removed from finalCalls after the below nest_join.
+zm_identical_cols_keep <- c(
+	"analysis_chunk", "run_id", "zm"
+)
+
+strand_identical_cols_keep <- c(
 	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
 	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
 	"indel_width"
 )
 
-#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Used for burden, spectra, and vcf output.
+strand_identical_cols_discard <- c(
+	"strand",
+	"call_class.opposite_strand", "call_type.opposite_strand",
+	"alt_plus_strand.opposite_strand", "deletion.bothstrands.startendmatch"
+)
+
+#Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Before the nest join, remove "germline_vcf_types_detected", "germline_vcf_files_detected", and "passfilter" columns as these are empty, empty, and TRUE, respectively for all finalCalls. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
+	
+	#Add row for SBS/mismatch-ss
 	bind_rows(
 		tibble(
 			call_type = "SBS",
@@ -745,27 +756,27 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		)
 	) %>%
 	distinct %>%
+	
+	#Nest join finalCalls
 	nest_join(
-		finalCalls,
+		finalCalls %>%
+			#Remove filter annotation columns since all finalCalls pass filters so this information is not needed for final tsv and vcf outputs
+			select(-c("germline_vcf_types_detected", "germline_vcf_files_detected", contains("passfilter"))) %>%
+			#Reformat list columns to be comma-delimited.
+			mutate(
+				across(
+					where(is.list),
+					function(x){x %>% map_chr(function(v){str_c(v, collapse = ",")})}
+				)
+			),
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
 	) %>%
+	
+	#Make tables for tsv and vcf output
 	mutate(
-		#Reformat list columns to be comma-delimited.
-		finalCalls = finalCalls %>%
-			map(
-				function(x){
-					x %>%
-						mutate(
-							across(
-								where(is.list),
-								function(y){y %>% map_chr(function(v){str_c(v, collapse = ",")})}
-							)
-						)
-				}
-			),
 		
-		#Format all calls for tsv output
+		#Calls for tsv output
 		finalCalls_for_tsv = if_else(
 			call_class %in% c("SBS","indel") & SBSindel_call_type == "mutation",
 			finalCalls %>% map(
@@ -781,36 +792,30 @@ finalCalls.bytype <- call_types_toanalyze %>%
 								)
 						) %>%
 						
-						#Collapse to one row those fields that differ between strands
+						#Collapse to one row per mutation
 						pivot_wider(
-							#id_cols: Fields that are identical between strands. Not including call_class,call_type,SBSindel_call_type as these are identical for all rows within each finalCalls after nest_join. Not including deletion.bothstrands.startendmatch, since not a field of interest.
-							id_cols = all_of(strand_identical_cols),
+							id_cols = all_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
 							names_from = strand,
-							values_from = -all_of(c("strand", strand_identical_cols)),
-							names_glue = "{.value}_{var}"
+							values_from = -all_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard)),
+							names_glue = "{.value}_{strand}"
 						)
 				}
 			),
 			finalCalls
 		),
 		
-		#Format unique calls for tsv output
+		#Unique calls for tsv output
 		finalCalls_unique_for_tsv = if_else(
 			SBSindel_call_type == "mutation",
 			finalCalls_for_tsv %>% map(
 				function(x){
-					x %>%
-						distinct(
-							seqnames, start, end, ref_plus_strand, alt_plus_strand,
-							reftnc_plus_strand, alttnc_plus_strand, reftnc_pyr, alttnc_pyr,
-							indel_width
-						)
+					x %>% distinct(across(all_of(strand_identical_cols_keep)))
 				}
 			),
 			NA
 		),
 		
-		#Format all calls for vcf output
+		#Calls for vcf output
 		finalCalls_for_vcf = finalCalls_for_tsv %>% map(
 			function(x){
 				x %>% 
@@ -820,7 +825,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			}
 		),
 		
-		#Format unique calls for vcf output
+		#Unique calls for vcf output
 		finalCalls_unique_for_vcf = if_else(
 			SBSindel_call_type == "mutation",
 			finalCalls_unique_for_tsv %>%
@@ -1320,9 +1325,9 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		filter(individual_id == !!individual_id) %>%
 		nrow
 	
-	#Load gnomad_sensitivity_vcf
-	gnomad_sensitivity_vcf <- load_vcf(
-		vcf_file = sensitivity_parameters$gnomad_sensitivity_vcf,
+	#Load sensitivity_vcf
+	sensitivity_vcf <- load_vcf(
+		vcf_file = sensitivity_parameters$sensitivity_vcf,
 		genome_fasta = yaml.config$genome_fasta,
 		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin
@@ -1368,13 +1373,13 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 			! seqnames %in% mitochondrial_chromosome
 		) %>%
 		
-		#Keep variants in gnomad_sensitivity_vcf
+		#Keep variants in sensitivity_vcf
 		semi_join(
-			gnomad_sensitivity_vcf,
+			sensitivity_vcf,
 			by = names(.)
 		)
 	
-	rm(num_germline_vcf_files, gnomad_sensitivity_vcf)
+	rm(num_germline_vcf_files, sensitivity_vcf)
 	invisible(gc())
 	
 	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected. 

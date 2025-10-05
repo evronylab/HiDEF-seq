@@ -1,155 +1,203 @@
-# YAML Config parameter documentation
+# Configuration templates
 
-# General tools
-  1. condabase_script: $CONDA_BASE/etc/profile.d/conda.sh. This prepares the shell for activating conda environment. If using singularity, set to: /hidef/mambaforge/etc/profile.d/conda.sh
-  2. conda_pbbioconda_env: path to conda environment with PacBio tools. If using singularity, set to: /hidef/bin/pbconda
-  3. wigToBigWig_bin: path to wigToBigWig binary. If using singularity, set to: /hidef/bin/wigToBigWig
-  4. bcftools_bin: path to bcftools binary. If using singularity, set to: bcftools
-  5. samtools_bin: path to samtools >=1.12 binary. If using singularity, set to: samtools
-  6. samtools_1.10_bin: path to samtools v1.10 binary for process_subreads scripts. If using singularity, set to: /hidef/bin/samtools_1.10/samtools
-  7. seqkit_bin: path to seqkit binary. If using singularity, set to: /hidef/bin/seqkit
-  8. kmc_bindir: path to directory containing kmc and kmc_dump binaries (https://github.com/refresh-bio/KMC). If using singularity, set to: /hidef/bin/kmc/bin
-  9. gsutil_bin: Full path to gsutil binary on user's SLURM cluster account. GCloud must be installed and initialized to user's desired project.
-  10. HiDEFpipeline: path to directory containing all the pipeline scripts (process_subreads.sh, postccsfilter.awk, baseposition.awk, EXTRACTREFSEQscript.awk, refseq.awk, postalign.sh, and pbmm2filter.awk). If using singularity, set to: /hidef/scripts
-  11. slurm_himemjob_options: options to pass to sbatch for high memory jobs, separated by spaces as you would normally pass them to sbatch (e.g. -p himem_partition). This must also specify --mem=#G (recommended --mem=256G), where # = memory for high memory jobs (mutation_filtering, print_mutations, mutation_frequencies).
-  12. slurm_add_options: additional options to pass to sbatch (can be empty)
+This README describes every parameter consumed by the HiDEF-seq Nextflow pipeline (`main.nf`) and the downstream R utilities. Each key maps directly onto the structure of the template YAML files in this directory. The repository ships with a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that captures commonly used settings for the GRCh38 reference genome.
 
-# Genome reference information and files
-  1. genome: ID of reference genome. If using singularity, set to: CHM13_v1
-  2. chrsizes: tab-separated file with chromosome names (column 1) and chromosome size (column 2). If using singularity, set to: /hidef/references_CHM13v1/chrsizes.tsv
-  3. chrs_to_analyze: names of chromosomes (i.e. "chr1", etc.) to analyze, one per line. If using singularity, set to: /hidef/references_CHM13v1/chr1-22X.txt
-  4. Nrefbed: Compressed 3-column BED file of positions in genome with 'N' sequence. If using singularity, set to: /hidef/references_CHM13v1/chm13.draft_v1.0.N.merged.bed
-  5. fastaref: reference genome fasta
-  6. genomemmiindex: .mmi index of genome reference for use in pbmm2 alignment of mutation subreads
-  7. BSgenomepackagename: Name of BSgenome package in R when installed, so it can be loaded with library(). If using singularity, set to: BSgenome.Hsapiens.T2T.CHM13v1
-  8. gnomad_sensitivity_ref: bigwig file of gnomad variants (with bigwig score >0 for all positions) to intersect with sample's variants for germline heterozygous variant sensitivity estimate. If using singularity, set to: /hidef/references_CHM13v1/af.only.0.001.gnomad.v3.1.2.CHM13_v1.bw
+## Table of contents
+- [Global analysis identifiers](#global-analysis-identifiers)
+- [Sequencing runs and samples](#sequencing-runs-and-samples)
+- [Individuals and germline resources](#individuals-and-germline-resources)
+- [Output locations](#output-locations)
+- [Container and tool paths](#container-and-tool-paths)
+- [Pipeline runtime parameters](#pipeline-runtime-parameters)
+- [Reference genome resources](#reference-genome-resources)
+- [Call extraction settings](#call-extraction-settings)
+- [Germline VCF filter definitions](#germline-vcf-filter-definitions)
+- [Filter group definitions](#filter-group-definitions)
+- [Region filter configuration](#region-filter-configuration)
+- [Sensitivity estimation](#sensitivity-estimation)
 
-# Sample configuration
- Sample names
-  1. samplenames: Array of sample names. Sample names must be unique across the entire project.
+## Global analysis identifiers
 
- Tissues
-  1. tissues: Array of tissues for each sample. Must match order of samplenames.
+### Identifier keys
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `analysis_id` | string | yes | Unique identifier prefixed onto every output path emitted by `main.nf` and the R summary scripts. |
+| `reads_type` | string (`subreads` or `ccs`) | yes | Declares the input type for `processReads`. `subreads` segments the PacBio `ccs` binary across `ccs_chunks`; `ccs` starts from pre-generated HiFi reads and skips CCS assembly. All `runs[].reads_file` entries must match this type. |
 
- Barcodes
-  1. barcodes: Array of barcodes for each sample, in format bc####:XXXXXXXXXXXXXXXX, where #### = barcode ID number, and XXXXXXXXXXXXXXXX = barcode sequence. Must match order of samplenames.
+## Sequencing runs and samples
 
-# Configuration for process_subreads.sh
-  1. subreads_filename: subreads file (full original SMRTcell subreads data); also requires PBI index file in same location.
-  2. process_subreads_output_path: output directory for process_subreads scripts
-  3. ccs_BAM_prefix: prefix for final aligned ccs BAM
-  4. ccschunks: number of chunks used in pbccs
-  5. minccsrq: minimum predicted quality of ccs consensus. parameter is used in pbccs.
-  6. minoverlap: The minimum reciprocal overlap between the forward primary alignment and reverse primary alignment. Used in pbmm2filter.awk.
-  7. remotetempdir: true or false. Whether to remove TMPoutput directory created by process_subreads.sh upon completion.
+### Run-level entries
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runs[].run_id` | string | yes | Run identifier propagated into logs, molecule statistics, and output filenames. |
+| `runs[].reads_file` | path | yes | Absolute or relative path to the CCS or subread BAM. A companion `.pbi` index is expected alongside the BAM. |
+| `runs[].samples[]` | list | yes | Barcode definitions for each sample present in the run. |
+| `runs[].samples[].sample_id` | string | yes | Sample identifier that must match one of the entries in the top-level `samples` block. |
+| `runs[].samples[].barcode_id` | string | yes | Lima barcode label used when naming demultiplexed BAMs. |
+| `runs[].samples[].barcode` | DNA sequence | yes | Forward barcode sequence written to the per-run FASTA generated by `makeBarcodesFasta`. |
 
-# Configuration for make_bamfilezmw_all.R
-  1. bamfilezmw_all_filename: full path and file name for output RDS file created by make_bamfilezmw_all.R and the input for subsequent analysis scripts
-  2. make_bamfilezmw_all_config:
-      - First sub-level are samplenames (must match prior samplenames). For each, must define the below.
-        - vcffile_filenames: VCF file(s) for annotation of bamfilezmw_all in make_bamfilezmw_all.R script. These are usually the same as the VCFs in vcffilters.
- 
-# Configuration for mutation_filtering.R
- Bigwig cache directory
-  1. bigwig_cachedir: directory to store bigwig files generated during analysis, to save significant time in future analyses
+### Sample metadata
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `samples[].sample_id` | string | yes | Sample identifier referenced by runs, individuals, and downstream reports. |
+| `samples[].individual_id` | string | yes | Links each sample to the matching germline individual entry. |
+| `samples[].tissue` | string | optional | Free-form annotation retained in run metadata tables. |
 
- Output path and subreads bam filename
-  1. analysisoutput_path: path in which to save analysis output
-  2. analysisoutput_basename: base name to use for output files. This includes a log file and bamfilezmw_filtered RDS file with a list of all final mutations and other annotation generated during analysis.
-  3. gcloudoutput_path: [optional], if defined, HiDEF_pipeline.sh will copy final aligned CCS and subread BAM/BAI files to this gcloud path using 'gsutil cp'.
+## Individuals and germline resources
 
-# Mutation burden analysis filters:
-For somatic mutation rate analysis, multiple distinct sets of filter configurations can be defined across the following filter configuration lists, each with a different filterset index number.
-Multiple sets of filter combinations can be set up so that the analysis iterates through them and calculates a mutation rate for each. The categories of filters that are assigned to filter sets are:
-  - basic filters (called 'thresholds')
-  - vcffilters
-  - bigwigfilters
-  - bamfilters
-  - mutratefilters.
+### Individual-level inputs
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `individuals[].individual_id` | string | yes | Identifier joined against `samples[].individual_id`. |
+| `individuals[].sex` | string (`male` or `female`) | yes | Controls sex-chromosome burden handling and sensitivity aggregation. |
+| `individuals[].germline_bam_file` | path | yes | Germline-aligned BAM used to compute depth summaries and annotate variants. |
+| `individuals[].germline_bam_type` | string (`Illumina` or `PacBio`) | yes | Chooses mpileup arguments within `processGermlineBAMs`. |
+| `individuals[].germline_vcf_files[]` | list | optional | Collection of VCF/BCF files describing germline variants. |
+| `individuals[].germline_vcf_files[].germline_vcf_file` | path | yes (if list present) | Bgzipped VCF/BCF processed by `processGermlineVCFs`. Must have a matching index. |
+| `individuals[].germline_vcf_files[].germline_vcf_type` | string | yes (if list present) | Identifier that maps to a `germline_vcf_types` entry to attach filtering thresholds. |
 
-Each filter set is denoted by a numeric integer index (starting at 1). Each of these categories of filters must be configured with the same number of filter set indexes; i.e. the number of filter sets in basic filters must match the number of configuration filter sets defined in vcffilters, bigwigfilters, bamfilters, and mutratefilters. However, to avoid tediously large configuration files, for vcffilters, bigwigfilters, bamfilters, mutratefilters, if ...sameforallbasicfiltersets == TRUE, then the first configuration for that type of filter is duplicated across across all filter sets for that filter with a total number of filter sets equal to the number of filter sets in basic filters. This is because basic filters are the most likely to be optimized.
+## Output locations
 
-When there are _fwd, _rev, _avg  options for a filter, these are filters applied to fwd, rev, and average of fwd and rev strand reads, respectively, where fwd/rev strand corresponds to the reference genome strand to which the strand sequence aligned.
+### Paths
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `analysis_output_dir` | path | yes | Root directory for per-sample output folders (`processReads`, `outputResults`, etc.). |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome archives, region filters, processed germline resources). The path must be writable by Nextflow executors and bind-mounted when using Singularity. |
 
-<ins>Details of filters:</ins>
+## Container and tool paths
 
-**thresholds:**
-- First sub-level are numeric integer indexes (starting at 1) for each filter set. Under these are:
-  - *General filters*
-    - rqfwd, rqrev, rqavg (minimum read quality)
-    - ecfwd, ecrev, ecavg (minimum effective coverage)
-    - mapqfwd, mapqrev, mapqavg (minimum mapping quality)
-    - numsnvsfwd, numsnvsrev, numsnvszmw (maximum number of SNVs before VCF filtering; fwd and rev include both ssDNA and dsDNA calls, and zmw are dsDNA calls; set to 999999 to disable)
-    - numsnvsfwdrevdiff (maximum difference in number of SNVs between fwd and rev CCS before VCF filtering)
-    - numindelsfwd, numindelsrev, numindelszmw (maximum number of indels before VCF filtering; set to 999999 to disable)
-    - numsnvsfwdpostVCF, numsnvsrevpostVCF, numsnvszmwpostVCF (maximum number of SNVs right after VCF SNV filtering and basic ZMW filtering, and before other SNV filtering; set to 999999 to disable)
-    - numsoftclipfwd, numsoftcliprev, numsoftclipavg (maximum number of soft clipped bases; set to 999999 to disable)
-    - minqq: Minimum base quality filter. Both strands of zmw (duplex) calls must pass filter, and single-strand calls must pass filter on the strand containing the call.
-    - bpends: # of basepairs to filter from 5'/3' ends of read alignments (alignment span excludes soft-clipped bases). For dsDNA calls, filter is applied to both fwd and rev strand alignments.
+### Container and environment hooks
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path loaded for all processes. |
+| `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating bundled conda environments. |
+| `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools. |
+| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `seqkit_bin`, `bedtools_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Command names or absolute paths invoked inside the container. Override when supplying custom installations. |
+| `ccs_ld_preload` | path | optional | Shared library path exported via `LD_PRELOAD` before invoking the PacBio `ccs` binary, mitigating thread-affinity issues described in <a href="https://github.com/microsoft/onnxruntime/issues/10736" target="_blank" rel="noopener noreferrer">onnxruntime issue #10736</a>. Leave blank to disable. |
 
-  - *CCS indel filters*
-    - ccsindelfilter: Exclude if near ccs indel (true or false)
-    - ccsindelinspad: Insertion padding: size of padding on each side of insertion: mb. 'm': multiplier relative to size of insertion (float), or 'b': basepairs. Both are calculated for each call and filtering uses the larger of the two. To exclude one of them, just set it to 0; i.e. m0 or b0.
-    - ccsindeldelpad: Deletion padding: size of padding on each side of deletion. Same format as above.
+## Pipeline runtime parameters
 
-  - *Subread filters:* Filters to require minimium evidence in extracted and aligned subreads. Separate filters for ssDNA and ZMW (dsDNA) calls.
-    - minsubreads_cvg_fraction: Minimum fraction of subreads overlapping the calls (regardless of whether they contain the call) out of the total subreads aligned to the genome, taking into account for both the numerator and denominator terms only subreads from the same strand and ZMW in which the call was made. This filter is applied separately to each strand in which the call was made (i.e. only the call-containing strand for ssDNA calls, and to both strands for dsDNA calls so that a dsDNA call must pass this filter in both strands). This filter removes calls covered by only a fraction of a ZMW's subreads aligned to the soft-clipped region.
-    - minZMWsubreadsVariantReads: Minimum number of subreads that match ZMW variant base required in both fwd and rev subreads (filtered applied to each separately, and required to pass in both).
-    - minZMWsubreadsVAF: Minimum VAF among subreads that match ZMW variant base required in both fwd and rev subreads (filtered applied to each separately, and required to pass in both).
-    - minssDNAsubreadsVariantReads: Minimum number of subreads that match ssDNA variant called in the consensus CCS read in order to keep the ssDNA variant. Applies only to the subreads from the same strand as the ssDNA variant.
-    - minssDNAsubreadsVAF: Minimum VAF among subreads that match ssDNA variant called in the consensus CCS read in order to keep the ssDNA variant. Applies only to the subreads from the same strand as the ssDNA variant.
+### Nextflow chunking and retries
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ccs_chunks` | integer | required when `reads_type: subreads` | Number of segments passed to the PacBio `ccs` binary (`ccsChunk` process). Each chunk emits partial HiFi reads that are merged downstream. |
+| `lima_min_score` | integer | optional | Minimum Lima barcode score enforced by `limaDemux`. |
+| `analysis_chunks` | integer | yes | Number of BAM chunks emitted per sample for the `splitBAMs` ➝ `filterCalls` stages. Higher values increase parallelism. |
+| `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, wall-clock limit, and retry count for `extractCallsChunk`. Retries progressively increase requested resources as coded in `main.nf`. |
+| `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous overrides for `filterCallsChunk`. |
+| `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Resource configuration for the burden summarisation steps. |
+| `remove_intermediate_files` | boolean | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
 
-**vcffilters_sameforallbasicfiltersets:** true or false; whether the configuration for the first filter set is used across all basic filter filter sets
- 
-**vcffilters:**
-- First sub-level are integer indexes (starting at 1) for each filter set.
-  - Second sub-level are samplenames (must match prior samplenames)
-    - Third sub-level are numeric indexes for each VCF file. Multiple VCF files can be specified.
-        - vcffilename: VCF full file name path (same used during bamfilezmw_all loading)
-        - SNVFILTERS: array of VCF FILTER column values to include for SNV filtering, or "." to use all
-        - INDELFILTERS: array of VCF FILTER column values to include for INDEL filtering, or "." to use all
-        - vcfSNVfilter: Perform SNV filtering (true or false)
-        - vcfSNVDepth: Minimum total locus depth for SNVs
-        - vcfSNVGQ: Minimum genotype quality for SNVs
-        - vcfSNVVAF: Minimum variant allele frequency for SNVs (range 0-1)
-        - vcfSNVQUAL: Minimum variant QUAL for SNVs (column 6 of VCF)
-        - vcfINDELfilter: Perform INDEL filtering (true or false)
-        - vcfINDELDepth: Minimum total locus depth for INDELs
-        - vcfINDELGQ: Minimum genotype quality for INDELs
-        - vcfINDELVAF: Minimum variant allele frequency for INDELs (range 0-1)
-        - vcfINDELQUAL: Minimum variant QUAL for INDELs (column 6 of VCF)
-        - vcfINDELinspad: size of padding around insertions for filtering (filter variants inside padding): mb. 'm': multiplier relative to size of insertion (float), or 'b': basepairs. Both are calculated for each call and filtering uses the larger of the two for each call. To exclude one of them, just set it to 0; i.e. m0 or b0.
-        - vcfINDELdelpad: size of padding around deletions for filtering (filter variants inside padding): format per above.
+## Reference genome resources
 
-**bigwigfilters_sameforallbasicfiltersets:** true or false; whether the configuration for the first filter set is used across all basic filter filter sets
+### Required files
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `genome_fasta` | path | yes | Reference FASTA used by pbmm2 alignment and R-based summaries. |
+| `genome_fai` | path | yes | FASTA index produced by `samtools faidx`. |
+| `genome_mmi` | path | yes | pbmm2 minimap2 index produced by `pbmm2 index`. |
+| `BSgenome.BSgenome_name` | string | yes | BSgenome package name (for example `BSgenome.Hsapiens.UCSC.hg38`) loaded by the R scripts. |
+| `BSgenome.BSgenome_file` | path | optional | Tarball containing a custom BSgenome build. When supplied, `installBSgenome.R` installs it into `cache_dir`. |
+| `sex_chromosomes` | comma-separated string | yes | Chromosome identifiers treated as sex chromosomes and excluded from sensitivity borrowing. |
+| `mitochondrial_chromosome` | string | yes | Identifier for mitochondrial DNA. |
 
-**bigwigfilters:**
-- First sub-level are integer indexes (starting at 1) for each filter set.
-  - Second sub-level are numeric indexes for each bigwig file. Multiple bigwig files can be specified.
-      - bigwigfiltertype: SNV or ZMW. This specifies if it is an SNV filter or ZMW filter.
-      - bigwigfile: Bigwig full file name path
-      - binsize: Size of bins across the genome to average bigwig signal (integer).
-      - threshold: "[gte|lt]###".
-        - If "SNV" filter: defines regions to be filtered as bins greater than or equal (gte) or less than (lt) numeric threshold ### (### = floating point between 0 to 1).
-        - If "ZMW" filter, the fraction of the read span that is greater than (gte) or less than (lt) numeric threshold ### (### = floating point between 0 to 1) is calculated separately for the fwd and rev ccs reads. The average of these two fractions is then compared to zmwthreshold.
-      - zmwthreshold: "[gte|lt]###". The entire ZMW is filtered out if the average fraction of the fwd and rev ccs read spans that do not pass the 'threshold' parameter above is greater than or equal (gte) or less than (lt) numeric zmwthreshold ### (### = floating point between 0 to 1), and otherwise this filter does not remove the ZMW nor any part of the ZMW. Relevant only for "ZMW" filters, blank for "SNV" filters.
-      - padding:  of bp padding on both sides of each filtered region. Relevant only for "SNV" filters.
-           Note: Can specify the same bigwig file twice, once as an "SNV"-filter (zmwthreshold is ignored and doesn't need to be specified), and a second time as a "ZMW" filter by setting snvorzmwfilter="ZMW".
-      - applyto: "ss", "ds", or "both" -> Specifies if the filter will be applied to ssDNA or dsDNA or both types of calls. Relevant only for filters for which bigwigfiltertype = "SNV".
+### Chromosome grouping
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `chromgroups[]` | list | yes | Declares groups of chromosomes processed together. |
+| `chromgroups[].chromgroup` | string | yes | Group name used when naming output subdirectories and burden summaries. |
+| `chromgroups[].chroms` | comma-separated string | yes | Chromosome identifiers included in the group. |
 
+## Call extraction settings
 
-**bamfilters_sameforallbasicfiltersets:** true or false; whether the configuration for the first filter set is used across all basic filter filter sets
- 
-**bamfilters:** Configure bulk WGS BAM/CRAM file and WGS coverage files for filtering. This is used for BAM/CRAM bulk WGS pileup filtering. These are needed because GATK and DeepVariant sometimes miss low-level variants or due to wrong local haplotype assembly that calls variants in a different nearby location than in the CCS/ZMW.
-- First sub-level are integer indexes (starting at 1) for each filter set.
-  - Second sub-level are samplenames (must match prior samplenames)
-      - bamfile: Full path of BAM/CRAM file of bulk WGS. Must be a single sample BAM/CRAM file, and index must be present.
-      - bamreftype: Illumina or PacBio, depending on the type of the bulk sequencing file used for WGS pileup filtering. This changes the bcftools mpileup command used.
-      - WGScoveragebigwig: Bigwig file of coverage made using samtools mpileup with the same parameters used for final SNV pileup filtering.
-      - minBAMTotalReads: Minimum total read depth in bulk WGS BAM/CRAM file. If less than this, then filter the variant. This ensures that germline reads aren't called as somatic just because the bulk WGS data had low read depth. Set to 0 to disable.
-      - maxBAMVariantReads: Maximum number of reads with the same variant in the bulk WGS BAM/CRAM file. If greater than this, then filter the variant. Set to 999999 to disable.
-      - maxBAMVAF: Maximum VAF of the same variant in the bulk WGS BAM/CRAM file. If greater than this, then filter the variant. Set to 1 to disable.
+### Overlap and call type structure
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `min_strand_overlap` | float (0–1) | yes | Minimum fraction of forward/reverse read overlap required prior to extracting calls. |
+| `call_types[]` | list | yes | Defines each call class processed downstream. |
+| `call_types[].call_type` | string | yes | Logical label for the call class (for example `SBS`, `insertion`, or custom MDB tags). |
+| `call_types[].call_class` | string (`SBS`, `indel`, `MDB`) | yes | Directs R scripts toward the correct processing branch. |
+| `call_types[].analyzein_chromgroups` | string | yes | Either `all` or a comma-separated subset of `chromgroups[].chromgroup` values indicating where the call type is analysed. |
+| `call_types[].SBSindel_call_types[]` | list | yes | Call subtypes evaluated for the parent call type. |
+| `call_types[].SBSindel_call_types[].SBSindel_call_type` | string | yes | Subclass label (for example `mutation`, `mismatch-ss`, `mismatch-ds`, `mismatch-os`, `match`). |
+| `call_types[].SBSindel_call_types[].filtergroup` | string | yes | References a `filtergroups[].filtergroup` that governs molecule-level filters for the subtype. |
 
- **mutratefilters:** These filters determine how the final mismatch and mutation burdens are calculated. These thresholds are applied identically to all samples sharing the same YAML configuration file (i.e. samples from the same analysis).
-  1. maxmutationsperssdna: Maximum number of ssDNA calls in fwd or rev strand reads for that strand's ssDNA calls to be included in the final burden calculation.
-  2. maxmutationsperzmw: Maximum number of dsDNA calls in a ZMW for the ZMW's dsDNA calls to be included in the final burden calculation.
+### MDB-specific options
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `call_types[].MDB_bamtag` | string | required for MDB entries | BAM auxiliary tag storing MDB scores. |
+| `call_types[].MDB_min_score` | numeric | required for MDB entries | Minimum strand score enforced during extraction. |
+| `call_types[].MDB_sensitivity` | float | optional | Sensitivity applied when correcting burdens for MDB call types. |
+| `call_types[].MDB_base_opposite_strand` | string or `null` | optional | When set, requires the specified base on the opposite strand for MDB evaluation; `null` disables the constraint. |
+
+## Germline VCF filter definitions
+
+### Threshold fields
+| Key | Type | Description |
+| --- | --- | --- |
+| `germline_vcf_type` | string | Identifier referenced by individuals. |
+| `SBS_FILTERS[]` | list of strings | Filters whose presence in the VCF `FILTER` column removes the SBS variant. Quote `.` when retaining PASS sites. |
+| `SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum depth, allele fraction, genotype quality, and QUAL required for SBS calls. |
+| `indel_FILTERS[]` | list of strings | Filters to exclude for indels. |
+| `indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds for indel records. |
+| `indel_inspad`, `indel_delpad` | string or `NA` | Padding strings encoded as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline expands both sides of the site by the larger of those two numbers. Use `NA` to disable padding for the respective event type. Values feed into germline VCF region filters. |
+
+## Filter group definitions
+
+### Molecule-level filters
+| Key | Description |
+| --- | --- |
+| `filtergroup` | Name referenced by `call_types[].SBSindel_call_types[].filtergroup`. |
+| `min_rq_eachstrand`, `min_rq_avgstrands` | Minimum read-quality (`rq`) thresholds applied per strand and to the average across both strands. The `avgstrands` checks compute the mean of the two strand values before comparison. |
+| `min_ec_eachstrand`, `min_ec_avgstrands` | Minimum polymerase pass counts (`ec`) per strand and averaged across strands. |
+| `min_mapq_eachstrand`, `min_mapq_avgstrands` | Minimum mapping quality thresholds per strand and averaged across strands. |
+| `max_num_SBScalls_eachstrand`, `max_num_SBScalls_stranddiff` | Maximum SBS call counts per strand and allowable imbalance between strands. |
+| `max_num_SBSmutations` | Maximum SBS mutations per molecule prior to filtering. |
+| `max_num_indelcalls_eachstrand`, `max_num_indelcalls_stranddiff`, `max_num_indelmutations` | Analogous indel controls for call counts and mutations. |
+| `max_num_softclipbases_eachstrand`, `max_num_softclipbases_avgstrands` | Soft-clip thresholds per strand and averaged across strands. |
+| `max_num_SBScalls_postVCF_eachstrand`, `max_num_SBSmutations_postVCF` | Post-germline SBS limits enforced after VCF filtering. |
+| `max_num_indelcalls_postVCF_eachstrand`, `max_num_indelmutations_postVCF` | Post-germline indel limits. |
+| `min_qual`, `min_qual_method` | Minimum HiFi `qual` score threshold and aggregation method. `min_qual_method` accepts `mean`, `all`, or `any`, matching the helper function in `filterCalls.R` that respectively tests mean scores, requires all positions above threshold, or allows any position above threshold for multi-base events. |
+| `read_trim_bp` | Number of bases trimmed from each read end before evaluating filters. |
+| `ccsindel_inspad`, `ccsindel_delpad` | Padding strings using the same `m<multiplier>b<offset>` syntax described above, applied when intersecting indels with CCS subreads to derive coverage statistics. Set the value to `NA` to disable padding entirely; otherwise specify the multiplier/offset pair (for example `m1b10`). |
+| `min_BAMTotalReads`, `max_BAMVariantReads`, `max_BAMVAF` | Depth-based thresholds computed from germline BAM pileups. |
+| `min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match` | Subread coverage thresholds derived from `sa`, `sm`, and `sx` tags. |
+| `min_subreads_cvgmatch_method` | Aggregation method (`mean`, `all`, or `any`) applied when summarising subread coverage metrics across multi-base events. |
+| `max_finalcalls_eachstrand` | Maximum allowed final calls per strand; molecules exceeding the cap are discarded. |
+
+`avgstrands` suffixes indicate that the pipeline calculates the metric independently for the plus and minus strand of each molecule and then compares the arithmetic mean `(plus + minus) / 2` against the configured threshold. Padding string options for CCS coverage reuse the `m<multiplier>b<offset>` convention explained in the germline VCF filter table above.
+
+## Region filter configuration
+
+### Read filters (`region_filters[].read_filters[]`)
+| Key | Description |
+| --- | --- |
+| `region_filter_file` | bigWig track providing per-base scores. |
+| `binsize` | Integer bin size used when rescaling the bigWig to genomic intervals. |
+| `threshold` | Comparison encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
+| `padding` | Number of bases expanded around filtered intervals. |
+| `read_threshold` | Optional per-read comparison using the same operator syntax as `threshold`. |
+| `applyto_chromgroups` | `all` or a comma-separated list of chromgroups receiving the filter. |
+| `applyto_filtergroups` | `all` or a comma-separated list of filter groups inheriting the filter. |
+| `is_germline_filter` | Boolean indicating whether the filter targets germline contexts. Germline filters are excluded from sensitivity calculations. |
+
+### Genome filters (`region_filters[].genome_filters[]`)
+| Key | Description |
+| --- | --- |
+| `region_filter_file` | bigWig describing genome regions to mask during burden calculations. |
+| `binsize`, `threshold`, `padding` | Same semantics as the read filters. |
+| `applyto_chromgroups`, `applyto_filtergroups`, `is_germline_filter` | Behave as in the read filter configuration (without a `read_threshold`). |
+
+## Sensitivity estimation
+
+### Sensitivity parameters
+| Key | Type | Description |
+| --- | --- | --- |
+| `sensitivity_parameters.use_chromgroup` | string | Chromgroup whose sensitivity estimates seed other groups. Leave blank to skip sensitivity correction (burdens default to 1.0). |
+| `sensitivity_parameters.sensitivity_vcf` | path | External population reference germline VCF used to identify high-confidence heterozygous or homozygous variants for sensitivity analysis. |
+| `sensitivity_parameters.genotype` | string (`heterozygous` or `homozygous`) | Determines which genotype states are tallied when measuring detection sensitivity. |
+| `sensitivity_parameters.SBS_min_Depth_quantile`, `SBS_min_VAF`, `SBS_max_VAF`, `SBS_min_GQ_quantile`, `SBS_min_QUAL_quantile`, `SBS_min_variant_detections` | numeric | Thresholds applied to SBS variants; quantile parameters evaluate empirical distributions, whereas absolute thresholds apply directly. |
+| `sensitivity_parameters.indel_min_Depth_quantile`, `indel_min_VAF`, `indel_max_VAF`, `indel_min_GQ_quantile`, `indel_min_QUAL_quantile`, `indel_min_variant_detections` | numeric | Analogous thresholds for indel sensitivity selection. |
+| `sensitivity_parameters.default_sensitivity` | numeric | Optional fallback sensitivity applied when no qualifying variants are detected. |
+
+MDB-specific sensitivity overrides can also be provided per call type through `call_types[].MDB_sensitivity`.

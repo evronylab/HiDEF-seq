@@ -1,242 +1,137 @@
 # HiDEF-seq
-HiDEF-seq is a single-molecule sequencing method with single-molecule accuracy for single base substitutions, when present in either one or both strands of DNA. This repository contains scripts and a pipeline for analysis of HiDEF-seq data. The protocol for preparing HiDEF-seq libraries from high-quality DNA can be found at [protocols.io](https://www.protocols.io/view/hidef-seq-kxygxy9mwl8j/v1). See the [HiDEF-seq pre-print](https://www.biorxiv.org/content/10.1101/2023.02.19.526140v1) for other versions of the HiDEF-seq library preparation protocol (e.g., protocols for low-quality DNA, random fragmentation, larger DNA fragments, etc).
 
-Before starting HiDEF-seq analysis, every sample requires germline sequencing data that must be processed prior to running the HiDEF-seq pipeline.
+## Intro
+HiDEF-seq is a single-molecule sequencing method with single-molecule accuracy for single base substitutions, when present in either one or both strands of DNA. This repository contains scripts and a pipeline for analysis of HiDEF-seq data. The protocol for preparing and sequencing HiDEF-seq libraries from high-quality DNA can be found at protocols.io (link coming soon). This version of the HiDEF-seq protocol (v3) and analysis pipeline (v3) are compatible with PacBio Revio. Please note carefully in the above protocol the required settings for sequencing on Revio, without which the data cannot be analyzed. See also the HiDEF-seq paper (<a href="https://www.nature.com/articles/s41586-024-07532-8" target="_blank" rel="noopener noreferrer">Liu, et al.</a>).
 
-Then, for HiDEF-seq data, the fastest and most straightforward way to analyze it is using the pre-configured docker image. However, individual scripts for each step of the analysis are also provided.
+Before starting HiDEF-seq analysis, every sample also requires standard germline sequencing data that can also be sequenced on PacBio Revio and that must be processed prior to running the HiDEF-seq pipeline (see [Germline sequencing data processing](#germline-sequencing-data-processing)).
 
+Once HiDEF-seq and germline data is available, the fastest and most straightforward way to analyze the data is using the pre-configured docker image (see [Run HiDEF-seq pipeline](#run-hidef-seq-pipeline)). However, individual scripts for each step of the analysis are also provided.
 
-### Outline
+## Outline
 - [Computing environment](#computing-environment)
 - [Reference genome](#reference-genome)
 - [Germline sequencing data processing](#germline-sequencing-data-processing)
-  - [Script requirements](#a-script-requirements)
-  - [Illumina germline sequencing data processing](#b-illumina-germline-sequencing-data-processing)
-  - [PacBio germline sequencing data processing](#c-pacbio-germline-sequencing-data-processing)
-- [Configure HiDEF-seq wrapper script for SLURM cluster](#configure-hidef-seq-for-the-slurm-cluster)
-- [Run HiDEF-seq Pipeline](#run-hidef-seq-pipeline)
-- [Outputs](#outputs)
+- [Run HiDEF-seq pipeline](#run-hidef-seq-pipeline)
+- [Output](#output)
 - [Citation](#citation)
 
 ## Computing environment
-The analysis requires a SLURM computing cluster.
+HiDEF-seq is orchestrated with Nextflow, which can execute pipelines on local workstations, shared high-performance computing (HPC) schedulers, and major cloud backends. Consult the <a href="https://www.nextflow.io/docs/latest/index.html" target="_blank" rel="noopener noreferrer">Nextflow documentation</a> for an overview of supported executors and configuration patterns. For example, running on a SLURM-based cluster requires defining a Nextflow configuration profile that sets executor options such as queue names, maximum memory, and CPU resources—see the <a href="https://www.nextflow.io/docs/latest/executor.html#slurm" target="_blank" rel="noopener noreferrer">Nextflow SLURM guide</a> for details.
 
-If a SLURM cluster is not available to you locally, you may setup a virtual SLURM cluster on Google Cloud (https://github.com/SchedMD/slurm-gcp) or on AWS (https://docs.aws.amazon.com/parallelcluster/latest/ug/what-is-aws-parallelcluster.html). Note: this incurs cloud-associated costs.
+Create a Nextflow configuration file tailored to your environment. When using Singularity, enable it explicitly with `singularity.enabled = true`.
 
-The cluster must also have Singularity version >= 3.7.1.
+Use the same configuration file to constrain resources (for example `process.max_memory` and `process.max_cpus`) to match your scheduler limits. Pass this environment configuration to the pipeline with the `-config` flag when invoking Nextflow as described in [Run HiDEF-seq pipeline](#run-hidef-seq-pipeline).
 
 ## Reference genome
-The analyses are performed using the CHM13 T2T v1.0 reference genome (https://github.com/marbl/CHM13), which improves analysis accuracy.
+Preparing the reference genome requires installing several command-line tools and generating multiple derivative files used throughout the workflow.
 
-### A. Script requirements
-- [bwa](https://github.com/lh3/bwa) in the system PATH 
-- [samtools](http://www.htslib.org/download/) in the system PATH
+### Script requirements
+- <a href="http://www.htslib.org/" target="_blank" rel="noopener noreferrer">samtools</a>
+- <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a> — pbmm2 is already installed inside the HiDEF-seq docker image. To call it inside the container, first activate the bundled environment with `source /hidef/miniconda3/etc/profile.d/conda.sh` followed by `conda activate /hidef/bin/pbconda`.
+- <a href="https://bedtools.readthedocs.io/" target="_blank" rel="noopener noreferrer">bedtools</a>
+- <a href="http://hgdownload.soe.ucsc.edu/admin/exe/" target="_blank" rel="noopener noreferrer">bedGraphToBigWig</a>
+- <a href="http://www.htslib.org/" target="_blank" rel="noopener noreferrer">bcftools</a>
 
-### B. Preparing reference genome files:
-1. Download the [CHM13 v1.0 reference genome](https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chm13.draft_v1.0.fasta.gz)
-2. Extract with gunzip: ```gunzip chm13.draft_v1.0.fasta.gz```
-3. Make an 'fai' index file: ```samtools faidx chm13.draft_v1.0.fasta```
-4. Make a BED file of chromosome sizes: ```awk '{print $1 "\t0\t" $2}' chm13.draft_v1.0.fasta.fai > chm13.draft_v1.0.chrsize.bed```
-5. Make a bwa index: ```bwa index chm13.draft_v1.0.fasta```
-6. Download additional required references files:
-    - [clip_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/clip_all.CHM13_v1.bw)
-    - [orphan_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/orphan_cov_all.CHM13_v1.bw)
-    - [prop_cov_all.CHM13_v1.bw](https://storage.googleapis.com/hidef-seq-references/CHM13_v1.0/prop_cov_all.CHM13_v1.bw)
+### Preparing reference genome files
+1. Download the FASTA for the reference genome of interest.
+2. Create the FASTA index by running `samtools faidx chm13.draft_v1.0.fasta`.
+3. Build the minimap2 index used by pbmm2 (use `--preset SUBREAD` for Sequel II subread data) by running `pbmm2 index ref.fasta ref.mmi --preset CCS`.
+4. Record chromosome sizes in a tab-delimited file named `genome.chrsizes.tsv` (columns: `chrom\tchrom_size`).
+5. Prepare genomic filter tracks used by the pipeline:
+   - Identify BED files for `read_filters` and `genome_filters` (see the [YAML configuration documentation](config_templates/README.md#region-filter-configuration) for details). Public resources such as the <a href="https://genome.ucsc.edu/" target="_blank" rel="noopener noreferrer">UCSC Genome Browser</a> provide centromere, telomere, and segmental duplication annotations.
+   - Convert each BED file to a sorted, merged bedGraph and finally to bigWig format:
+     ```
+     bedtools sort -i filter.bed -g genome.fa.fai | \
+       bedtools merge -i stdin | \
+       awk '{print $0 "\t1"}' | \
+       sort -k1,1 -k2,2n > filter.bedgraph
+
+     bedGraphToBigWig filter.bedgraph genome.chrsizes.tsv filter.bw
+     ```
+6. Prepare gnomAD data (required for human analyses) from the <a href="https://gnomad.broadinstitute.org/downloads" target="_blank" rel="noopener noreferrer">gnomAD download portal</a>:
+   ```
+   bcftools annotate -x ^INFO/AF,FORMAT gnomAD.chrom.vcf.gz | \
+     bcftools norm -Oz -m- > gnomAD.chrom.norm.vcf.gz
+   ```
+   For mitochondrial data, retain `AF_hom` and `AF_het` instead of `AF`. Concatenate all chromosomes, filter by allele frequency, and index:
+   ```
+   bcftools concat -Oz gnomAD.chrom.norm.vcf.gz > gnomAD.norm.vcf.gz
+   bcftools view -Oz -i '(INFO/AF[*] >= 0.001 | INFO/AF_hom[*] >= 0.001 | INFO/AF_het[*] >= 0.001) & FILTER="PASS"' \
+     gnomAD.norm.vcf.gz > gnomAD.norm.AFfiltered.vcf.gz
+   bcftools index gnomAD.norm.AFfiltered.vcf.gz
+   ```
+   Split single-nucleotide variants (SNVs) and indels and convert each set to BED and bigWig tracks:
+   ```
+   bcftools view gnomAD.norm.AFfiltered.vcf.gz | \
+     grep -v '^#' | \
+     awk -v OFS='\t' '$5!="*" {if(length($4)==length($5)){print $1,$2-1,$2}}' \
+     > gnomAD.norm.AFfiltered.vcf.gz.snvs.bed
+
+   bcftools view gnomAD.norm.AFfiltered.vcf.gz | \
+     grep -v '^#' | \
+     awk -v OFS='\t' '$5!="*" {if(length($4) > length($5)){print $1,$2,$2+length($4)-1} else if(length($5)>length($4)){print $1,$2-1,$2+1}}' \
+     > gnomAD.norm.AFfiltered.vcf.gz.indels.bed
+   ```
+   Convert the resulting BED files to bigWig as in step 5.
 
 ## Germline sequencing data processing
-Prior to starting the HiDEF-seq pipeline, germline sequencing data (either Illumina OR PacBio), must be processed for each sample.
+Germline variant calling should be completed before starting HiDEF-seq analysis. The repository provides an example workflow ([`scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh`](scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh)) that aligns PacBio HiFi reads with <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a> and runs both DeepVariant and Clair3 inside Singularity containers.
 
-The scripts for performing this are in the [germline_analysis folder](https://github.com/evronylab/HiDEF-seq/tree/main/germline_analysis), and instructions for running them are below.
+### Script requirements
+- <a href="https://www.docker.com/" target="_blank" rel="noopener noreferrer">Docker</a> or <a href="https://sylabs.io/singularity/" target="_blank" rel="noopener noreferrer">Singularity</a> (to execute DeepVariant and Clair3)
+- <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a>
+- <a href="https://github.com/google/deepvariant" target="_blank" rel="noopener noreferrer">DeepVariant</a>
+- <a href="https://github.com/HKU-BAL/Clair3" target="_blank" rel="noopener noreferrer">Clair3</a>
 
-### A. Script requirements
-- [bwa](https://github.com/lh3/bwa) in the system PATH 
-- [samtools](http://www.htslib.org/download/) in the system PATH
-- singularity (for running DeepVariant)
-- [GATK](https://github.com/broadinstitute/gatk/releases)
-- DeepVariant: ```singularity pull docker://google/deepvariant:1.2.0```. This makes an SIF file ('singularity image file'). Note, we have used DeepVariant v1.2.0 and have not tested subsequent versions.
-- [Picard .jar file](https://github.com/broadinstitute/picard/releases/tag/2.27.5)
-- [bedGraphToBigWig](http://hgdownload.soe.ucsc.edu/admin/exe/)
+### Processing outline
+1. Align germline reads to the reference genome with pbmm2.
+2. Call germline variants with DeepVariant and Clair3 using the [provided script](scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh) as a template for batching jobs on your scheduler.
 
-### B. Illumina germline sequencing data processing
-1. Download the [Illumina germline analysis scripts](https://github.com/evronylab/HiDEF-seq/tree/main/germline_analysis)
+## Run HiDEF-seq pipeline
 
-2. For each sample's R1 and R2 sequencing data, extract the reads of each read group into a separate FASTQ file:
+### Requirements
+- HiDEF-seq container image. For Singularity run `singularity pull docker://gevrony/hidef-seq:3.0`.
+- <a href="https://www.nextflow.io/" target="_blank" rel="noopener noreferrer">Nextflow</a> v25.04.3 or newer.
 
-    ```Process_IlluminaWGS_for_HiDEF-part1.sh [samplename.R1.fastq.gz] [samplename.R2.fastq.gz]```
+### YAML parameters file
+All run-time configuration resides in a YAML file that enumerates samples, reference resources, filters, and per-workflow options. Template files and detailed documentation are available in [`config_templates/`](config_templates) and elaborated in [YAML parameters](config_templates/README.md).
 
-3. For each extracted read group FASTQ file, align the reads to the genome with bwa:
+### Run pipeline
+Set environment variables that describe the repository revision, Nextflow environment configuration, and run-specific inputs, then launch the workflow:
 
-    ```Process_IlluminaWGS_for_HiDEF-part2.sh [samplename] [chm13.draft_v1.0.fasta] [samplename_R1_RGXXXXX.fastq.gz] [samplename_R2_RGXXXXX.fastq.gz]```
-      [samplename]: sample name; should be the same for all read groups that are extracted from the same sample
-      XXXXX = Read group ID
+```
+HIDEFSEQ_GITREPO=evronylab/HiDEF-seq
+HIDEFSEQ_GITTAG=3.0  # Update to the desired release tag
+NEXTFLOW_CONFIG=/path/to/nextflow.config
+YAML=/path/to/analysis.yaml
+WORK_DIR=/path/to/nextflow_work
 
-    - Run this script for each read group
+nextflow -config "$NEXTFLOW_CONFIG" \
+  run "$HIDEFSEQ_GITREPO" \
+  -r "$HIDEFSEQ_GITTAG" \
+  -latest \
+  -params-file "$YAML" \
+  --workflow all \
+  -resume \
+  -work-dir "$WORK_DIR"
+```
 
-4. For each sample, Merge BAM files of all the sample's read groups, mark duplicates, sort, convert to CRAM, call variants with GATK and DeepVariant, and make a bigWig file of read coverage across the genome.
+Refer to the <a href="https://www.nextflow.io/docs/latest/cli.html#run" target="_blank" rel="noopener noreferrer">Nextflow CLI documentation</a> for additional runtime options.
 
-    ```Process_IlluminaWGS_for_HiDEF-part3.sh [samplename] [reference.fasta] [chm13.draft_v1.0.chrsize.bed] [picard.jar path] [gatk path] [deepvariant sif path] [bedGraphToBigWig path]```
+The `--workflow` parameter controls which segments of the pipeline execute. Supported values are:
+- `all` — runs the entire pipeline.
+- Ordered, contiguous subsets drawn from `processReads`, `splitBAMs`, `prepareFilters`, `extractCalls`, `filterCalls`, `calculateBurdens`, `outputResults`, `removeIntermediateFiles`.
 
-### C. PacBio germline sequencing data processing
-1. Install these two pbbioconda tools: pbmerge, pbmm2 (https://github.com/PacificBiosciences/pbbioconda)
-2. Index reference genome: ```pbmm2 index [chm13.draft_v1.0.fasta] [chm13.draft_v1.0.mmi]```
-3. Generate HiFi reads (at least 3 SMRTcells per sample)
-4. Merge HiFi reads from all SMRTcells of each sample with 'pbmerge'
-5. Align reads to the genome: ```pbmm2 align --log-level INFO -j [cpus] [chm13.draft_v1.0.mmi] [samplename.merged.hifi.bam] [samplename.merged.hifi.aligned.bam] --preset CCS --sort```
-6. Call variants with DeepVariant (enter below configuration parameters before running):
-  ```
-  REFFASTA=[chm13.draft_v1.0.fasta]
-  REFCHRSIZES=[chm13.draft_v1.0.chrsize.bed]
-  INPUTDIR=[path of input BAM files]
-  OUTPUTDIR=[path for output BAM files]
-  INPUTFILE=[input BAM]
-  DEEPVARIANT=[path to deepvariant sif file]
-  sbatch -c 16 -t 1200 --wrap "singularity run -B /usr/lib/locale/:/usr/lib/locale/,$REFDIR:$REFDIR,$INPUTDIR:$INPUTDIR,$OUTPUTDIR:$OUTPUTDIR $DEEPVARIANT /opt/deepvariant/bin/run_deepvariant --model_type=PACBIO \
-  --ref=$REFFASTA --reads=${INPUTDIR}/${INPUTFILE} \
-  --regions=$REFCHRSIZES \
-  --output_vcf=${OUTPUTDIR}/`basename ${INPUTFILE} .bam`.deepvariant.vcf.gz \
-  --output_gvcf=${OUTPUTDIR}/`basename ${INPUTFILE} .bam`.deepvariant.g.vcf.gz \
-  --num_shards=16"
-  ```
-7. Make a bigWig file of read coverage across the genome (enter below configuration parameters before running):
-  ```
-  HIFIALIGNEDBAM=[samplename.merged.hifi.aligned.bam]
-  SAMPLENAME=`basename HIFIALIGNEDBAM .merged.hifi.aligned.bam`
-  REFFASTA=[chm13.draft_v1.0.fasta]
-  REFCHRSIZES=[chm13.draft_v1.0.chrsize.bed]
-  bedGraphToBigWig=[bedGraphToBigWig path]
-  
-  #mpileup
-  bigwig1jobid=$(sbatch -t 900 --parsable --wrap "samtools mpileup -A -B -d 999999 --ff 1024 $HIFIALIGNEDBAM -f $REFFASTA 2>/dev/null | awk '{print \$1 \"\t\" \$2-1 \"\t\" \$2 \"\t\" \$4}' > $SAMPLENAME.coverage.bg")
+Rules enforced by `main.nf`:
+- `all` cannot be combined with other entries.
+- Individual workflow names must be listed in the canonical order above.
+- When running a subset, the steps must be contiguous (for example `processReads,splitBAMs,prepareFilters` is valid; `processReads,extractCalls` is rejected because `splitBAMs` is skipped).
+- `removeIntermediateFiles` executes only if `remove_intermediate_files: true` in the YAML configuration.
 
-  #Sort bedgraph
-  bigwig2jobid=$(sbatch -t 900 --parsable --dependency=afterok:$bigwig1jobid --wrap "sort -k1,1 -k2,2n $SAMPLENAME.coverage.bg > $SAMPLENAME.coverage.sorted.bg; rm $SAMPLENAME.coverage.bg")
-
-  #Bedgraph to bigwig
-  bigwig3jobid=$(sbatch -t 600 --parsable --dependency=afterok:$bigwig2jobid --wrap "tempfile=$(mktemp); cut -f 1,3 $REFCHRSIZES > \$tempfile; $bedGraphToBigWig $SAMPLENAME.coverage.sorted.bg \$tempfile $SAMPLENAME.coverage.bw; rm $SAMPLENAME.coverage.sorted.bg; rm \$tempfile")
-  ```
-
-## Configure HiDEF-seq for the SLURM cluster
-Install and configure HiDEF-seq for the SLURM cluster, per these [instructions](https://github.com/evronylab/HiDEF-seq/blob/main/docs/slurm_configuration.md).
-
-This only needs to be performed once.
-
-## Run HiDEF-seq Pipeline
-### A. Subreads BAM file input:
-- The sequencing data input is a subreads.bam file from a single run of the PacBio Sequel instrument, and its associated 'pbi' index file.
-- More than one sample can be multiplexed in each sequencing run, so that the subreads BAM file may contain more than one sample.
-
-### B. YAML configuration file: This file contains all the parameters for the pipeline.
-- Slightly different configurations are used for samples with Illumina versus PacBio germline sequencing data, and for chr1-22,X vs chrM analysis.
-- Template YAML configuration files for each of these 4 scenarios, and documentation of each parameter, are provided [here](config_templates).
-1. Create one chr1-22X and one chrM configuration file *for each* PacBio HiDEF-seq sequencing run (i.e. for each subreads BAM file).
- 
-### C. Run pipeline:
-1. chr1-22X analysis: ```[Full path to run-HiDEF-seq.bash] HiDEF_pipeline.sh [chr1-22X YAML config file] all```
-2. After chr1-22X analysis outputs the RDS file specified by [bamfilezmw_all_filename] in the YAML config file (i.e., after the process_subreads command completes), you can start the chrM analysis: ```[Full path to run-HiDEF-seq.bash] HiDEF_pipeline.sh [chrM YAML config file] all_except_process_subreads_and_gcloud_upload```
-
-- Note, the following commands are available to run:
-  ```
-  [Full path to run-HiDEF-seq.bash] HiDEF_pipeline.sh [YAML config file] [command]
-    [command]:
-      process_subreads
-      make_bamfilezmw_all
-      qc_bamfilezmw_all
-      mutation_filtering
-      print_mutations
-      mutation_frequencies
-      gcloud_upload
-      all: Run all steps
-      all_except_process_subreads_and_gcloud_upload: Run all steps except process_subreads and gcloud_upload (used for chrM analysis)
-  ```
-
-## Outputs
-Note: [items in brackets] refer to parameters defined in the YAML config file.
-
-### A. Primary data processing:
-In the [process_subreads_output_path] directory:
-1. [ccs_BAM_prefix].[samplename].ccs.demux.[barcodename].postccsfilter.aligned.final.bam (and .bai/.pbi indexes): aligned BAM, after creating consensus sequence, basic molecule filters, demultiplexing, and alignment.
-2. [bamfilezmw_all_filename] (file name is typically configured to end with .bamfilezmw_all.RDS): Aligned consensus read data processed into a format for analysis in R.
-3. make_bamfilezmw_all.output.[timestamp].txt: Log of the script making [bamfilezmw_all_filename]
-
-In the [process_subreads_output_path]/logs directory:
-
-4. subreads.zmwcount.txt: Number of ZMWs (i.e. molecules) in raw data
-5. subreads.cxfiltered.zmwcount.txt: Number of ZMWs after filtering ZMWs with 'cx' tag != 3 (ZMWs for which an adaptor was not detected on both ends)
-6. [ccs_BAM_prefix].ccsreport.chunk#.txt: ccs (consensus sequence building tool) report for each chunk, plain text format
-7. [ccs_BAM_prefix].ccsreport.chunk#.json: ccs (consensus sequence building tool) report for each chunk, json format
-8. [ccs_BAM_prefix].ccsmetrics.chunk#.json: ccs (consensus sequence building tool) metrics for each chunk, json format
-9. ccs.zmwcount.txt: Number of ZMWs after ccs
-10. [ccs_BAM_prefix].ccs.demux.lima.report/counts/summary: metrics from lima demultiplexing
-11. [barcodename].lima.zmwcount.txt: Number of ZMWs for each barcode after lima demultiplexing
-12. [ccs_BAM_prefix].[samplename].ccs.demux.[barcodename].bam.ccsfilterstats: Statistics of filters applied after ccs
-13. [ccs_BAM_prefix].[samplename].ccs.demux.[barcodename].postccsfilter.aligned.bam.pbmm2filterstats: Statistics of filters applied after pbmm2 alignment
-
-### B. QC after primary data processing:
-In the [analysisoutput_path] directory:
-1. [samplename].[genomereference].[tag].hist.pdf: histograms of ZMW tag values
-2. [samplename].[genomereference].[tag].fwdvsrev.scatter.pdf: Scatter plots between the two strands of a molecule
-3. [samplename].[genomereference].[tag1].[tag2].scatter.pdf: Scatter plots of all possible pairings of [tag1] versus [tag2]
-  
-    Where [tag] = 
-    - rq: Predicted average read accuracy (see [ccs documentation](https://ccs.how/faq/bam-output.html))
-    - ec: Effective coverage per strand (see [ccs documentation](https://ccs.how/faq/bam-output.html))
-    - np: Number of full-length passes per strand (see [ccs documentation](https://ccs.how/faq/bam-output.html))
-    - qwidth: The length of the ZMW sequence
-    - isize: The length of the sequence alignment in the reference space (the sum of the M/D/=/X CIGAR lengths)
-    - mapq: mapping quality
-  
-4. [samplename].[genomereference].[VCF-file-name].[VCF tag].hist.pdf: histogram of tag values for each germline VCF
-
-    Where [VCF tag] = 
-    - Depth: Total read depth at locus
-    - VAF: Variant allele fraction
-    - GQ: Genotype quality
-  
-### C. Call filtering:
-In the [analysisoutput_path] directory:
-1. [analysisoutput_basename].RDS: Post-call filtering data in format for analysis in R.
-2. mutation_filtering.output.[timestamp].txt: Log of the script making [analysisoutput_basename].RDS
-3. print_mutations.output.txt and print_mutations.output.RDS: List of ssDNA mismatches and dsDNA mutations after call filtering, in txt and in RDS format suitable for analysis in R
-    - [Reference for output fields](docs/print_mutations.md)
-4. [samplename].[genomereference].[threshold-index].subreads.aligned.bam (and .bai/.pbi indexes): subreads with post-filtering calls aligned to the genome, for each [threshold-index] (i.e. index # defining a set of thresholds) defined in the YAML config file.
-
-### D. Call burdens (i.e. mutation frequencies):
-In the [analysisoutput_path] directory:
-1. mutation_frequencies.RDS: Post-mutation frequencies script data in format for analysis in R
-2. mutation_frequencies.output.[timestamp].txt: Log of the script making mutation_frequencies.RDS
-3. mutation_frequencies.table.output.[timestamp].txt: All burden-related results in table format
-    - [Reference for output fields](docs/mutation_frequencies.table.md)
-
-### E. Mutational signatures:
-  - Note that non-collapsed ssDNA spectra/signatures are plotted with 192-trinucleotide contexts with the label 'Transcribed' signifying central pyrimidine and 'Untranscribed' signifying central purine contexts (reverse complement of annotated central pyrimidine context). dsDNA spectra/signatures are plotted with the standard 96-trinucleotide context. Collapsed ssDNA spectrua/signatures are plotted with 96-trinucleotide contexts by summing each central pyrimidine context with its reverse complement central purine context.
-  - Note, sigfit signature analysis below is automated output that may work with a broader range of sample types. Analyses in the paper utilized different settings. Settings can be adjusted by modifying the script.
-
-In the [analysisoutput_path] directory:
-1. [analysisoutput_basename].[samplename].[genomereference].[threshold-index].subreads.aligned.bam (and .bai/.pbi indexes): subreads of molecules in which ssDNA and dsDNA calls were made.
-2. ssDNA/dsDNA.trinuc.counts.uncorrected.txt: ssDNA and dsDNA raw call counts for each trinucleotide context 
-3. ssDNA/dsDNA.trinuc.counts.corrected.txt: ssDNA and dsDNA call counts for each trinucleotide context, corrected for the trinucleotide content of the genome (using the GRCh37 reference to allow comparison to COSMIC signatures) relative to the that of interrogated read bases.
-4. sigfit.ssDNA/dsDNA.counts.uncorrected.pdf: ssDNA and dsDNA spectra of raw call counts
-5. sigfit.ssDNA/dsDNA.probability.uncorrected.pdf: ssDNA and dsDNA spectra of fractional contribution of each trinucleotide context (i.e. raw counts / total counts)
-6. sigfit.ssDNA/dsDNA.probability.corrected.pdf: ssDNA and dsDNA spectra of fractional contribution of each trinucleotide context, corrected for the trinucleotide content of the genome relative to the that of interrogated read bases.
-7. sigfit.ssDNAcollapsed.counts.uncorrected.pdf: ssDNA raw call counts, collapsed to 96-trinucleotide context.
-8. sigfit.ssDNAcollapsed.probability.uncorrected.pdf: ssDNA spectrum of fractional contribution of each trinucleotide context, collapsed to 96-trinucleotide context.
-9. sigfit.ssDNAcollapsed.probability.corrected.pdf: ssDNA spectrum of fractional contribution of each trinucleotide context, collapsed to 96-trinucleotide context, corrected for the trinucleotide content of the genome relative to the that of interrogated read bases.
-10. [samplename].[genomereference].[threshold-index].sigfit/sigfit_thresh.dsDNA/ssDNAcollapsed_Catalogues_[timestamp].pdf
-11. [samplename].[genomereference].[threshold-index].sigfit/sigfit_thresh.dsDNA/ssDNAcollapsed_Signatures_[timestamp].pdf
-12. [samplename].[genomereference].[threshold-index].sigfit/sigfit_thresh.dsDNA/ssDNAcollapsed_Exposures_[timestamp].pdf
-13. [samplename].[genomereference].[threshold-index].sigfit/sigfit_thresh.dsDNA/ssDNAcollapsed_Reconstructions_[timestamp].pdf
-    - sigfit: fitting to COSMIC SBS signatures
-    - sigfit_thresh: re-fitting only to COSMIC SBS signatures with exposures whose lower Bayesian HPD interval is > 0.01, plus SBS1/5/18/40 that are common in healthy tissues.
-    For each:
-      - Catalogues: spectra of raw counts
-      - Signatures: signatures used in fitting
-      - Exposures: fraction of calls attributed to each signature
-      - Reconstructions: sigfit reconstruction of spectra using component signatures
-14. mutation_signatures.RDS: R data file with sigfit analysis results
-
-See the [manuscript folder](manuscript) for data and basic analysis scripts related to our publication.
+### Output
+Pipeline outputs are organized per sample beneath `analysis_output_dir`. A comprehensive description of every final product generated by the `processReads` and `outputResults` workflows is available in [docs/outputs.md](docs/outputs.md).
 
 ## Citation
 If you use HiDEF-seq, please cite:
 
-Liu MH*, Costa B*, Bianchini EC, Choi U, Bandler RC, Lassen E, Grońska-Pęski M, Schwing A, Murphy ZR, Rosenkjær D, Picciotto S, Bianchi V, Stengs L, Edwards M, Nunes NM, Loh CA, Truong TK, Brand RE, Pastinen R, Wagner JR, Skytte AB, Tabori U, Shoag JE, Evrony GD. Single-strand mismatch and damage patterns revealed by single-molecule DNA sequencing. bioRxiv 2023.02.19.526140; doi: https://doi.org/10.1101/2023.02.19.526140 (2023).
+> Liu MH*, Costa B*, Bianchini EC, Choi U, Bandler RC, Lassen E, Grońska-Pęski M, Schwing A, Murphy ZR, Rosenkjær D, Picciotto S, Bianchi V, Stengs L, Edwards M, Nunes NM, Loh CA, Truong TK, Brand RE, Pastinen R, Wagner JR, Skytte AB, Tabori U, Shoag JE, Evrony GD. Single-strand mismatch and damage patterns revealed by single-molecule DNA sequencing. *Nature* (2024). <a href="https://www.nature.com/articles/s41586-024-07532-8" target="_blank" rel="noopener noreferrer">https://www.nature.com/articles/s41586-024-07532-8</a>.

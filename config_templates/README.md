@@ -1,36 +1,20 @@
 # Configuration templates
 
-This README describes every parameter consumed by the HiDEF-seq Nextflow pipeline (`main.nf`) and the downstream R utilities. Each key maps directly onto the structure of the template YAML files in this directory.
+This README describes every parameter consumed by the HiDEF-seq Nextflow pipeline (`main.nf`) and the downstream R utilities. Each key maps directly onto the structure of the template YAML files in this directory. The repository ships with a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that captures commonly used settings for the GRCh38 reference genome.
 
 ## Table of contents
 - [Global analysis identifiers](#global-analysis-identifiers)
-  - [Identifier keys](#identifier-keys)
 - [Sequencing runs and samples](#sequencing-runs-and-samples)
-  - [Run-level entries](#run-level-entries)
-  - [Sample metadata](#sample-metadata)
 - [Individuals and germline resources](#individuals-and-germline-resources)
-  - [Individual-level inputs](#individual-level-inputs)
 - [Output locations](#output-locations)
-  - [Paths](#paths)
 - [Container and tool paths](#container-and-tool-paths)
-  - [Container and environment hooks](#container-and-environment-hooks)
 - [Pipeline runtime parameters](#pipeline-runtime-parameters)
-  - [Nextflow chunking and retries](#nextflow-chunking-and-retries)
 - [Reference genome resources](#reference-genome-resources)
-  - [Required files](#required-files)
-  - [Chromosome grouping](#chromosome-grouping)
 - [Call extraction settings](#call-extraction-settings)
-  - [Overlap and call type structure](#overlap-and-call-type-structure)
-  - [MDB-specific options](#mdb-specific-options)
 - [Germline VCF filter definitions](#germline-vcf-filter-definitions)
-  - [Threshold fields](#threshold-fields)
 - [Filter group definitions](#filter-group-definitions)
-  - [Molecule-level filters](#molecule-level-filters)
 - [Region filter configuration](#region-filter-configuration)
-  - [Read filters (`region_filters[].read_filters[]`)](#read-filters-region_filtersread_filters)
-  - [Genome filters (`region_filters[].genome_filters[]`)](#genome-filters-region_filtersgenome_filters)
 - [Sensitivity estimation](#sensitivity-estimation)
-  - [Sensitivity parameters](#sensitivity-parameters)
 
 ## Global analysis identifiers
 
@@ -175,7 +159,7 @@ This README describes every parameter consumed by the HiDEF-seq Nextflow pipelin
 | `max_num_indelcalls_postVCF_eachstrand`, `max_num_indelmutations_postVCF` | Post-germline indel limits. |
 | `min_qual`, `min_qual_method` | Minimum HiFi `qual` score threshold and aggregation method. `min_qual_method` accepts `mean`, `all`, or `any`, matching the helper function in `filterCalls.R` that respectively tests mean scores, requires all positions above threshold, or allows any position above threshold for multi-base events. |
 | `read_trim_bp` | Number of bases trimmed from each read end before evaluating filters. |
-| `ccsindel_inspad`, `ccsindel_delpad` | Padding strings using the same `m<multiplier>b<offset>` syntax described above, applied when intersecting indels with CCS subreads to derive coverage statistics. Provide numeric components even when disabling padding (`m0b0` mirrors no expansion) because the pipeline parses the string to obtain `m` and `b`. |
+| `ccsindel_inspad`, `ccsindel_delpad` | Padding strings using the same `m<multiplier>b<offset>` syntax described above, applied when intersecting indels with CCS subreads to derive coverage statistics. Set the value to `NA` to disable padding entirely; otherwise specify the multiplier/offset pair (for example `m1b10`). |
 | `min_BAMTotalReads`, `max_BAMVariantReads`, `max_BAMVAF` | Depth-based thresholds computed from germline BAM pileups. |
 | `min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match` | Subread coverage thresholds derived from `sa`, `sm`, and `sx` tags. |
 | `min_subreads_cvgmatch_method` | Aggregation method (`mean`, `all`, or `any`) applied when summarising subread coverage metrics across multi-base events. |

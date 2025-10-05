@@ -1,30 +1,11 @@
 # HiDEF-seq pipeline outputs
 
-This guide documents every final artifact produced by the `processReads` and `outputResults` workflows described in `main.nf`, including directory layouts, serialized objects, and column-level metadata.
+This guide documents every final file produced by the `processReads` and `outputResults` workflows described in `main.nf`, including directory layouts, serialized objects, and column-level metadata.
 
 ## Outline
 - [Directory layout](#directory-layout)
-  - [Sample root](#sample-root)
-  - [Shared logs](#shared-logs)
-  - [Per-sample logs](#per-sample-logs)
 - [processReads outputs](#processreads-outputs)
-  - [CCS BAM artifacts](#ccs-bam-artifacts)
-  - [BAM tag reference](#bam-tag-reference)
-  - [QC contributions to shared logs](#qc-contributions-to-shared-logs)
 - [outputResults outputs](#outputresults-outputs)
-  - [Top-level files](#top-level-files)
-  - [Chromgroup directory structure](#chromgroup-directory-structure)
-  - [Filter statistics (filterStats)](#filter-statistics-filterstats)
-  - [Final calls](#final-calls)
-  - [Germline variant calls](#germline-variant-calls)
-  - [Final-call spectra](#final-call-spectra)
-  - [Interrogated-base spectra](#interrogated-base-spectra)
-  - [Genome spectra](#genome-spectra)
-  - [Sensitivity summaries](#sensitivity-summaries)
-  - [Final-call burdens](#final-call-burdens)
-  - [Estimated SBS mutation error probability](#estimated-sbs-mutation-error-probability)
-  - [Shared logs from outputResults](#shared-logs-from-outputresults)
-  - [Serialized object (.qs2)](#serialized-object-qs2)
 
 ## Directory layout
 
@@ -38,7 +19,7 @@ Global logs and run metadata accumulate under `[analysis_output_dir]/[analysis_i
 - `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
 - `.command.log` files for workflow-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
-- CCS QC artifacts copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
+- CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
 - Any additional helper tables emitted globally, including cached configuration manifests and chunk-level tracking TSVs.
 
 ### Per-sample logs
@@ -46,7 +27,7 @@ Each sample directory contains a `logs/` subfolder: `[analysis_output_dir]/[anal
 
 ## processReads outputs
 
-### CCS BAM artifacts
+### CCS BAM files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/processReads/`
 
 | File | Description |
@@ -96,6 +77,7 @@ The aligned CCS BAM retains PacBio-rich annotations used by downstream filters. 
 | `isize` | Alignment summary | Insert size / template length (`TLEN`), sum of `M/D/=/X` CIGAR operations. |
 
 Downstream filters often rely on `sa` counts and the consensus agreement ratio `sm / (sm + sx)`; the latter can slightly underestimate agreement when subreads per strand exceed 255 because `sm` is capped.
+Consult the <a href="https://pacbiofileformats.readthedocs.io/en/13.1/BAM.html" target="_blank" rel="noopener noreferrer">PacBio BAM format reference</a> for exhaustive tag definitions.
 
 ### QC contributions to shared logs
 During `processReads`, the pipeline adds to the shared logs directory:
@@ -106,16 +88,7 @@ During `processReads`, the pipeline adds to the shared logs directory:
 
 ## outputResults outputs
 
-### Top-level files
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
-
-| File | Description |
-| --- | --- |
-| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
-| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.) and may vary with instrument metadata. |
-| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object described in [Serialized object (.qs2)](#serialized-object-qs2). |
-
-### Chromgroup directory structure
+### Directory structure
 `outputResults` organises every downstream result by chromgroup and filter group. The script defines helper suffixes such as
 `filterStats_dir <- "/filterStats/"` and `finalCalls_dir <- "/finalCalls/"`; when concatenated with a chromgroup name the leading slash becomes a path separator. Consequently, each chromgroup has its own directory under `outputResults`:
 
@@ -136,6 +109,15 @@ outputResults/
 Files inside these folders are further keyed by `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type`.
 All burden-related tables originate from the `calculateBurdensChromgroupFiltergroup` tasks and are published here by `outputResults`.
 
+### Top-level files
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
+
+| File | Description |
+| --- | --- |
+| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
+| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.) and may vary with instrument metadata. |
+| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object described in [Serialized object (.qs2)](#serialized-object-qs2). |
+
 ### Filter statistics (filterStats)
 Each combination of chromgroup and filter group yields three TSV tables named
 `[chromgroup]/filterStats/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
@@ -149,7 +131,7 @@ Each combination of chromgroup and filter group yields three TSV tables named
 ### Final calls
 Files live under `[chromgroup]/finalCalls/` and are named
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
-The pipeline produces four artifacts per subtype:
+The pipeline produces four files per subtype:
 
 - **`.finalCalls.tsv`** — One row per strand-specific call that passed all filters.
   - Metadata columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`.
@@ -217,11 +199,8 @@ contains:
 - Nested tibble `by_channel_pyr` expanded during TSV export with `channel_pyr` and `error_prob` for each trinucleotide channel.
 - Scalar column `total` representing the summed SBS mutation error probability across channels.
 
-### Shared logs from outputResults
-Running `outputResultsSample` appends a `.command.log` to the sample `logs/` directory (`${analysis_id}.${individual_id}.${sample_id}.outputResultsSample.command.log`). The log captures the invoked R command along with stdout/stderr from packaging final calls, spectra, burdens, and sensitivity summaries. These entries link each chromgroup/filtergroup combination back to the originating Nextflow task and complement the global artifacts stored in `[analysis_id].sharedLogs/`.
-
 ### Serialized object (.qs2)
-The `.qs2` file contains all artefacts required to regenerate tables and plots without re-running the Nextflow processes. Each component is listed below with its schema.
+The `.qs2` file captures the final data structures required to regenerate tables and plots without re-running the Nextflow processes. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded directly with that library. Each component is listed below with its schema.
 
 #### yaml.config
 Top-level configuration loaded from the analysis YAML. Keys mirror the templates in [`config_templates/`](../config_templates).

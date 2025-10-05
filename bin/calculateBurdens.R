@@ -18,7 +18,6 @@ suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
-suppressPackageStartupMessages(library(sigfit))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
@@ -724,7 +723,21 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 ### Calculate trinucleotide distributions (SBS and MDB calls) and spectra (SBS and indel calls)
 ######################
 cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
-	
+
+#Define columns to discard from each finalCalls table after the nest join, depending on the call_class, as these are not relevant for the final tsv and vcf outputs
+alltypes_cols_discard <- c("deletion.bothstrands.startendmatch")
+
+sbs_indel_cols_discard <- c("MDB_score")
+
+sbs_mdb_cols_discard <- c("indel_width")
+
+indel_cols_discard <- c(
+	"reftnc_plus_strand", "alttnc_plus_strand",
+	"reftnc_pyr", "alttnc_pyr",
+	"reftnc_synthesized_strand", "reftnc_template_strand",
+	"alttnc_synthesized_strand", "alttnc_template_strand"
+)
+
 #Define columns that are identical between zm and strands to either '_keep' or '_discard' in the subsequent pivot_wider for SBSindel_call_type == "mutation" call tables. Not including call_class, call_type, SBSindel_call_type as these are removed from finalCalls after the below nest_join.
 zm_identical_cols_keep <- c(
 	"analysis_chunk", "run_id", "zm"
@@ -732,25 +745,26 @@ zm_identical_cols_keep <- c(
 
 strand_identical_cols_keep <- c(
 	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
-	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
-	"indel_width"
+	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr"
 )
 
 strand_identical_cols_discard <- c(
 	"strand",
 	"call_class.opposite_strand", "call_type.opposite_strand",
-	"alt_plus_strand.opposite_strand", "deletion.bothstrands.startendmatch"
+	"alt_plus_strand.opposite_strand"
 )
-
+	
 #Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Before the nest join, remove "germline_vcf_types_detected", "germline_vcf_files_detected", and "passfilter" columns as these are empty, empty, and TRUE, respectively for all finalCalls. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
+	
+	#remove columns that are not needed here
+	select(-analyzein_chromgroups, -starts_with("MDB")) %>%
 	
 	#Add row for SBS/mismatch-ss
 	bind_rows(
 		tibble(
 			call_type = "SBS",
 			call_class = "SBS",
-			analyzein_chromgroups = "all",
 			SBSindel_call_type = "mismatch-ss",
 			filtergroup = filtergroup_toanalyze
 		)
@@ -771,6 +785,22 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			),
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
+	) %>%
+	
+	#Discard columns that are not needed for each call_class
+	mutate(
+		finalCalls = map2(
+			call_class, finalCalls,
+			function(x,y){
+				if(x == "SBS"){
+					y %>% select(-all_of(c(alltypes_cols_discard, sbs_indel_cols_discard, sbs_mdb_cols_discard)))
+				}else if(x == "indel"){
+					y %>% select(-all_of(c(alltypes_cols_discard, sbs_indel_cols_discard, indel_cols_discard)))
+				}else if(x == "MDB"){
+					y %>% select(-all_of(c(alltypes_cols_discard, sbs_mdb_cols_discard)))
+				}
+			}
+		)
 	) %>%
 	
 	#Make tables for tsv and vcf output
@@ -1107,6 +1137,13 @@ cat("## Calculating call burdens...")
 
 #Calculate number of interrogated base pairs (SBSindel_call_type = mutation) or bases (mismatch-ss, mismatch-ds, mismatch-os, match), for each call_type to analyze. Note, for mismatch-ds, each mismatch-ds is counted as 2 mismatches so burdens use interrogated bases rather than base pairs.
 finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
+	
+	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	) %>%
+	
 	mutate(
 		cov_sum = bam.gr.filtertrack.coverage %>%
 			map_dbl(function(x){
@@ -1148,7 +1185,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					sensitivity_corrected = FALSE
 				)
 		),
-		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
 	select(-starts_with("finalCalls"))
 
@@ -1166,7 +1203,7 @@ finalCalls.reftnc_spectra.genome_correction <- finalCalls.reftnc_spectra %>%
 	
 	left_join(
 		bam.gr.filtertrack.bytype %>% select(-bam.gr.filtertrack.coverage),
-		by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
 	filter(call_class %in% c("SBS","MDB"))
 
@@ -1240,7 +1277,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					)
 				)
 		) %>%
-		select(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup,burden_data) %>%
+		select(call_type, call_class, SBSindel_call_type, filtergroup, burden_data) %>%
 		unnest_wider(burden_data)
 	)
 
@@ -1272,7 +1309,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					)
 				)
 		) %>%
-		select(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup,burden_data) %>%
+		select(call_type, call_class, SBSindel_call_type, filtergroup, burden_data) %>%
 		unnest_wider(burden_data)
 	)
 
@@ -1300,7 +1337,7 @@ cat("DONE\n")
 ######################
 #Create sensitivity tibble, set default sensitivity to 1 and source to 'default' for all call_types, except for call_class == 'MDB' whose source is set to 'yaml.config' and sensitivity is set per the yaml.config.
 sensitivity <- call_types_toanalyze %>%
-	select(-starts_with("MDB")) %>%
+	select(-analyzein_chromgroups, -starts_with("MDB")) %>% #remove columns that are not needed here
 	mutate(
 		sensitivity = if("MDB_sensitivity" %in% names(.)){
 			if_else(call_class == "MDB", MDB_sensitivity, 1, ptype = numeric())
@@ -1439,20 +1476,21 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
 				select(-bam.gr.filtertrack.coverage),
-			by = join_by(call_type,call_class,analyzein_chromgroups,SBSindel_call_type,filtergroup)
+			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		)
 	
 	rm(high_confidence_germline_vcf_variants, bam.gr.filtertrack.except_germline_filters.bytype)
 	invisible(gc())
 	
-	#Sum number of high confidence germline VCF variant detections and coverage
+	#Sum number of high confidence germline VCF variant detections and coverage, and remove high_confidence_germline_vcf_variants that is no longer needed
 	sensitivity <- sensitivity %>%
 		mutate(
 			high_confidence_germline_vcf_variants_sum_zm_detected = high_confidence_germline_vcf_variants %>%
 				map_int( function(x){x$num_zm_detected %>% sum} ),
 			high_confidence_germline_vcf_variants_sum_duplex_coverage = high_confidence_germline_vcf_variants %>%
 				map_int( function(x){x$duplex_coverage %>% sum} )
-		)
+		) %>% 
+		select(-high_confidence_germline_vcf_variants)
 	
 	#Calculate sensitivity.
 	#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 

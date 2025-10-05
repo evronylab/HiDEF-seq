@@ -1,6 +1,10 @@
 # Configuration templates
 
-This README describes every parameter consumed by the HiDEF-seq Nextflow pipeline (`main.nf`) and the downstream R utilities. Each key maps directly onto the structure of the template YAML files in this directory. The repository ships with a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that captures commonly used settings for the GRCh38 reference genome.
+Here, we describe the HiDEF-seq pipeline's parameters, which are configured in a [YAML-format](https://en.wikipedia.org/wiki/YAML) parameters file.
+
+We provide example template YAML files in this directory: a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that capture commonly used settings for the hg38 reference genome.
+
+Below, the  `parameter[].subparameter` notation indicates that `parameter` is a list that can contain multiple `subparameter` entries.
 
 ## Table of contents
 - [Global analysis identifiers](#global-analysis-identifiers)

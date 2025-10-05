@@ -55,7 +55,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/proce
 | `${analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi` | PacBio BAM index created with `pbindex`. |
 
 ### BAM tag reference
-The aligned CCS BAM retains PacBio-rich annotations used by downstream filters. The table below summarises notable tags and columns:
+The aligned CCS BAM includes PacBio-rich annotations used by downstream filters. The table below summarises notable tags and columns:
 
 | Tag | Category | Description |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ Each combination of chromgroup and filter group yields three TSV tables named
 | --- | --- |
 | `molecule_stats.by_run_id.tsv` | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` encodes sequential filter labels (for example `num_molecules.min_rq_eachstrand.passfilter`). |
 | `molecule_stats.by_analysis_id.tsv` | Same as above without `run_id`, aggregating across runs. |
-| `region_genome_filter_stats.tsv` | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered`, `num_genomebases_remaining`. |
+| `region_genome_filter_stats.tsv` | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered`, `num_genomebases_remaining` (bases remaining after filtering). |
 
 ### Final calls
 Files live under `[chromgroup]/finalCalls/` and are named
@@ -152,20 +152,25 @@ Files live under `[chromgroup]/finalCalls/` and are named
 The pipeline produces four files per subtype:
 
 - **`.finalCalls.tsv`** — One row per strand-specific call that passed all filters.
-  - Metadata columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`.
-  - Coordinates and context: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`, `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`, `indel_width`, optional MDB-specific scores.
-  - Strand-resolved attributes appear twice with suffixes `_refstrand_plus_read` and `_refstrand_minus_read` (for example `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`, `call_type.opposite_strand`, `deletion.bothstrands.startendmatch`). Multi-value fields are comma-delimited.
-- **`.finalCalls_unique.tsv`** — One row per unique mutation (strand columns removed, retains metadata and context fields).
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`, `refstrand`.
+  - Coordinates and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
+  - Strand-resolved metrics include `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. For SBS and indel `SBSindel_call_type = "mutation"` outputs, the pipeline also writes `_refstrand_plus_read` and `_refstrand_minus_read` variants of each of those columns (`start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`) to show per-strand measurements.
+  - Opposite-strand annotations (`call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand`) accompany mutation calls when available.
+  - Context columns depend on `call_class`:
+    * **SBS** entries include trinucleotide annotations (`reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`) and omit indel width and MDB-specific metrics.
+    * **Indel** entries include `indel_width` and omit trinucleotide context columns that do not apply to indels.
+    * **MDB** entries include mismatch-damage fields such as `MDB_score` and omit `indel_width`.
+- **`.finalCalls_unique.tsv`** — One row per unique mutation with strand-split columns removed; metadata and the call-class-specific context columns listed above remain. The `_refstrand_plus_read` and `_refstrand_minus_read` columns are not present in these files.
 - **`.finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi` courtesy of `writeVcf(index = TRUE)`.
 - **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF of unique mutations.
 
 ### Germline variant calls
 Stored under `[chromgroup]/germlineVariantCalls/` with filenames ending `.germlineVariantCalls.tsv` or `.germlineVariantCalls.vcf.bgz`.
 
-- Metadata columns match the final-call tables (`analysis_id` through `indel_width`).
+- Metadata columns mirror the final-call tables (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`).
 - Germline filter flags without strand suffixes: `germline_vcf.passfilter`, any `germline_vcf_indel_region_filter_*`, `max_BAMVariantReads.passfilter`, `max_BAMVAF.passfilter`, and `region_read_filter_*` / `region_genome_filter_*` columns marked `is_germline_filter: true` in the YAML.
-- Strand-specific columns reuse the `_refstrand_plus_read` / `_refstrand_minus_read` suffix pattern for query positions, qualities, subread metrics, and match flags.
-- VCFs are bgzipped/indexed and share the same INFO mappings as the TSVs.
+- Strand-specific columns reuse the `_refstrand_plus_read` / `_refstrand_minus_read` suffix pattern for `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. Columns such as `deletion.bothstrands.startendmatch` and `MDB_score` are removed before export so each TSV focuses on germline confirmation metrics.
+- VCFs are bgzipped/indexed (`*.germlineVariantCalls.vcf.bgz` plus `.tbi`) and share the same INFO mappings as the TSVs.
 
 ### Final-call spectra
 Located under `[chromgroup]/finalCalls.spectra/` with filenames suffixed by spectrum type.
@@ -199,23 +204,21 @@ contains:
 
 - Metadata: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
 - Estimates: `sensitivity`, `sensitivity_source`, `high_confidence_germline_vcf_variants_sum_zm_detected`, `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
-- Nested column `high_confidence_germline_vcf_variants` (list-column describing contributing variants) empty when sensitivity falls back to defaults.
+- When sensitivity is borrowed from another chromgroup, the table records `sensitivity_source = "calculated_other_chromgroup"`. If no calculated sensitivity exists for that chromgroup/filtergroup pair, the value defaults to `1` with `sensitivity_source = "default_other_chromgroup"`.
 
 ### Final-call burdens
 `[chromgroup]/finalCalls.burdens/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].finalCalls.burdens.tsv`
 originates from `calculateBurdensChromgroupFiltergroup` and reports burden statistics before/after sensitivity correction:
 
 - Metadata: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
-- Counts: `num_calls`, `interrogated_bases_or_bp`, `sensitivity`, `sensitivity_source`, `sensitivity_corrected` (boolean).
+- Counts: `num_calls`, `interrogated_bases_or_bp`, `sensitivity`, `sensitivity_source`, `sensitivity_corrected` (boolean). A default sensitivity of `1` with `sensitivity_source = "default_other_chromgroup"` signals that no chromgroup-specific estimate was available.
 - Rates and intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`, `num_calls_lci`, `num_calls_uci`.
 
 ### Estimated SBS mutation error probability
-`[chromgroup]/estimatedSBSMutationErrorProbability/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].estimatedSBSMutationErrorProbability.tsv`
-contains:
+`[chromgroup]/estimatedSBSMutationErrorProbability/` now holds two TSV files per chromgroup/filtergroup combination:
 
-- Metadata columns mirroring the burden tables.
-- Nested tibble `by_channel_pyr` expanded during TSV export with `channel_pyr` and `error_prob` for each trinucleotide channel.
-- Scalar column `total` representing the summed SBS mutation error probability across channels.
+- `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].estimatedSBSMutationErrorProbability.by_channel_pyr.tsv` — Metadata columns plus `channel_pyr` and `error_prob` for each trinucleotide context.
+- `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].estimatedSBSMutationErrorProbability.total.tsv` — The same metadata paired with aggregate fields summarising the total SBS mutation error probability.
 
 ### Serialized object (.qs2)
 The `.qs2` file captures the final data structures required to regenerate tables and plots without re-running the Nextflow processes. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded directly with that library. Each component is listed below with its schema.
@@ -223,7 +226,7 @@ The `.qs2` file captures the final data structures required to regenerate tables
 #### yaml.config
 Top-level configuration loaded from the analysis YAML. Keys mirror the templates in [`config_templates/`](../config_templates),
 so their meanings follow the descriptions in that documentation (for example `runs`, `samples`, `chromgroups`, `region_filters`,
-and `sensitivity_parameters`). The list-column preserves the original nested structure and string padding codes exactly as
+and `sensitivity_parameters`). The list-column stores the original nested structure and string padding codes exactly as
 specified in the YAML.
 
 #### run_metadata
@@ -259,8 +262,8 @@ specified in the YAML.
 | --- | --- |
 | `call_type`, `call_class`, `SBSindel_call_type` | Call taxonomy as defined in the YAML configuration. |
 | `filtergroup` | Molecule-level filter group applied to the subtype. |
-| `analyzein_chromgroups` | Chromgroup scope (`all` or comma-separated subset). |
-| MDB-specific fields | Optional columns (`MDB_bamtag`, `MDB_min_score`, `MDB_sensitivity`, `MDB_base_opposite_strand`) populated for MDB call types. |
+| `analyzein_chromgroups` | Present when the YAML specifies chromgroup restrictions for the call type. |
+| MDB-specific fields | Columns such as `MDB_bamtag`, `MDB_min_score`, `MDB_sensitivity`, and `MDB_base_opposite_strand` appear when MDB call types are configured. |
 
 #### molecule_stats.by_run_id
 
@@ -288,7 +291,7 @@ specified in the YAML.
 | `binsize`, `threshold`, `padding` | Region filter parameters (threshold strings use `lt`, `lte`, `gt`, `gte`; padding is measured in bases). |
 | `region_filter_threshold_file` | Source bigWig used to derive the mask. |
 | `num_genomebases_individually_filtered` | Bases removed by the filter prior to merging. |
-| `num_genomebases_remaining` | Bases retained after filtering. |
+| `num_genomebases_remaining` | Bases remaining after filtering. |
 
 #### finalCalls
 
@@ -298,45 +301,30 @@ specified in the YAML.
 | `analysis_chunk`, `run_id`, `zm` | Chunk identifier, sequencing run, and ZMW hole number. |
 | `seqnames`, `start_refspace`, `end_refspace` | Reference contig and 1-based coordinates. |
 | `ref_plus_strand`, `alt_plus_strand` | Forward-strand reference and alternate alleles. |
-| `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr` | Context nucleotides in forward and pyrimidine orientation. |
-| `indel_width` | Event width in reference bases (0 for SBS). |
-| `refstrand` | Indicates which strand supplied the call (`refstrand_plus_read`/`refstrand_minus_read`). |
+| `refstrand` | Indicates which strand supplied the call (`+` or `-`). |
 | `start_queryspace`, `end_queryspace` | Comma-delimited query-space coordinates for the reporting strand. |
 | `qual`, `qual.opposite_strand` | Base qualities on the reporting and opposite strand (comma-delimited Phred values). |
 | `sa`, `sa.opposite_strand` | Run-length encoded subread coverage counts per position. |
 | `sm`, `sm.opposite_strand`; `sx`, `sx.opposite_strand` | Run-length encoded match and mismatch counts per position. |
 | `call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand` | Allele annotations observed on the opposite strand. |
-| `deletion.bothstrands.startendmatch` | Flag indicating whether deletion endpoints agree across strands. |
-
-#### finalCalls_for_tsv
-
-| Column | Description |
-| --- | --- |
-| Metadata columns | Same metadata and context fields listed for `finalCalls`. |
-| `*_refstrand_plus_read`, `*_refstrand_minus_read` | For each strand-resolved metric in `finalCalls` (`start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `call_type`, `alt_plus_strand`, etc.), the data are pivoted into explicit columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`. Values remain comma-delimited where appropriate. |
-
-#### finalCalls_unique_for_tsv
-
-| Column | Description |
-| --- | --- |
-| Metadata columns | Identical to `finalCalls_for_tsv`. |
-| Strand-specific fields | Removed to ensure one row per unique mutation; coordinates and context fields remain. |
+| `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr` | Present only for SBS entries. |
+| `indel_width` | Present only for indel entries. |
+| `MDB_score` and related mismatch-damage metrics | Present only for MDB entries. |
 
 #### finalCalls.bytype
 
 | Column | Description |
 | --- | --- |
 | Metadata columns | Same identifiers and context fields as `finalCalls`. |
-| `finalCalls_for_tsv`, `finalCalls_unique_for_tsv` | List-columns containing the tables described above prior to unnesting. |
-| `finalCalls_for_vcf`, `finalCalls_unique_for_vcf` | List-columns of VCF-ready tables (after left-normalisation of indels). |
+| `finalCalls_for_tsv`, `finalCalls_unique_for_tsv` | List-columns containing the strand-resolved and unique call tables used for TSV export. For SBS and indel `SBSindel_call_type = "mutation"`, the nested tables include strand-split columns with `_refstrand_plus_read` and `_refstrand_minus_read` suffixes for `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. |
 
 #### germlineVariantCalls
 
 | Column | Description |
 | --- | --- |
-| Metadata columns | Same as `finalCalls_for_tsv`. |
+| Metadata columns | Same as the strand-resolved `finalCalls` table described above. |
 | Germline flags | `germline_vcf.passfilter`, `germline_vcf_indel_region_filter_*`, `max_BAMVariantReads.passfilter`, `max_BAMVAF.passfilter`, and any `region_*` filters marked as germline in the YAML. |
-| Strand-specific fields | `_refstrand_plus_read` and `_refstrand_minus_read` columns mirroring the structure described for `finalCalls_for_tsv`. |
+| Strand-specific fields | `_refstrand_plus_read` and `_refstrand_minus_read` columns mirroring the structure described for `finalCalls`. |
 
 #### finalCalls.reftnc_spectra
 
@@ -370,9 +358,8 @@ specified in the YAML.
 | Column | Description |
 | --- | --- |
 | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type` | Identifiers. |
-| `sensitivity`, `sensitivity_source` | Estimated detection rate and provenance (`use_chromgroup`, default fallback, etc.). |
+| `sensitivity`, `sensitivity_source` | Estimated detection rate and provenance (`calculated`, `calculated_other_chromgroup`, `default_other_chromgroup`, or YAML overrides such as `use_chromgroup`). When the provenance is `default_other_chromgroup`, the sensitivity value is `1`. |
 | `high_confidence_germline_vcf_variants_sum_zm_detected`, `high_confidence_germline_vcf_variants_sum_duplex_coverage` | Counts of germline variants supporting the estimate. |
-| `high_confidence_germline_vcf_variants` | List-column summarising the contributing variants (empty when defaults are used). |
 
 #### finalCalls.burdens
 
@@ -380,7 +367,7 @@ specified in the YAML.
 | --- | --- |
 | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type` | Identifiers. |
 | `num_calls`, `interrogated_bases_or_bp` | Raw counts of calls and interrogated sequence. |
-| `sensitivity`, `sensitivity_source`, `sensitivity_corrected` | Sensitivity estimate applied to the burden. |
+| `sensitivity`, `sensitivity_source`, `sensitivity_corrected` | Sensitivity estimate applied to the burden, including fallback designations such as `default_other_chromgroup`; when that fallback is used the sensitivity equals `1`. |
 | `burden_calls`, `burden_calls_lci`, `burden_calls_uci`, `num_calls_lci`, `num_calls_uci` | Rates with confidence intervals. |
 | `unique_calls`, `reftnc_corrected`, `reftnc_corrected_chromgroup` | Flags indicating whether corrections were applied. |
 

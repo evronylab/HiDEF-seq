@@ -4,10 +4,13 @@
 ###############################
 
 ###
-### Sequencing data and samples
+### Analysis ID
 ###
 analysis_id: 
 
+###
+### Sequencing runs and samples
+###
 reads_type:  # subreads or ccs; must be the same type for all reads_files
 
 runs: # can specify multiple run_id entries

@@ -4,8 +4,26 @@ This guide documents every final file produced by the `processReads` and `output
 
 ## Outline
 - [Directory layout](#directory-layout)
+  - [Sample root](#sample-root)
+  - [Shared logs](#shared-logs)
+  - [Per-sample logs](#per-sample-logs)
 - [processReads outputs](#processreads-outputs)
+  - [CCS BAM files](#ccs-bam-files)
+  - [BAM tag reference](#bam-tag-reference)
+  - [QC contributions to shared logs](#qc-contributions-to-shared-logs)
 - [outputResults outputs](#outputresults-outputs)
+  - [Directory structure](#directory-structure)
+  - [Top-level files](#top-level-files)
+  - [Filter statistics](#filter-statistics)
+  - [Final calls](#final-calls)
+  - [Germline variant calls](#germline-variant-calls)
+  - [Final-call spectra](#final-call-spectra)
+  - [Interrogated-base spectra](#interrogated-base-spectra)
+  - [Genome spectra](#genome-spectra)
+  - [Sensitivity summaries](#sensitivity-summaries)
+  - [Final-call burdens](#final-call-burdens)
+  - [Estimated SBS mutation error probability](#estimated-sbs-mutation-error-probability)
+  - [Serialized object (.qs2)](#serialized-object-qs2)
 
 ## Directory layout
 
@@ -118,7 +136,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outpu
 | `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.) and may vary with instrument metadata. |
 | `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
-### Filter statistics (filterStats)
+### Filter statistics
 Each combination of chromgroup and filter group yields three TSV tables named
 `[chromgroup]/filterStats/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
 
@@ -203,19 +221,10 @@ contains:
 The `.qs2` file captures the final data structures required to regenerate tables and plots without re-running the Nextflow processes. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded directly with that library. Each component is listed below with its schema.
 
 #### yaml.config
-Top-level configuration loaded from the analysis YAML. Keys mirror the templates in [`config_templates/`](../config_templates).
-
-| Key | Description |
-| --- | --- |
-| `analysis_id`, `analysis_output_dir`, `cache_dir` | Identifiers and directories governing output locations and shared caches. |
-| `runs` | List of run entries (`run_id`, `reads_file`, barcode definitions). |
-| `samples` | Sample metadata linking `sample_id` to `individual_id` and annotations. |
-| `individuals` | Germline resources (sex, BAM/VCF paths, technology tags). |
-| `chromgroups`, `call_types`, `filtergroups` | Workflow configuration describing chromosome groupings, call classes, and molecule-level filters. |
-| `region_read_filters_config`, `region_genome_filters_config` | Region filter definitions expanded from the YAML `region_filters` blocks. |
-| `germline_vcf_types_config` | Germline filter thresholds, including padding strings (`m<multiplier>b<offset>`). |
-| `BSgenome` | Reference genome package name and optional tarball. |
-| `sensitivity_parameters` | Default chromgroup and thresholds used to measure detection sensitivity. |
+Top-level configuration loaded from the analysis YAML. Keys mirror the templates in [`config_templates/`](../config_templates),
+so their meanings follow the descriptions in that documentation (for example `runs`, `samples`, `chromgroups`, `region_filters`,
+and `sensitivity_parameters`). The list-column preserves the original nested structure and string padding codes exactly as
+specified in the YAML.
 
 #### run_metadata
 `run_metadata` matches the TSV emitted by `outputResults`. Columns originate from BAM read-group (`@RG`) headers and the YAML configuration.

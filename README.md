@@ -18,24 +18,24 @@ Once HiDEF-seq and germline data is available, the fastest and most straightforw
 ## Computing environment
 HiDEF-seq is orchestrated with Nextflow, which can execute pipelines on local workstations, shared high-performance computing (HPC) schedulers, and major cloud backends. Consult the <a href="https://www.nextflow.io/docs/latest/index.html" target="_blank" rel="noopener noreferrer">Nextflow documentation</a> for an overview of supported executors and configuration patterns. For example, running on a SLURM-based cluster requires defining a Nextflow configuration profile that sets executor options such as queue names, maximum memory, and CPU resources—see the <a href="https://www.nextflow.io/docs/latest/executor.html#slurm" target="_blank" rel="noopener noreferrer">Nextflow SLURM guide</a> for details.
 
-Create a Nextflow configuration file tailored to your environment. When using Singularity, enable it explicitly with `[singularity.enabled = true]`.
+Create a Nextflow configuration file tailored to your environment. When using Singularity, enable it explicitly with `singularity.enabled = true`.
 
-Use the same configuration file to constrain resources (for example `[process.max_memory]` and `[process.max_cpus]`) to match your scheduler limits. Pass this environment configuration to the pipeline with the `-config` flag when invoking Nextflow as described in [Run HiDEF-seq pipeline](#run-hidef-seq-pipeline).
+Use the same configuration file to constrain resources (for example `process.max_memory` and `process.max_cpus`) to match your scheduler limits. Pass this environment configuration to the pipeline with the `-config` flag when invoking Nextflow as described in [Run HiDEF-seq pipeline](#run-hidef-seq-pipeline).
 
 ## Reference genome
 Preparing the reference genome requires installing several command-line tools and generating multiple derivative files used throughout the workflow.
 
-### A. Script requirements
+### Script requirements
 - <a href="http://www.htslib.org/" target="_blank" rel="noopener noreferrer">samtools</a>
-- <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a> — pbmm2 is already installed inside the HiDEF-seq docker image. To call it inside the container, first activate the bundled environment with `[source /hidef/miniconda3/etc/profile.d/conda.sh]` followed by `[conda activate /hidef/bin/pbconda]`.
+- <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a> — pbmm2 is already installed inside the HiDEF-seq docker image. To call it inside the container, first activate the bundled environment with `source /hidef/miniconda3/etc/profile.d/conda.sh` followed by `conda activate /hidef/bin/pbconda`.
 - <a href="https://bedtools.readthedocs.io/" target="_blank" rel="noopener noreferrer">bedtools</a>
 - <a href="http://hgdownload.soe.ucsc.edu/admin/exe/" target="_blank" rel="noopener noreferrer">bedGraphToBigWig</a>
 - <a href="http://www.htslib.org/" target="_blank" rel="noopener noreferrer">bcftools</a>
 
-### B. Preparing reference genome files
+### Preparing reference genome files
 1. Download the FASTA for the reference genome of interest.
-2. Create the FASTA index by running `[samtools faidx chm13.draft_v1.0.fasta]`.
-3. Build the minimap2 index used by pbmm2 (use `[--preset SUBREAD]` for Sequel II subread data) by running `[pbmm2 index ref.fasta ref.mmi --preset CCS]`.
+2. Create the FASTA index by running `samtools faidx chm13.draft_v1.0.fasta`.
+3. Build the minimap2 index used by pbmm2 (use `--preset SUBREAD` for Sequel II subread data) by running `pbmm2 index ref.fasta ref.mmi --preset CCS`.
 4. Record chromosome sizes in a tab-delimited file named `genome.chrsizes.tsv` (columns: `chrom\tchrom_size`).
 5. Prepare genomic filter tracks used by the pipeline:
    - Identify BED files for `read_filters` and `genome_filters` (see the [YAML configuration documentation](config_templates/README.md#region-filter-configuration) for details). Public resources such as the <a href="https://genome.ucsc.edu/" target="_blank" rel="noopener noreferrer">UCSC Genome Browser</a> provide centromere, telomere, and segmental duplication annotations.
@@ -77,26 +77,26 @@ Preparing the reference genome requires installing several command-line tools an
 ## Germline sequencing data processing
 Germline variant calling should be completed before starting HiDEF-seq analysis. The repository provides an example workflow ([`scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh`](scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh)) that aligns PacBio HiFi reads with <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a> and runs both DeepVariant and Clair3 inside Singularity containers.
 
-### A. Script requirements
+### Script requirements
 - <a href="https://www.docker.com/" target="_blank" rel="noopener noreferrer">Docker</a> or <a href="https://sylabs.io/singularity/" target="_blank" rel="noopener noreferrer">Singularity</a> (to execute DeepVariant and Clair3)
 - <a href="https://github.com/PacificBiosciences/pbmm2" target="_blank" rel="noopener noreferrer">pbmm2</a>
 - <a href="https://github.com/google/deepvariant" target="_blank" rel="noopener noreferrer">DeepVariant</a>
 - <a href="https://github.com/HKU-BAL/Clair3" target="_blank" rel="noopener noreferrer">Clair3</a>
 
-### B. Processing outline
+### Processing outline
 1. Align germline reads to the reference genome with pbmm2.
-2. Call germline variants with DeepVariant and Clair3 using the provided script as a template for batching jobs on your scheduler.
+2. Call germline variants with DeepVariant and Clair3 using the [provided script](scripts/Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh) as a template for batching jobs on your scheduler.
 
 ## Run HiDEF-seq pipeline
 
-### A. Requirements
-- HiDEF-seq container image. For Singularity run `[singularity pull docker://gevrony/hidef-seq:3.0]`.
+### Requirements
+- HiDEF-seq container image. For Singularity run `singularity pull docker://gevrony/hidef-seq:3.0`.
 - <a href="https://www.nextflow.io/" target="_blank" rel="noopener noreferrer">Nextflow</a> v25.04.3 or newer.
 
-### B. YAML parameters file
+### YAML parameters file
 All run-time configuration resides in a YAML file that enumerates samples, reference resources, filters, and per-workflow options. Template files and detailed documentation are available in [`config_templates/`](config_templates) and elaborated in [YAML parameters](config_templates/README.md).
 
-### C. Run pipeline
+### Run pipeline
 Set environment variables that describe the repository revision, Nextflow environment configuration, and run-specific inputs, then launch the workflow:
 
 ```

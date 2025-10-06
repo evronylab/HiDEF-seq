@@ -57,7 +57,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `individuals[].germline_bam_type` | string (`Illumina` or `PacBio`) | yes | Type of germline sequencing. Affects coverage analysis in the `processGermlineBAMs` process. |
 | `individuals[].germline_vcf_files[]` | list | optional | Germline VCF variant files for each individual. |
 | `individuals[].germline_vcf_files[].germline_vcf_file` | path | yes (if list present) | Bgzipped VCF file. Must have a matching index. |
-| `individuals[].germline_vcf_files[].germline_vcf_type` | string | yes (if list present) | Tool used to call the germline VCF variants. Must match an entry in  `germline_vcf_types[].germline_vcf_type`. |
+| `individuals[].germline_vcf_files[].germline_vcf_type` | string | yes (if list present) | Name of tool used to call the germline VCF file's variants. Must match an entry in  `germline_vcf_types[].germline_vcf_type`. |
 
 ## Output locations
 
@@ -139,12 +139,12 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | Key | Type | Description |
 | --- | --- | --- |
 | `germline_vcf_types[]` | list | Settings for filters that determine which germline variants from each germline VCF type are used for germline variant filtering. |
-| `germline_vcf_types[].germline_vcf_type` | string | Tool used to call the germline VCF variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
-| `germline_vcf_types[].SBS_FILTERS[]` | list of strings | VCF `FILTER` column entries that must be present for SBS variants. Important: surround each entry with quotes. |
-| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum depth, allele fraction, genotype quality, and QUAL required for SBS calls. |
-| `germline_vcf_types[]`.`indel_FILTERS[]` | list of strings | VCF `FILTER` column entries that must be present for indel variants. Important: surround each entry with quotes. |
-| `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds for indel records. |
-| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string or `NA` | Padding strings encoded as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline expands both sides of the site by the larger of those two numbers. Use `NA` to disable padding for the respective event type. Values feed into germline VCF region filters. |
+| `germline_vcf_types[].germline_vcf_type` | string | Name of tool used to call the germline VCF's variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
+| `germline_vcf_types[].SBS_FILTERS[]` | list of strings | List of VCF `FILTER` column values, at least one of which must be present in order to include an SBS variant. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum total read depth (for all alleles at the site), allele fraction of the variant, genotype quality of the variant, and VCF QUAL column value of the variant in order to include an SBS variant. |
+| `germline_vcf_types[]`.`indel_FILTERS[]` | list of strings | List of VCF `FILTER` column values, at least one of which must be present in order to include an indel variant. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds in order to include an indel variant. |
+| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string or `NA` | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline adds flanking bases on both sides of each variant's span where each flank size is the larger of these two numbers. Use `NA` to disable padding for the respective event type. |
 
 ## Filter group definitions
 

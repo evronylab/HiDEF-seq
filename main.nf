@@ -517,8 +517,8 @@ workflow outputResults {
     outputResultsSample(calculateBurdens_out)
 
     emit:
-    out_ch = outputResultsSample.out_ch
-    out_files = outputResultsSample.out_files
+    out_ch = outputResultsSample.out.out_ch
+    out_files = outputResultsSample.out.out_files
 
 }
 

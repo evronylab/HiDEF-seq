@@ -1820,8 +1820,7 @@ indelspectrum.to.sigfit <- function(indelspectrum){
 				rownames_to_column("rowname") %>%
 				pivot_longer(-rowname, names_to="colname", values_to="count") %>%
 				mutate(group = grp)
-		}
-		) %>%
+		}) %>%
 		filter(!is.na(count)) %>%
 		mutate(
 			label = case_when(

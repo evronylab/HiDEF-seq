@@ -824,10 +824,11 @@ finalCalls.bytype <- call_types_toanalyze %>%
 						
 						#Collapse to one row per mutation
 						pivot_wider(
-							id_cols = all_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
+							id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
 							names_from = strand,
-							values_from = -all_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard)),
-							names_glue = "{.value}_{strand}"
+							values_from = -any_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard)),
+							names_glue = "{.value}_{strand}",
+							names_expand = TRUE
 						)
 				}
 			),
@@ -839,7 +840,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			SBSindel_call_type == "mutation",
 			finalCalls_for_tsv %>% map(
 				function(x){
-					x %>% distinct(across(all_of(strand_identical_cols_keep)))
+					x %>% distinct(across(any_of(strand_identical_cols_keep)))
 				}
 			),
 			NA

@@ -89,7 +89,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
 | `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous settings for `filterCallsChunk` processes. |
 | `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
-| `remove_intermediate_files` | boolean, true or false | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
+| `remove_intermediate_files` | boolean, `true` or `false` | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
 
 ## Reference genome resources
 
@@ -169,23 +169,24 @@ Filter groups enable creation of different sets of filter thresholds, each of wh
 | `filtergroups[]`.`ccsindel_inspad`, `ccsindel_delpad`<br />(molecule-region filter) | string, string | yes; set to `NA` or `m0b0` to disable | Padding strings using the same `m<multiplier>b<offset>` syntax described above, to filter regions near HiDEF-seq (i.e. non-germline) indel calls in each strand. This filter is not applied to indel calls. |
 | `filtergroups[].min_BAMTotalReads`<br />(genomic-region filter) | integer | yes | Minimum number of reads required in the germline sequencing data at the site of the call (to avoid false-positives due to false-negative detection of a germline variant) as obtained by `samtools mpileup`. For insertions, left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter. |
 | `filtergroups[]`.`max_BAMVariantReads`, `max_BAMVAF`<br />(call-level filters) | integer, float (0-1) | yes | Maximum allowed number of germline sequencing variant reads and maximum allowed VAF of germline sequencing variant reads that match the HiDEF-seq call as obtained by `bcftools mpileup` of the germline sequencing BAM file. Applied only to SBS calls. |
-| `filtergroups[]`.`min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match`<br />(call-level filter) | float (0-1), integer, float (0-1) | yes | Subread coverage thresholds derived from `sa`, `sm`, and `sx` tags. |
-| `filtergroups[].min_subreads_cvgmatch_method`<br />(call-level filter) | string (`mean`, `all`,  `any`) | yes | Aggregation method (`mean`, `all`, or `any`) applied when summarising subread coverage metrics across multi-base events. |
-| `filtergroups[].max_finalcalls_eachstrand`<br />(molecule-level filter) | Integer | yes | Maximum allowed final calls per strand; molecules exceeding the cap are discarded. |
+| `filtergroups[]`.`min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match`<br />(call-level filter) | float (0-1), integer, float (0-1) | yes | Minimum required subread coverage, subread matches, and fraction of subreads matching the call site (obtained from `sa`, `sm`, and `sx` tags, respectively). Filters are applied to both strands for all call types. |
+| `filtergroups[].min_subreads_cvgmatch_method`<br />(call-level filter) | string (`mean`, `all`,  `any`) | yes | The thresholding method used for `min_frac_subreads_cvg`, `min_num_subreads_match`, and `min_frac_subreads_match` when applied to indels with length > 1. Can be `mean`, `all`, or `any` , indicating that either the mean of the values for each base, all the values of bases, or any values of bases of a strand are compared to the respective threshold. If any `sa`, `sm`, or `sx` value in the opposite strand is NA, the call fails the respective filter. |
+| `filtergroups[].max_finalcalls_eachstrand`<br />(molecule-level filter) | Integer | yes | Maximum allowed number of final calls per strand, counting the number of calls separately for each `call_type` x `SBSindel_call_type` combination. If either strand fails the filter, the entire molecule is discarded from analysis of that specific `call_type`.`SBSindel_call_type`. |
 
 ## Region filter configuration
 
 ### Read filters (`region_filters[].read_filters[]`)
-| Key | Description |
-| --- | --- |
-| `region_filter_file` | bigWig track providing per-base scores. |
-| `binsize` | Integer bin size used when rescaling the bigWig to genomic intervals. |
-| `threshold` | Comparison encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
-| `padding` | Number of bases expanded around filtered intervals. |
-| `read_threshold` | Optional per-read comparison using the same operator syntax as `threshold`. |
-| `applyto_chromgroups` | `all` or a comma-separated list of chromgroups receiving the filter. |
-| `applyto_filtergroups` | `all` or a comma-separated list of filter groups inheriting the filter. |
-| `is_germline_filter` | Boolean indicating whether the filter targets germline contexts. Germline filters are excluded from sensitivity calculations. |
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `region_filters[]` | list | optional | Filters based on genomic regions that filter molecules that have more than `read_threshold` covered by the region filter. |
+| `region_filter_file` | path | yes | bigWig track of the region filter providing per-base scores. |
+| `binsize` | integer | yes | Size of bins (in bases) within each of which bigWig per-base scores are averaged before applying `threshold`. `binsize: 1` retains the original bigWig per-base scores. |
+| `threshold` | string | yes | Threshold applied to the bigWig score to select regions that will comprise the set of filter regions. Encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
+| `padding` | Integer | yes | Number of bases to expand each region of the region filter. |
+| `read_threshold` | string | yes | Optional per-read comparison using the same syntax as `threshold`. |
+| `applyto_chromgroups` | string | yes | `all` or a comma-separated list of chromgroups to which the filter is applied. |
+| `applyto_filtergroups` | string | yes | `all` or a comma-separated list of filter groups to which the filter is applied. |
+| `is_germline_filter` | boolean, `true` or `false` | yes | Boolean indicating whether the filter targets germline variant contexts. If `true`, the filter is excluded from sensitivity calculations that analyze germline variant calls. |
 
 ### Genome filters (`region_filters[].genome_filters[]`)
 | Key | Description |

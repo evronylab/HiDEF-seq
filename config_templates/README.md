@@ -32,32 +32,32 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `reads_type` | string (`subreads` or `ccs`) | yes | Type of reads: `subreads` data are split into `ccs_chunks` for CCS consensus calling, while `ccs` data skip CCS consensus calling. All `runs[].reads_file` entries must have the same `reads_type`. |
-| `runs[].run_id` | string | yes | Run identifier propagated into data outputs. |
+| `runs[].run_id` | string | yes | Run identifier propagated to data outputs. |
 | `runs[].reads_file` | path | yes | Absolute path to the CCS or subread BAM. A companion BAM index file with suffix `.pbi` is expected. |
 | `runs[].samples[]` | list | yes | Barcode definitions for each sample present in the run. |
-| `runs[].samples[].sample_id` | string | yes | Sample identifier that must match one of the entries in the top-level `samples[]` block. |
+| `runs[].samples[].sample_id` | string | yes | Sample identifier. Must match an entry in samples[].sample_id`. |
 | `runs[].samples[].barcode_id` | string | yes | Barcode label used during BAM demultiplexing. |
 | `runs[].samples[].barcode` | DNA sequence | yes | Barcode sequence. |
 
 ### Sample metadata
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `samples[].sample_id` | string | yes | Sample identifier. Referenced by `runs[].samples[].sample_id`  and propagated into data outputs. |
-| `samples[].individual_id` | string | yes | Individual identifier that must match one of the top entries in the top-level `individuals[]` block. |
-| `samples[].tissue` | string | optional | Tissue type annotation retained in run metadata tables. |
+| `samples[].sample_id` | string | yes | Sample identifier. Referenced by `runs[].samples[].sample_id`  and propagated to data outputs. |
+| `samples[].individual_id` | string | yes | Individual identifier. Must match an entry in `individuals[].individual_id`. |
+| `samples[].tissue` | string | optional | Tissue type annotation propagated to run metadata table. |
 
 ## Individuals and germline resources
 
 ### Individual-level inputs
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `individuals[].individual_id` | string | yes | Individual identifier (i.e., identifier of the person/animal). Referenced by`samples[].individual_id` and propagated into data outputs. |
-| `individuals[].sex` | string (`male` or `female`) | yes | Sex of individual. Not currently used in analysis. |
-| `individuals[].germline_bam_file` | path | yes | Germline aligned BAM. |
-| `individuals[].germline_bam_type` | string (`Illumina` or `PacBio`) | yes | Chooses mpileup arguments within `processGermlineBAMs`. |
-| `individuals[].germline_vcf_files[]` | list | optional | Collection of VCF/BCF files describing germline variants. |
-| `individuals[].germline_vcf_files[].germline_vcf_file` | path | yes (if list present) | Bgzipped VCF/BCF processed by `processGermlineVCFs`. Must have a matching index. |
-| `individuals[].germline_vcf_files[].germline_vcf_type` | string | yes (if list present) | Identifier that maps to a `germline_vcf_types` entry to attach filtering thresholds. |
+| `individuals[].individual_id` | string | yes | Individual identifier (i.e., identifier of the person/animal). Referenced by`samples[].individual_id` and propagated to data outputs. |
+| `individuals[].sex` | string (`male` or `female`) | yes | Sex of the individual. Not currently used in analysis. |
+| `individuals[].germline_bam_file` | path | yes | Germline sequencing aligned BAM. |
+| `individuals[].germline_bam_type` | string (`Illumina` or `PacBio`) | yes | Type of germline sequencing. Affects coverage analysis in the `processGermlineBAMs` process. |
+| `individuals[].germline_vcf_files[]` | list | optional | Germline VCF variant files for each individual. |
+| `individuals[].germline_vcf_files[].germline_vcf_file` | path | yes (if list present) | Bgzipped VCF file. Must have a matching index. |
+| `individuals[].germline_vcf_files[].germline_vcf_type` | string | yes (if list present) | Tool used to call the germline VCF variants. Must match an entry in  `germline_vcf_types[].germline_vcf_type`. |
 
 ## Output locations
 
@@ -138,12 +138,13 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 ### Threshold fields
 | Key | Type | Description |
 | --- | --- | --- |
-| `germline_vcf_type` | string | Identifier referenced by individuals. |
-| `SBS_FILTERS[]` | list of strings | Filters whose presence in the VCF `FILTER` column removes the SBS variant. Quote `.` when retaining PASS sites. |
-| `SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum depth, allele fraction, genotype quality, and QUAL required for SBS calls. |
-| `indel_FILTERS[]` | list of strings | Filters to exclude for indels. |
-| `indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds for indel records. |
-| `indel_inspad`, `indel_delpad` | string or `NA` | Padding strings encoded as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline expands both sides of the site by the larger of those two numbers. Use `NA` to disable padding for the respective event type. Values feed into germline VCF region filters. |
+| `germline_vcf_types[]` | list | Settings for filters that determine which germline variants from each germline VCF type are used for germline variant filtering. |
+| `germline_vcf_types[].germline_vcf_type` | string | Tool used to call the germline VCF variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
+| `germline_vcf_types[].SBS_FILTERS[]` | list of strings | VCF `FILTER` column entries that must be present for SBS variants. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum depth, allele fraction, genotype quality, and QUAL required for SBS calls. |
+| `germline_vcf_types[]`.`indel_FILTERS[]` | list of strings | VCF `FILTER` column entries that must be present for indel variants. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds for indel records. |
+| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string or `NA` | Padding strings encoded as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline expands both sides of the site by the larger of those two numbers. Use `NA` to disable padding for the respective event type. Values feed into germline VCF region filters. |
 
 ## Filter group definitions
 

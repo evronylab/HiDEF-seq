@@ -200,8 +200,8 @@ germline_vcf_types: #define one germline_vcf_type for each used for above germli
     indel_min_VAF: 
     indel_min_GQ: 
     indel_min_QUAL: 
-    indel_inspad: m2b15 # set to NA to disable this filter
-    indel_delpad: m2b15 # set to NA to disable this filter
+    indel_inspad: m2b15 # set to NA or m0b0 to disable this filter
+    indel_delpad: m2b15 # set to NA or m0b0 to disable this filter
 
 ###
 ### Call filters
@@ -229,8 +229,8 @@ filtergroups:
     min_qual: 93 # filter applied to both strands for all call types
     min_qual_method: all # how to filter min_qual for insertions/deletions with qual length > 1: mean, all, or any
     read_trim_bp: 10
-    ccsindel_inspad: m2b15 # set to m0b0 to turn off
-    ccsindel_delpad: m2b15 # set to m0b0 to turn off
+    ccsindel_inspad: m2b15 # set to NA or m0b0 to disable this filter
+    ccsindel_delpad: m2b15 # set to NA or m0b0 to disable this filter
     min_BAMTotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
     max_BAMVariantReads: 3 # applied only to SBS
     max_BAMVAF: 0.05 # applied only to SBS

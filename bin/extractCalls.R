@@ -297,7 +297,7 @@ molecule_stats <- molecule_stats %>%
 		)
 )
 
-# Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal or both plus and minus strand alignments)
+# Keep only molecules with plus and minus strand alignment overlap >= min_strand_overlap (reciprocal of both plus and minus strand alignments)
 
  # Extract plus and minus strand reads separately. Due to prior sorting by ZMW id and strand, these are guaranteed to have the same ZMW id order.
 bam.gr.onlyranges.plus <- bam.gr %>%

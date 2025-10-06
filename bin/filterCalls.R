@@ -970,13 +970,21 @@ cat("## Applying read indel region filters (not applied to indels)...")
 indel_inspad <- filtergroup_toanalyze_config %>% pull(ccsindel_inspad)
 indel_delpad <- filtergroup_toanalyze_config %>% pull(ccsindel_delpad)
 
-indel_inspad <- indel_inspad %>%
-  tibble(pad=.) %>%
-  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+if(!is.na(indel_inspad)){
+	indel_inspad <- indel_inspad %>%
+	  tibble(pad=.) %>%
+	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+}else{
+	indel_inspad <- tibble(m = 0, b = 0)
+}
 
-indel_delpad <- indel_delpad %>%
-  tibble(pad=.) %>%
-  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+if(!is.na(indel_delpad)){
+	indel_delpad <- indel_delpad %>%
+	  tibble(pad=.) %>%
+	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+}else{
+	indel_delpad <- tibble(m = 0, b = 0)
+}
 
 #Create GRanges of indels with configured padding
 read_indel_region_filter <- calls %>%

@@ -64,18 +64,18 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 ### Paths
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `analysis_output_dir` | path | yes | Root directory for per-sample output folders (`processReads`, `outputResults`, etc.). |
-| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome archives, region filters, processed germline resources). The path must be writable by Nextflow executors and bind-mounted when using Singularity. |
+| `analysis_output_dir` | path | yes | Root directory for final output folders. |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources). |
 
 ## Container and tool paths
 
 ### Container and environment hooks
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path loaded for all processes. |
-| `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating bundled conda environments. |
-| `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools. |
-| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `seqkit_bin`, `bedtools_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Command names or absolute paths invoked inside the container. Override when supplying custom installations. |
+| `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path used for all processes. |
+| `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating conda environment in the docker image. |
+| `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools in the docker image. |
+| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `seqkit_bin`, `bedtools_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
 | `ccs_ld_preload` | path | optional | Shared library path exported via `LD_PRELOAD` before invoking the PacBio `ccs` binary, mitigating thread-affinity issues described in <a href="https://github.com/microsoft/onnxruntime/issues/10736" target="_blank" rel="noopener noreferrer">onnxruntime issue #10736</a>. Leave blank to disable. |
 
 ## Pipeline runtime parameters
@@ -83,93 +83,95 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 ### Nextflow chunking and retries
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `ccs_chunks` | integer | required when `reads_type: subreads` | Number of segments passed to the PacBio `ccs` binary (`ccsChunk` process). Each chunk emits partial HiFi reads that are merged downstream. |
-| `lima_min_score` | integer | optional | Minimum Lima barcode score enforced by `limaDemux`. |
-| `analysis_chunks` | integer | yes | Number of BAM chunks emitted per sample for the `splitBAMs` ➝ `filterCalls` stages. Higher values increase parallelism. |
-| `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, wall-clock limit, and retry count for `extractCallsChunk`. Retries progressively increase requested resources as coded in `main.nf`. |
-| `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous overrides for `filterCallsChunk`. |
-| `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Resource configuration for the burden summarisation steps. |
-| `remove_intermediate_files` | boolean | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
+| `ccs_chunks` | integer | required when `reads_type: subreads` | Number of chunks in which CCS consensus sequence calling is performed for subreads data. Resulting CCS chunks are then merged. |
+| `lima_min_score` | integer | yes | Minimum Lima barcode score enforced by `limaDemux`. See [lima documentation](https://lima.how/faq/filter-input.html#--min-score) for details. |
+| `analysis_chunks` | integer | yes | Number of chunks to split processed BAM files into in the `splitBAMs` workflow for subsequent `extractCalls` and `filterCalls` workflows. Higher values increase parallelism. |
+| `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
+| `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous settings for `filterCallsChunk` processes. |
+| `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
+| `remove_intermediate_files` | boolean, true or false | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
 
 ## Reference genome resources
 
 ### Required files
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `genome_fasta` | path | yes | Reference FASTA used by pbmm2 alignment and R-based summaries. |
+| `genome_fasta` | path | yes | Reference FASTA. |
 | `genome_fai` | path | yes | FASTA index produced by `samtools faidx`. |
-| `genome_mmi` | path | yes | pbmm2 minimap2 index produced by `pbmm2 index`. |
-| `BSgenome.BSgenome_name` | string | yes | BSgenome package name (for example `BSgenome.Hsapiens.UCSC.hg38`) loaded by the R scripts. |
-| `BSgenome.BSgenome_file` | path | optional | Tarball containing a custom BSgenome build. When supplied, `installBSgenome.R` installs it into `cache_dir`. |
-| `sex_chromosomes` | comma-separated string | yes | Chromosome identifiers treated as sex chromosomes and excluded from sensitivity borrowing. |
-| `mitochondrial_chromosome` | string | yes | Identifier for mitochondrial DNA. |
+| `genome_mmi` | path | yes | pbmm2 index produced by `pbmm2 index`. |
+| `BSgenome.BSgenome_name` | string | yes | BSgenome package name (for example `BSgenome.Hsapiens.UCSC.hg38`) used by R scripts. Run `BSGenome::available.genomes()` in R to see all publicly available genomes. If the desired reference genome is not available, [create a custom BSgenome package](https://bioconductor.org/packages/devel/bioc/manuals/BSgenomeForge/man/BSgenomeForge.pdf) and set `BSgenome.BSgenome_name` to the custom package's name. |
+| `BSgenome.BSgenome_file` | path | optional | Tarball (.tar.gz) file containing a custom BSgenome build. When supplied, `installBSgenome.R` installs it into `cache_dir`. |
+| `sex_chromosomes` | comma-separated string | yes | Names of sex chromosomes. Used to exclude them from sensitivity analysis. |
+| `mitochondrial_chromosome` | string | yes | Name of the mitochondrial chromosome. Used to exclude it from sensitivity analysis. |
 
 ### Chromosome grouping
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `chromgroups[]` | list | yes | Declares groups of chromosomes processed together. |
-| `chromgroups[].chromgroup` | string | yes | Group name used when naming output subdirectories and burden summaries. |
-| `chromgroups[].chroms` | comma-separated string | yes | Chromosome identifiers included in the group. |
+| `chromgroups[]` | list | yes | Declares groups of chromosomes to be analyzed together. All pipeline outputs are calculated per chromosome group. For example, you may wish to analyze chr1-22,chrX,chrY separately from chrM to obtain separate burdens and spectra for each. |
+| `chromgroups[].chromgroup` | string | yes | Chromosome group name. |
+| `chromgroups[].chroms` | comma-separated string | yes | Chromosomes to include in the group. Do not include a chromosome in more than one group. |
 
 ## Call extraction settings
 
 ### Overlap and call type structure
 | Key | Type | Required | Description |
-| --- | --- | --- | --- |
-| `min_strand_overlap` | float (0–1) | yes | Minimum fraction of forward/reverse read overlap required prior to extracting calls. |
-| `call_types[]` | list | yes | Defines each call class processed downstream. |
-| `call_types[].call_type` | string | yes | Logical label for the call class (for example `SBS`, `insertion`, or custom MDB tags). |
-| `call_types[].call_class` | string (`SBS`, `indel`, `MDB`) | yes | Directs R scripts toward the correct processing branch. |
-| `call_types[].analyzein_chromgroups` | string | yes | Either `all` or a comma-separated subset of `chromgroups[].chromgroup` values indicating where the call type is analysed. |
-| `call_types[].SBSindel_call_types[]` | list | yes | Call subtypes evaluated for the parent call type. |
-| `call_types[].SBSindel_call_types[].SBSindel_call_type` | string | yes | Subclass label (for example `mutation`, `mismatch-ss`, `mismatch-ds`, `mismatch-os`, `match`). |
-| `call_types[].SBSindel_call_types[].filtergroup` | string | yes | References a `filtergroups[].filtergroup` that governs molecule-level filters for the subtype. |
+| --- | :-- | :-- | --- |
+| `min_strand_overlap` | float (0–1) | yes | Minimum fraction of forward/reverse strand read overlap required for a molecule to be included in call extraction. Fraction of forward strand overlapping reverse read, and fraction of reverse read overlapping forward read must pass this filter. |
+| `call_types[]` | list | yes | Settings for analysis of each type of call. |
+| `call_types[].call_type` | string | yes | Name of the call type. Must be either `SBS` (single base substitution) when `call_class` = `SBS`, `insertion` or `deletion` when `call_class` = `indel`, or the name of an MDB (modified base; e.g., 5-methylcytosine). |
+| `call_types[].call_class` | string (`SBS`, `indel`, `MDB`) | yes | Class of the call type. |
+| `call_types[].analyzein_chromgroups` | string | yes | Either `all` or a comma-separated subset of `chromgroups[].chromgroup` values indicating in which chromgroups to analyze the call type. |
+| `call_types[].SBSindel_call_types[]` | list | yes | Call subtypes that specify different options for strand match and mismatches. |
+| `call_types[].SBSindel_call_types[].SBSindel_call_type` | string | yes | Call subtype.<br /><br />For `call_class` = `SBS` or `indel`, accepted values are `mutation` (a reverse complement call was identified in the opposite strand), `mismatch-ss` ('single-strand mismatch': the call was identified in only a single strand and there is no call on the opposite strand, and `mismatch-ds` ('double-strand mismatch': the call was identified in only a single strand and there is a non-reverse complement call on the opposite strand).<br /><br />For `call_class`= `MDB`, accepted values are `mutation` (the MDB is at the position of an SBS or indel mutation), `mismatch-ss` (the MDB is at a position and strand with an SBS or indel mismatch-ss call), `mismatch-ds` (the MDB is at the position of an SBS or indel mismatch-ds call), `mismatch-os` (the MDB is at a position and strand whose opposite strand has an SBS or indel mismatch-ss call), and `match` (the MDB is at a position with no SBS or indel call on either strand). |
+| `call_types[].SBSindel_call_types[].filtergroup` | string | yes | Filtergroup whose filter settings will be used for this call type. Must match an entry in `filtergroups[].filtergroup`. |
 
 ### MDB-specific options
 | Key | Type | Required | Description |
-| --- | --- | --- | --- |
-| `call_types[].MDB_bamtag` | string | required for MDB entries | BAM auxiliary tag storing MDB scores. |
-| `call_types[].MDB_min_score` | numeric | required for MDB entries | Minimum strand score enforced during extraction. |
-| `call_types[].MDB_sensitivity` | float | optional | Sensitivity applied when correcting burdens for MDB call types. |
-| `call_types[].MDB_base_opposite_strand` | string or `null` | optional | When set, requires the specified base on the opposite strand for MDB evaluation; `null` disables the constraint. |
+| --- | :-- | --- | --- |
+| `call_types[].MDB_bamtag` | string | set only for MDB call_class entries | BAM auxiliary tag storing MDB scores. |
+| `call_types[].MDB_min_score` | numeric | set only for MDB call_class entries | Minimum score filter for calls of this MDB type. |
+| `call_types[].MDB_sensitivity` | float (0-1) | set only for MDB call_class entries | Sensitivity for calls of this MDB type. Used to calculate sensitivity-corrected burdens. |
+| `call_types[].MDB_base_opposite_strand` | string or `null` | optional | When set, requires the specified base on the opposite strand for MDB calls; `null` disables this filter. |
 
 ## Germline VCF filter definitions
 
 ### Threshold fields
-| Key | Type | Description |
-| --- | --- | --- |
-| `germline_vcf_types[]` | list | Settings for filters that determine which germline variants from each germline VCF type are used for germline variant filtering. |
-| `germline_vcf_types[].germline_vcf_type` | string | Name of tool used to call the germline VCF's variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
-| `germline_vcf_types[].SBS_FILTERS[]` | list of strings | List of VCF `FILTER` column values, at least one of which must be present in order to include an SBS variant. Important: surround each entry with quotes. |
-| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | Minimum total read depth (for all alleles at the site), allele fraction of the variant, genotype quality of the variant, and VCF QUAL column value of the variant in order to include an SBS variant. |
-| `germline_vcf_types[]`.`indel_FILTERS[]` | list of strings | List of VCF `FILTER` column values, at least one of which must be present in order to include an indel variant. Important: surround each entry with quotes. |
-| `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | Minimum thresholds in order to include an indel variant. |
-| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string or `NA` | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline adds flanking bases on both sides of each variant's span where each flank size is the larger of these two numbers. Use `NA` to disable padding for the respective event type. |
+| Key | Type | Required | Description |
+| --- | :-- | :-- | --- |
+| `germline_vcf_types[]` | list | yes | Settings for filters that determine which germline variants from each germline VCF type are used for germline variant filtering. |
+| `germline_vcf_types[].germline_vcf_type` | string | yes | Name of tool used to call the germline VCF's variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
+| `germline_vcf_types[].SBS_FILTERS[]` | list of strings | yes | List of VCF `FILTER` column values, at least one of which must be present in order to include an SBS variant. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | yes | Minimum total read depth (for all alleles at the site), allele fraction of the variant, genotype quality of the variant, and VCF QUAL column value of the variant in order to include an SBS variant. |
+| `germline_vcf_types[].indel_FILTERS[]` | list of strings | yes | List of VCF `FILTER` column values, at least one of which must be present in order to include an indel variant. Important: surround each entry with quotes. |
+| `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | yes | Minimum thresholds in order to include an indel variant. |
+| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string | yes; set to `NA` or `m0b0` to disable | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline adds flanking bases on both sides of each variant's span where each flank size is the larger of these two numbers. |
 
 ## Filter group definitions
 
-### Molecule-level filters
-| Key | Description |
-| --- | --- |
-| `filtergroup` | Name referenced by `call_types[].SBSindel_call_types[].filtergroup`. |
-| `min_rq_eachstrand`, `min_rq_avgstrands` | Minimum read-quality (`rq`) thresholds applied per strand and to the average across both strands. The `avgstrands` checks compute the mean of the two strand values before comparison. |
-| `min_ec_eachstrand`, `min_ec_avgstrands` | Minimum polymerase pass counts (`ec`) per strand and averaged across strands. |
-| `min_mapq_eachstrand`, `min_mapq_avgstrands` | Minimum mapping quality thresholds per strand and averaged across strands. |
-| `max_num_SBScalls_eachstrand`, `max_num_SBScalls_stranddiff` | Maximum SBS call counts per strand and allowable imbalance between strands. |
-| `max_num_SBSmutations` | Maximum SBS mutations per molecule prior to filtering. |
-| `max_num_indelcalls_eachstrand`, `max_num_indelcalls_stranddiff`, `max_num_indelmutations` | Analogous indel controls for call counts and mutations. |
-| `max_num_softclipbases_eachstrand`, `max_num_softclipbases_avgstrands` | Soft-clip thresholds per strand and averaged across strands. |
-| `max_num_SBScalls_postVCF_eachstrand`, `max_num_SBSmutations_postVCF` | Post-germline SBS limits enforced after VCF filtering. |
-| `max_num_indelcalls_postVCF_eachstrand`, `max_num_indelmutations_postVCF` | Post-germline indel limits. |
-| `min_qual`, `min_qual_method` | Minimum HiFi `qual` score threshold and aggregation method. `min_qual_method` accepts `mean`, `all`, or `any`, matching the helper function in `filterCalls.R` that respectively tests mean scores, requires all positions above threshold, or allows any position above threshold for multi-base events. |
-| `read_trim_bp` | Number of bases trimmed from each read end before evaluating filters. |
-| `ccsindel_inspad`, `ccsindel_delpad` | Padding strings using the same `m<multiplier>b<offset>` syntax described above, applied when intersecting indels with CCS subreads to derive coverage statistics. Set the value to `NA` to disable padding entirely; otherwise specify the multiplier/offset pair (for example `m1b10`). |
-| `min_BAMTotalReads`, `max_BAMVariantReads`, `max_BAMVAF` | Depth-based thresholds computed from germline BAM pileups. |
-| `min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match` | Subread coverage thresholds derived from `sa`, `sm`, and `sx` tags. |
-| `min_subreads_cvgmatch_method` | Aggregation method (`mean`, `all`, or `any`) applied when summarising subread coverage metrics across multi-base events. |
-| `max_finalcalls_eachstrand` | Maximum allowed final calls per strand; molecules exceeding the cap are discarded. |
+### Basic molecule- and call-level filters
 
-`avgstrands` suffixes indicate that the pipeline calculates the metric independently for the plus and minus strand of each molecule and then compares the arithmetic mean `(plus + minus) / 2` against the configured threshold. Padding string options for CCS coverage reuse the `m<multiplier>b<offset>` convention explained in the germline VCF filter table above.
+Filter groups enable creation of different sets of filter thresholds, each of which can be applied to multiple call types.
+
+| Key | Type | Required | Description |
+| --- | :-- | --- | --- |
+| `filtergroups[]` | list | yes | Settings for filters that are applied to molecules and calls for each call type assigned to the filtergroup. |
+| `filtergroups[].filtergroup` | string | yes | Name referenced by `call_types[].SBSindel_call_types[].filtergroup`. |
+| `filtergroups[]`.`min_rq_eachstrand`, `min_rq_avgstrands`<br />(molecule-level filter) | float (0-1), float (0-1) | yes | Minimum read-quality (calculated by `ccs` as the average of consensus base qualities; obtained from the BAM file's`rq` tag) thresholds that must pass for both strands (`_eachstrand`) and for the average across both strands (`_avgstrands`) to keep the molecule in the analysis. |
+| `filtergroups[]`.`min_ec_eachstrand`, `min_ec_avgstrands`<br />(molecule-level filter) | numeric, numeric | yes | Minimum effective coverage  (calculated by `ccs` as the coverage of the consensus sequence by subreads; obtained from the BAM file's `ec` tag) thresholds that must pass for both strands and for the average across both strands. |
+| `filtergroups[]`.`min_mapq_eachstrand`, `min_mapq_avgstrands`<br />(molecule-level filter) | numeric, numeric | yes | Minimum mapping quality thresholds that must pass for both strands and for the average across both strands. |
+| `filtergroups[]`.`max_num_SBScalls_eachstrand`, `max_num_SBScalls_stranddiff`, `max_num_SBSmutations`<br />(molecule-level filter) | integer, integer, integer | yes | Maximum number of SBS calls per strand, allowable difference in the number of SBS calls between strands, and number of SBS mutations per molecule. |
+| `filtergroups[]`.`max_num_indelcalls_eachstrand`, `max_num_indelcalls_stranddiff`, `max_num_indelmutations`<br />(molecule-level filter) | integer, integer, integer | yes | Analogous filters for indels. |
+| `filtergroups[]`.`max_num_softclipbases_eachstrand`, `max_num_softclipbases_avgstrands`<br />(molecule-level filter) | integer, numeric | yes | Maximum number of soft-clipped bases thresholds that must pass for both strands and for the average across both strands. |
+| `filtergroups[]`.`max_num_SBScalls_postVCF_eachstrand`, `max_num_SBSmutations_postVCF`<br />(molecule-level filter) | integer, integer | yes | Maximum number of SBS calls per strand and number of SBS mutations per molecule after germline VCF filtering is applied. |
+| `filtergroups[]`.`max_num_indelcalls_postVCF_eachstrand`, `max_num_indelmutations_postVCF`<br />(molecule-level filter) | integer, integer | yes | Analogous filters for indels. |
+| `filtergroups[]`.`min_qual`, `min_qual_method`<br />(call-level filters) | numeric, string (`mean`, `all`, `any`) | yes | Minimum base quality score filter for a call (`min_qual`) that must pass in both strands, even for single-strand calls. The thresholding method (`min_qual_method`) used for indels with length > 1 can be `mean`, `all`, or `any` , indicating that either the mean of base qualities, all base qualities, or any base qualities of a strand are compared to `min_qual`. If any base quality in the opposite strand is NA, the call fails this filter. |
+| `filtergroups[].read_trim_bp`<br />(molecule-region filter) | integer | yes | Number of bases trimmed from each read end. |
+| `filtergroups[]`.`ccsindel_inspad`, `ccsindel_delpad`<br />(molecule-region filter) | string, string | yes; set to `NA` or `m0b0` to disable | Padding strings using the same `m<multiplier>b<offset>` syntax described above, to filter regions near HiDEF-seq (i.e. non-germline) indel calls in each strand. This filter is not applied to indel calls. |
+| `filtergroups[].min_BAMTotalReads`<br />(genomic-region filter) | integer | yes | Minimum number of reads required in the germline sequencing data at the site of the call (to avoid false-positives due to false-negative detection of a germline variant). For insertions, left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter. |
+| `filtergroups[]`.`max_BAMVariantReads`, `max_BAMVAF`<br />(call-level filters) | integer, float (0-1) | yes | Maximum number of germline sequencing variant reads and maximum VAF of germline sequencing variant reads that match the HiDEF-seq call as obtained by `bcftools mpileup` of the germline sequencing BAM file. Applied only to SBS calls. |
+| `filtergroups[]`.`min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match`<br />(call-level filter) | float (0-1), integer, float (0-1) | yes | Subread coverage thresholds derived from `sa`, `sm`, and `sx` tags. |
+| `filtergroups[].min_subreads_cvgmatch_method`<br />(call-level filter) | string (`mean`, `all`,  `any`) | yes | Aggregation method (`mean`, `all`, or `any`) applied when summarising subread coverage metrics across multi-base events. |
+| `filtergroups[].max_finalcalls_eachstrand`<br />(molecule-level filter) | Integer | yes | Maximum allowed final calls per strand; molecules exceeding the cap are discarded. |
 
 ## Region filter configuration
 

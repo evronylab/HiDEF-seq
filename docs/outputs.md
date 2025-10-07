@@ -3,8 +3,8 @@
 This guide documents every final file produced by the `processReads` and `outputResults` workflows described in `main.nf`, including directory layouts, serialized objects, and column-level metadata.
 
 ## Outline
-- [Directory layout](#directory-layout)
-  - [Sample root](#sample-root)
+- [Main analysis directory layout](#main-analysis-directory-layout)
+  - [Sample root directory](#sample-root-directory)
   - [Shared logs](#shared-logs)
   - [Per-sample logs](#per-sample-logs)
 - [processReads outputs](#processreads-outputs)
@@ -25,23 +25,21 @@ This guide documents every final file produced by the `processReads` and `output
   - [Estimated SBS mutation error probability](#estimated-sbs-mutation-error-probability)
   - [Serialized object (.qs2)](#serialized-object-qs2)
 
-## Directory layout
+## Main analysis directory layout
 
-### Sample root
-For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results beneath
-`[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`.
-Workflow-specific subdirectories (`processReads`, `outputResults`, …) mirror the executed stages.
+### Sample root directory
+For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to the folder `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Within each of these folders are folders for each of the Nextflow pipeline's workflow outputs (`processReads`, `outputResults`, …).
 
 ### Shared logs
-Global logs and run metadata accumulate under `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
+Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
 - `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
-- `.command.log` files for workflow-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).
+- `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
 - CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
 - Any additional helper tables emitted globally, including cached configuration manifests and chunk-level tracking TSVs.
 
 ### Per-sample logs
-Each sample directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunk`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.), renamed with the full `analysis_id.individual_id.sample_id.processName.command.log` pattern for clarity.
+Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunk`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.), renamed with the full `analysis_id.individual_id.sample_id.processName.command.log` pattern for clarity.
 
 ## processReads outputs
 
@@ -55,22 +53,22 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/proce
 | `${analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi` | PacBio BAM index created with `pbindex`. |
 
 ### BAM tag reference
-The aligned CCS BAM includes PacBio-rich annotations used by downstream filters. The table below summarises notable tags and columns:
+The table below summarises tags present in the aligned CCS BAM. See references for [PacBio BAM format](https://pacbiofileformats.readthedocs.io/en/13.1/BAM.html), [lima (demultiplexing)](https://lima.how/), [CCS](https://ccs.how/), and [pbmm2](https://github.com/PacificBiosciences/pbmm2) for more information.
 
 | Tag | Category | Description |
 | --- | --- | --- |
-| `ec` | General | Effective coverage: average subread coverage across windows, counting all polished subreads (full- and partial-length) that pass filters. Typically approximates `np + 1`. |
+| `ec` | General | Effective coverage: average subread coverage of the consensus sequence across all [windows](https://ccs.how/how-does-ccs-work.html#4-windowing). |
 | `np` | General | Number of full-length subreads used during CCS polishing. |
 | `rq` | General | Mean per-base quality across the CCS read. |
 | `sn` | General | Signal-to-noise ratios for nucleotides A, C, G, T across the HQRegion. |
 | `we` | General | Start of the last base (`qe - 1`) in approximate raw frame counts from movie start. |
 | `ws` | General | Start of the first base in approximate raw frame counts from movie start. |
 | `zm` | General | ZMW hole number. |
-| `RG` | General | Read-group identifier propagated from alignment headers. |
-| `ac` | Barcode/adapter | Array `[left_detected, left_missing, right_detected, right_missing]` counting adapters. |
+| `RG` | General | Read-group identifier. |
+| `ac` | Barcode/adapter | Array of adapter detection: `[left_detected, left_missing, right_detected, right_missing]`. |
 | `bx` | Barcode/adapter | Pair of clipped barcode sequence lengths. |
-| `ff` | Barcode/adapter | Failure flag (`4` indicates non-failed single-stranded CCS reads). |
-| `ma` | Barcode/adapter | Adapter detection status (`0` both sides detected, `1` missing left, `2` missing right; adapter called when >25% of subreads detect it). |
+| `ff` | Barcode/adapter | Failure flag. |
+| `ma` | Barcode/adapter | Adapter detection status (`0` both sides detected, `1` missing left, `2` missing right). |
 | `qs` | Barcode/adapter | Query start position after barcode trimming. |
 | `qe` | Barcode/adapter | Query end position before barcode trimming. |
 | `bc` | Barcode/adapter | Integer barcode pair indices (0-based offsets within barcode FASTA). |
@@ -81,24 +79,18 @@ The aligned CCS BAM includes PacBio-rich annotations used by downstream filters.
 | `ql` | Barcode/adapter | Qualities of barcode bases clipped from the leading end. |
 | `qt` | Barcode/adapter | Qualities of barcode bases clipped from the trailing end. |
 | `ls` | Barcode/adapter | Binary blob storing clipped adapter/barcode data. |
-| `sa` | Rich HiFi | Run-length encoded counts of subread alignments spanning each consensus position. |
-| `sm` | Rich HiFi | Count of aligned subread bases matching the consensus per position (values >255 capped). |
-| `sx` | Rich HiFi | Count of aligned subread bases mismatching the consensus per position (values >255 capped). |
+| `sa` | Rich HiFi | Run-length encoded counts of subread alignments spanning each consensus position. Ignores local details of alignments (i.e., indels) and only considers the start and end of each subread alignment. |
+| `sm` | Rich HiFi | Count of aligned subread bases matching the consensus sequence per position (values >255 capped). |
+| `sx` | Rich HiFi | Count of aligned subread bases mismatching the consensus sequence per position (values >255 capped). |
 | `MM` | Methylation | Base modification calls per BAM specification. |
 | `ML` | Methylation | Modification probabilities corresponding to `MM`. |
 | `ip` | Kinetics | Inter-pulse width measurements. |
 | `pw` | Kinetics | Pulse width measurements. |
 | `mg` | Alignment | Gap-compressed sequence identity percentage (`100 * matches / (matches + mismatches + gaps)`). |
-| `NM` | Alignment | Total mismatches plus indel events for the alignment. |
-| `pos` | Alignment summary | 1-based genomic start position excluding clipping. |
-| `qwidth` | Alignment summary | Length of the query sequence including soft clipping. |
-| `isize` | Alignment summary | Insert size / template length (`TLEN`), sum of `M/D/=/X` CIGAR operations. |
-
-Downstream filters often rely on `sa` counts and the consensus agreement ratio `sm / (sm + sx)`; the latter can slightly underestimate agreement when subreads per strand exceed 255 because `sm` is capped.
-Consult the <a href="https://pacbiofileformats.readthedocs.io/en/13.1/BAM.html" target="_blank" rel="noopener noreferrer">PacBio BAM format reference</a> for exhaustive tag definitions.
+| `NM` | Alignment | Total number of mismatches and gaps in the alignment. |
 
 ### QC contributions to shared logs
-During `processReads`, the pipeline adds to the shared logs directory:
+During `processReads`, the pipeline adds to the sharedLogs directory:
 - Stage-by-stage ZMW counts produced by `countZMWs`.
 - Per-chunk CCS diagnostics (`statistics/*.ccs_report.*`, `statistics/*.summary.json`) and their corresponding `.command.log` files from `ccsChunk`, `mergeCCSchunks`, and `filterAdapter`.
 - Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`) plus associated `.command.log` transcripts.
@@ -107,12 +99,12 @@ During `processReads`, the pipeline adds to the shared logs directory:
 ## outputResults outputs
 
 ### Directory structure
-`outputResults` organises every downstream result by chromgroup and filter group. The script defines helper suffixes such as
-`filterStats_dir <- "/filterStats/"` and `finalCalls_dir <- "/finalCalls/"`; when concatenated with a chromgroup name the leading slash becomes a path separator. Consequently, each chromgroup has its own directory under `outputResults`:
+The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`, with separate sub-folders for the outputs of each chromgroup as follows:
 
 ```
 outputResults/
   └─ [chromgroup]/
+       ├─ coverage_reftnc/
        ├─ filterStats/
        ├─ finalCalls/
        ├─ germlineVariantCalls/
@@ -125,7 +117,8 @@ outputResults/
 ```
 
 Files inside these folders are further keyed by `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type`.
-All burden-related tables originate from the `calculateBurdensChromgroupFiltergroup` tasks and are published here by `outputResults`.
+
+Per-base coverage by HiDEF-seq final interrogated bases and per-base trinucleotide sequences of covered bases are output by `calculateBurdensChromgroupFiltergroup` into the `outputResults/[chromgroup]/coverage_reftnc` folder rather than in the folder storing the results of the `calculateBurdensChromgroupFiltergroup` workflow.
 
 ### Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`

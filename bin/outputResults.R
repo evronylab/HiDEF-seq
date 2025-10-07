@@ -652,8 +652,8 @@ for(i in chromgroups){
 		germline_filter_cols_keep <- c(
 			"germline_vcf.passfilter",
 			germlineVariantCalls %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
-			"max_BAMVariantReads.passfilter",
-			"max_BAMVAF.passfilter",
+			"max_germlineBAM_VariantReads.passfilter",
+			"max_germlineBAM_VAF.passfilter",
 			region_read_filters_cols_keep,
 			region_genome_filters_cols_keep,
 			"germline_vcf_types_detected", "germline_vcf_files_detected"

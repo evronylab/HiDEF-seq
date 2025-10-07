@@ -231,9 +231,9 @@ filtergroups:
     read_trim_bp: 10
     ccsindel_inspad: m2b15 # set to NA or m0b0 to disable this filter
     ccsindel_delpad: m2b15 # set to NA or m0b0 to disable this filter
-    min_BAMTotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
-    max_BAMVariantReads: 3 # applied only to SBS
-    max_BAMVAF: 0.05 # applied only to SBS
+    min_germlineBAM_TotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
+    max_germlineBAM_VariantReads: 3 # applied only to SBS
+    max_germlineBAM_VAF: 0.05 # applied only to SBS
     min_frac_subreads_cvg: 0.5 # filter applied to both strands for all call types
     min_num_subreads_match: 0 # filter applied to both strands for all call types
     min_frac_subreads_match: 0.5 # filter applied to both strands for all call types
@@ -263,9 +263,9 @@ filtergroups:
     read_trim_bp: 10
     ccsindel_inspad: m2b15
     ccsindel_delpad: m2b15
-    min_BAMTotalReads: 15
-    max_BAMVariantReads: 3
-    max_BAMVAF: 0.05
+    min_germlineBAM_TotalReads: 15
+    max_germlineBAM_VariantReads: 3
+    max_germlineBAM_VAF: 0.05
     min_frac_subreads_cvg: 0.5
     min_num_subreads_match: 0
     min_frac_subreads_match: 0.6

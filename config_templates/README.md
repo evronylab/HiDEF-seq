@@ -48,7 +48,6 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Individuals and germline resources
 
-### Individual-level inputs
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `individuals[].individual_id` | string | yes | Individual identifier (i.e., identifier of the person/animal). Referenced by`samples[].individual_id` and propagated to data outputs. |
@@ -61,7 +60,6 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Output locations
 
-### Paths
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `analysis_output_dir` | path | yes | Root directory for final output folders. |
@@ -69,7 +67,6 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Container and tool paths
 
-### Container and environment hooks
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path used for all processes. |
@@ -80,7 +77,6 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Pipeline runtime parameters
 
-### Nextflow chunking and retries
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `ccs_chunks` | integer | required when `reads_type: subreads` | Number of chunks in which CCS consensus sequence calling is performed for subreads data. Resulting CCS chunks are then merged. |
@@ -113,10 +109,10 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Call extraction settings
 
-### Overlap and call type structure
+### Read overlap filter and call type structure
 | Key | Type | Required | Description |
 | --- | :-- | :-- | --- |
-| `min_strand_overlap` | float (0–1) | yes | Minimum fraction of forward/reverse strand read overlap required for a molecule to be included in call extraction. Fraction of forward strand overlapping reverse read, and fraction of reverse read overlapping forward read must pass this filter. |
+| `min_strand_overlap` | float (0–1) | yes | Minimum fraction of forward/reverse strand read overlap required for a molecule to be included in call extraction. Fraction of forward strand read overlapping reverse strand read, and fraction of reverse strand read overlapping forward strand read must both pass this filter. |
 | `call_types[]` | list | yes | Settings for analysis of each type of call. |
 | `call_types[].call_type` | string | yes | Name of the call type. Must be either `SBS` (single base substitution) when `call_class` = `SBS`, `insertion` or `deletion` when `call_class` = `indel`, or the name of an MDB (modified base; e.g., 5-methylcytosine). |
 | `call_types[].call_class` | string (`SBS`, `indel`, `MDB`) | yes | Class of the call type. |
@@ -135,22 +131,19 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 ## Germline VCF filter settings
 
-### Threshold fields
 | Key | Type | Required | Description |
 | --- | :-- | :-- | --- |
 | `germline_vcf_types[]` | list | yes | Settings for filters that determine which germline variants from each germline VCF type are used for germline variant filtering. |
 | `germline_vcf_types[].germline_vcf_type` | string | yes | Name of tool used to call the germline VCF's variants.  Referenced by`individuals[].germline_vcf_files[].germline_vcf_type`. |
 | `germline_vcf_types[].SBS_FILTERS[]` | list of strings | yes | List of VCF `FILTER` column values, at least one of which must be present in order to include an SBS variant. Important: surround each entry with quotes. |
-| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | yes | Minimum total read depth (for all alleles at the site), allele fraction of the variant, genotype quality of the variant, and VCF QUAL column value of the variant in order to include an SBS variant. |
+| `germline_vcf_types[]`.`SBS_min_Depth`, `SBS_min_VAF`, `SBS_min_GQ`, `SBS_min_QUAL` | numeric | yes | Minimum total read depth (for all alleles at the site), allele fraction, genotype quality, and VCF QUAL column value in order to include an SBS variant. |
 | `germline_vcf_types[].indel_FILTERS[]` | list of strings | yes | List of VCF `FILTER` column values, at least one of which must be present in order to include an indel variant. Important: surround each entry with quotes. |
 | `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | yes | Minimum thresholds in order to include an indel variant. |
-| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string | yes; set to `NA` or `m0b0` to disable | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline adds flanking bases on both sides of each variant's span where each flank size is the larger of these two numbers. |
+| `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string | yes; set to `NA` or `m0b0` to disable | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the indel length, `b` is a fixed number of bases for all indels, and the pipeline filters flanking bases on each side of each variant where the size of the flank on each side is the larger of these two numbers calculated for each variant. |
 
 ## Filter group settings
 
-### Basic molecule- and call-level filters
-
-Filter groups enable creation of different sets of filter thresholds, each of which can be applied to multiple call types.
+Filter groups enable creation of different sets of thresholds for basic molecule- and call-level filters. Each filter group can be applied to multiple call types per the `call_types[].SBSindel_call_types[].filtergroup` setting.
 
 | Key | Type | Required | Description |
 | --- | :-- | --- | --- |
@@ -159,31 +152,34 @@ Filter groups enable creation of different sets of filter thresholds, each of wh
 | `filtergroups[]`.`min_rq_eachstrand`, `min_rq_avgstrands`<br />(molecule-level filter) | float (0-1), float (0-1) | yes | Minimum read-quality (calculated by `ccs` as the average of consensus base qualities; obtained from the BAM file's`rq` tag) thresholds that must pass for both strands (`_eachstrand`) and for the average across both strands (`_avgstrands`) to keep the molecule in the analysis. |
 | `filtergroups[]`.`min_ec_eachstrand`, `min_ec_avgstrands`<br />(molecule-level filter) | numeric, numeric | yes | Minimum effective coverage  (calculated by `ccs` as the coverage of the consensus sequence by subreads; obtained from the BAM file's `ec` tag) thresholds that must pass for both strands and for the average across both strands. |
 | `filtergroups[]`.`min_mapq_eachstrand`, `min_mapq_avgstrands`<br />(molecule-level filter) | numeric, numeric | yes | Minimum mapping quality thresholds that must pass for both strands and for the average across both strands. |
-| `filtergroups[]`.`max_num_SBScalls_eachstrand`, `max_num_SBScalls_stranddiff`, `max_num_SBSmutations`<br />(molecule-level filter) | integer, integer, integer | yes | Maximum number of SBS calls per strand, allowable difference in the number of SBS calls between strands, and number of SBS mutations per molecule. |
+| `filtergroups[]`.`max_num_SBScalls_eachstrand`, `max_num_SBScalls_stranddiff`, `max_num_SBSmutations`<br />(molecule-level filter) | integer, integer, integer | yes | Maximum number of SBS calls per strand, maximum allowable difference in the number of SBS calls between strands, and maximum number of SBS mutations per molecule. SBS calls for these filters are counted irrespective of any other filters. |
 | `filtergroups[]`.`max_num_indelcalls_eachstrand`, `max_num_indelcalls_stranddiff`, `max_num_indelmutations`<br />(molecule-level filter) | integer, integer, integer | yes | Analogous filters for indels. |
 | `filtergroups[]`.`max_num_softclipbases_eachstrand`, `max_num_softclipbases_avgstrands`<br />(molecule-level filter) | integer, numeric | yes | Maximum number of soft-clipped bases thresholds that must pass for both strands and for the average across both strands. |
-| `filtergroups[]`.`max_num_SBScalls_postVCF_eachstrand`, `max_num_SBSmutations_postVCF`<br />(molecule-level filter) | integer, integer | yes | Maximum number of SBS calls per strand and number of SBS mutations per molecule after germline VCF filtering is applied. |
+| `filtergroups[]`.`max_num_SBScalls_postVCF_eachstrand`, `max_num_SBSmutations_postVCF`<br />(molecule-level filter) | integer, integer | yes | Maximum number of SBS calls per strand and maximum number of SBS mutations per molecule when only germline VCF filtering is applied. |
 | `filtergroups[]`.`max_num_indelcalls_postVCF_eachstrand`, `max_num_indelmutations_postVCF`<br />(molecule-level filter) | integer, integer | yes | Analogous filters for indels. |
 | `filtergroups[]`.`min_qual`, `min_qual_method`<br />(call-level filters) | numeric, string (`mean`, `all`, `any`) | yes | Minimum base quality score filter for a call (`min_qual`) that must pass in both strands, even for single-strand calls. The thresholding method (`min_qual_method`) used for indels with length > 1 can be `mean`, `all`, or `any` , indicating that either the mean of base qualities, all base qualities, or any base qualities of a strand are compared to `min_qual`. If any base quality in the opposite strand is NA, the call fails this filter. |
 | `filtergroups[].read_trim_bp`<br />(molecule-region filter) | integer | yes | Number of bases trimmed from each read end. |
-| `filtergroups[]`.`ccsindel_inspad`, `ccsindel_delpad`<br />(molecule-region filter) | string, string | yes; set to `NA` or `m0b0` to disable | Padding strings using the same `m<multiplier>b<offset>` syntax described above, to filter regions near HiDEF-seq (i.e. non-germline) indel calls in each strand. This filter is not applied to indel calls. |
-| `filtergroups[].min_BAMTotalReads`<br />(genomic-region filter) | integer | yes | Minimum number of reads required in the germline sequencing data at the site of the call (to avoid false-positives due to false-negative detection of a germline variant) as obtained by `samtools mpileup`. For insertions, left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter. |
-| `filtergroups[]`.`max_BAMVariantReads`, `max_BAMVAF`<br />(call-level filters) | integer, float (0-1) | yes | Maximum allowed number of germline sequencing variant reads and maximum allowed VAF of germline sequencing variant reads that match the HiDEF-seq call as obtained by `bcftools mpileup` of the germline sequencing BAM file. Applied only to SBS calls. |
-| `filtergroups[]`.`min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match`<br />(call-level filter) | float (0-1), integer, float (0-1) | yes | Minimum required subread coverage, subread matches, and fraction of subreads matching the call site (obtained from `sa`, `sm`, and `sx` tags, respectively). Filters are applied to both strands for all call types. |
+| `filtergroups[]`.`ccsindel_inspad`, `ccsindel_delpad`<br />(molecule-region filter) | string, string | yes; set to `NA` or `m0b0` to disable | Specification of padding to add around each HiDEF-seq (i.e. non-germline) insertion (`ccsindel_inspad`) and deletion (`ccsindel_delpad`) call in each strand for filtering HiDEF-seq calls. Specified using the same `m<multiplier>b<offset>` padding syntax described above. This filter is not applied to indel calls. |
+| `filtergroups[].min_germlineBAM_TotalReads`<br />(genomic-region filter) | integer | yes | Minimum number of reads required in the germline sequencing data at the site of the call (to avoid false-positives due to false-negative detection of a germline variant) as obtained by `samtools mpileup`. For insertions, left and right flanking bases, and for deletions, the deleted bases, in genome reference space must pass the filter. |
+| `filtergroups[]`.`max_germlineBAM_VariantReads`, `max_germlineBAM_VAF`<br />(call-level filters) | integer, float (0-1) | yes | Maximum allowed number of germline sequencing variant reads and maximum allowed VAF of germline sequencing variant reads that match the HiDEF-seq call as obtained by `bcftools mpileup` of the germline sequencing BAM file. Applied only to SBS calls. |
+| `filtergroups[]`.`min_frac_subreads_cvg`, `min_num_subreads_match`, `min_frac_subreads_match`<br />(call-level filter) | float (0-1), integer, float (0-1) | yes | Minimum required subread coverage for the strand at the site of the call, subreads whose sequence matches the call, and fraction of subreads whose sequence matches the call (obtained from `sa`, `sm`, and `sx` BAM tags and calculated as `sa/max(sa)` for the strand, `sm`, and `sm/(sm+sx)`, respectively). Filters must pass in both strands for all call types. |
 | `filtergroups[].min_subreads_cvgmatch_method`<br />(call-level filter) | string (`mean`, `all`,  `any`) | yes | The thresholding method used for `min_frac_subreads_cvg`, `min_num_subreads_match`, and `min_frac_subreads_match` when applied to indels with length > 1. Can be `mean`, `all`, or `any` , indicating that either the mean of the values for each base, all the values of bases, or any values of bases of a strand are compared to the respective threshold. If any `sa`, `sm`, or `sx` value in the opposite strand is NA, the call fails the respective filter. |
 | `filtergroups[].max_finalcalls_eachstrand`<br />(molecule-level filter) | Integer | yes | Maximum allowed number of final calls per strand, counting the number of calls separately for each `call_type` x `SBSindel_call_type` combination. If either strand fails the filter, the entire molecule is discarded from analysis of that specific `call_type`.`SBSindel_call_type`. |
 
 ## Region filter configuration
 
+Processed region filter bigWig files are prepared by the `prepareFilters` workflow for analysis based on the below settings and saved in `cache_dir` for future analyses. 
+
 ### Region-based molecule filters
+
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `region_filters[].read_filters[]` | list | optional | Region-based molecule filters that are applied as follows: each molecule is assessed against the set of genomic regions defined by the region filter and the below `binsize`, `threshold`, and `padding` settings. If the fraction of the molecule covered by the region filter (average of each strand) passes the `read_threshold` setting, then the entire molecule is filtered out. Otherwise, the filter does not remove the molecule or any part of it. |
 | `region_filters[].read_filters[].region_filter_file` | path | yes | bigWig file of the region filter providing per-base scores. |
-| `region_filters[].read_filters[].binsize` | integer | yes | Size of bins (in bases) within each of which bigWig per-base scores are averaged before applying `threshold`. `binsize: 1` retains the original bigWig per-base scores. |
-| `region_filters[].read_filters[].threshold` | string | yes | Threshold applied to the bigWig score to select regions that will comprise the set of filter regions. Encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
+| `region_filters[].read_filters[].binsize` | integer | yes | Size of bins (in bases) within each of which bigWig per-base scores are averaged before applying `threshold`. `binsize: 1` retains the original per-base scores. |
+| `region_filters[].read_filters[].threshold` | string | yes | Threshold applied to the bigWig score to select regions that will comprise the set of filter regions to consider in the subsequent `read_threshold` setting. Encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
 | `region_filters[].read_filters[].padding` | integer | yes | Number of bases to add to each flank of each region of the region filter. |
-| `region_filters[].read_filters[].read_threshold` | string | yes | Fraction of the molecule that must be covered by the region filter as described above (average of both strands) in order to be filtered. Encoded as for `threshold`. Encoded as `<operator><value>` as in `threshold`, but with `<value>` limited to a range of 0-1. |
+| `region_filters[].read_filters[].read_threshold` | string | yes | Fraction of the molecule that must be covered by the region filter (average of both strands) in order to be filtered. Encoded as for `threshold`. Encoded as `<operator><value>` as in `threshold`, but with `<value>` limited to a range of 0-1. |
 | `region_filters[].read_filters[].applyto_chromgroups` | string | yes | `all` or a comma-separated list of chromgroups to which the filter is applied. |
 | `region_filters[].read_filters[].applyto_filtergroups` | string | yes | `all` or a comma-separated list of filter groups to which the filter is applied. |
 | `region_filters[].read_filters[].is_germline_filter` | boolean, `true` or `false` | yes | Boolean indicating whether the filter targets germline variant contexts (for example, a filter based on gnomAD variants). If `true`, the filter is excluded from sensitivity calculations that rely on germline variant calls that pass non-germline filters. |

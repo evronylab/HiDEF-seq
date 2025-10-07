@@ -1051,7 +1051,7 @@ cat("DONE\n")
 ######################
 cat("## Applying germline BAM total reads (coverage) filter...")
 
-passfilter_label <- "min_BAMTotalReads.passfilter"
+passfilter_label <- "min_germlineBAM_TotalReads.passfilter"
 
 #Load germline BAM samtools mpileup bigwig; only bases failing filter due to memory constraints.
 germline_bam_samtools_mpileup_file <- cache_dir %>%
@@ -1069,7 +1069,7 @@ tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
 
 system(paste("/bin/bash -c",shQuote(paste(
 	yaml.config$wiggletools_bin,"lt",
-	filtergroup_toanalyze_config$min_BAMTotalReads,
+	filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
 	germline_bam_samtools_mpileup_file,"|",
 	yaml.config$wigToBigWig_bin,"stdin <(cut -f 1,2",
 	yaml.config$genome_fai,")",
@@ -1115,7 +1115,7 @@ calls[[passfilter_label]] <- ! overlapsAny_bymcols(
 region_genome_filter_stats <- region_genome_filter_stats %>%
 	bind_rows(
 		tibble(
-			filter = "min_BAMTotalReads",
+			filter = "min_germlineBAM_TotalReads",
 			binsize = NA,
 			threshold = NA,
 			padding = NA,
@@ -1184,19 +1184,19 @@ germline_bam_bcftools_mpileup_filter <- load_vcf(
 
 #Extract variants failing filters
 germline_bam_bcftools_mpileup_BAMVariantReads_filter <- germline_bam_bcftools_mpileup_filter %>%
-	filter(AD2 > filtergroup_toanalyze_config$max_BAMVariantReads)
+	filter(AD2 > filtergroup_toanalyze_config$max_germlineBAM_VariantReads)
 
 germline_bam_bcftools_mpileup_BAMVAF_filter <- germline_bam_bcftools_mpileup_filter %>%
-	filter(VAF > filtergroup_toanalyze_config$max_BAMVAF)
+	filter(VAF > filtergroup_toanalyze_config$max_germlineBAM_VAF)
 
 #Annotate SBS calls with germline BAM bcftools mpileup VCF filters.
-calls[["max_BAMVariantReads.passfilter"]] <- ! overlapsAny_bymcols(
+calls[["max_germlineBAM_VariantReads.passfilter"]] <- ! overlapsAny_bymcols(
 	calls.gr, germline_bam_bcftools_mpileup_BAMVariantReads_filter,
 	join_mcols = c("call_class","call_type","SBSindel_call_type","ref_plus_strand","alt_plus_strand"),
 	ignore.strand = TRUE
 )
 
-calls[["max_BAMVAF.passfilter"]] <- ! overlapsAny_bymcols(
+calls[["max_germlineBAM_VAF.passfilter"]] <- ! overlapsAny_bymcols(
 	calls.gr, germline_bam_bcftools_mpileup_BAMVAF_filter,
 	join_mcols = c("call_class","call_type","SBSindel_call_type","ref_plus_strand","alt_plus_strand"),
 	ignore.strand = TRUE

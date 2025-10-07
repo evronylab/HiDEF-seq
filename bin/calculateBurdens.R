@@ -277,8 +277,8 @@ for(i in seq_along(filterCallsFiles)){
 		germline_filters <- c(
 			"germline_vcf.passfilter",
 			filterCallsFile %>% pluck("calls") %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
-			"max_BAMVariantReads.passfilter",
-			"max_BAMVAF.passfilter",
+			"max_germlineBAM_VariantReads.passfilter",
+			"max_germlineBAM_VAF.passfilter",
 			region_read_filters_config %>%
 				filter(is_germline_filter==TRUE) %>%
 				pull(region_filter_threshold_file) %>%

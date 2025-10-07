@@ -120,6 +120,24 @@ Files inside these folders are further keyed by `filtergroup`, `call_class`, `ca
 
 Per-base coverage by HiDEF-seq final interrogated bases and per-base trinucleotide sequences of covered bases are output by `calculateBurdensChromgroupFiltergroup` into the `outputResults/[chromgroup]/coverage_reftnc` folder rather than in the folder storing the results of the `calculateBurdensChromgroupFiltergroup` workflow.
 
+#### Coverage and reference trinucleotides
+
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/[chromgroup]/coverage_reftnc/`
+
+For every combination of `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` analysed by `calculateBurdensChromgroupFiltergroup`, the pipeline writes a bgzipped BED file named
+`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`
+with a companion Tabix index (`.tbi`). Each record represents a contiguous run of interrogated bases with non-zero duplex coverage and includes:
+
+| Column | Description |
+| --- | --- |
+| `seqnames` | Reference sequence name. |
+| `start` | Zero-based inclusive start position of the coverage run. |
+| `end` | Zero-based exclusive end position of the coverage run. |
+| `duplex_coverage` | Number of duplex molecules covering every base in the run. |
+| `reftnc_plus_strand` | Reference trinucleotide context for the covered bases on the plus strand. |
+
+These tracks originate from `bin/calculateBurdens.R` (see commit [`ff39255`](https://github.com/evronylab/HiDEF-seq/commit/ff392550b52344c6dcc33d36c2339b71912be003)) and are moved into the `outputResults` hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
+
 ### Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
 

@@ -161,16 +161,15 @@ Final calls files are output to `[chromgroup]/finalCalls/` and are named
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 The pipeline produces four files per subtype:
 
-- **`.finalCalls.tsv`** — One row per mutation call or one row per non-mutation single-strand call for calls that passed all filters.
-  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`, `refstrand`.
+- **`.finalCalls.tsv`** — Strand-aware tables of the final calls that passed all filters.
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`.
   - Coordinates and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
-  - Strand-resolved metrics include `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. For SBS and indel `SBSindel_call_type = "mutation"` outputs, the pipeline also writes `_refstrand_plus_read` and `_refstrand_minus_read` variants of each of those columns (`start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`) to show per-strand measurements.
-  - Opposite-strand annotations (`call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand`) accompany mutation calls when available.
+  - Strand-resolved measurements (`start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`) are stored as comma-delimited vectors describing every queried base. SBS and indel rows with `SBSindel_call_type = "mutation"` are pivoted to one row per event with strand-specific columns suffixed `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation call types remain one row per strand with a `refstrand` column describing the reporting duplex strand.
   - Context columns depend on `call_class`:
-    * **SBS** entries include trinucleotide annotations (`reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`) and omit indel width and MDB-specific metrics.
-    * **Indel** entries include `indel_width` and omit trinucleotide context columns that do not apply to indels.
-    * **MDB** entries include mismatch-damage fields such as `MDB_score` and omit `indel_width`.
-- **`.finalCalls_unique.tsv`** — One row per unique mutation with strand-split columns removed; metadata and the call-class-specific context columns listed above remain. The `_refstrand_plus_read` and `_refstrand_minus_read` columns are not present in these files.
+    * **SBS** entries include trinucleotide annotations (`reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`).
+    * **Indel** entries retain `indel_width` and omit trinucleotide context columns.
+    * **MDB** entries carry mismatch-damage metrics such as `MDB_score` instead of indel-specific fields.
+- **`.finalCalls_unique.tsv`** — One row per unique SBS or indel mutation. Metadata and context columns mirror `.finalCalls.tsv`, but strand-split `_refstrand_plus_read` / `_refstrand_minus_read` columns are dropped and the table falls back to a single coordinate/allele record per mutation.
 - **`.finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi` courtesy of `writeVcf(index = TRUE)`.
 - **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF of unique mutations.
 
@@ -179,7 +178,7 @@ Stored under `[chromgroup]/germlineVariantCalls/` with filenames ending `.germli
 
 - Metadata columns mirror the final-call tables (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`).
 - Germline filter flags without strand suffixes: `germline_vcf.passfilter`, any `germline_vcf_indel_region_filter_*`, `max_BAMVariantReads.passfilter`, `max_BAMVAF.passfilter`, and `region_read_filter_*` / `region_genome_filter_*` columns marked `is_germline_filter: true` in the YAML.
-- Strand-specific columns reuse the `_refstrand_plus_read` / `_refstrand_minus_read` suffix pattern for `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. Columns such as `deletion.bothstrands.startendmatch` and `MDB_score` are removed before export so each TSV focuses on germline confirmation metrics.
+- Strand-specific columns reuse the `_refstrand_plus_read` / `_refstrand_minus_read` suffix pattern for `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`, with each field storing comma-delimited per-base values. Columns such as `deletion.bothstrands.startendmatch` and `MDB_score` are removed before export so each TSV focuses on germline confirmation metrics.
 - VCFs are bgzipped/indexed (`*.germlineVariantCalls.vcf.bgz` plus `.tbi`) and share the same INFO mappings as the TSVs.
 
 ### Final-call spectra

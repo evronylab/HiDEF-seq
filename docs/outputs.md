@@ -117,7 +117,7 @@ outputResults/
        └─ estimatedSBSMutationErrorProbability/
 ```
 
-Files inside these folders are further keyed by `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type`.
+Files inside these folders are further keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
 
 ### Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
@@ -125,15 +125,15 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outpu
 | File | Description |
 | --- | --- |
 | `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
-| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.) and may vary with instrument metadata. |
-| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object described in [Serialized object (.qs2)](#serialized-object-qs2). |
+| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
+| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
 ### Coverage and reference trinucleotides
 
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/[chromgroup]/coverage_reftnc/`
 
-For every combination of `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` analysed by `calculateBurdensChromgroupFiltergroup`, the pipeline writes a bgzipped BED file named
-`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz` with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
+For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, the `calculateBurdensChromgroupFiltergroup` process that is run for each `sample_id`, `chromgroup`, and `filtergroup` writes a bgzipped BED file named:
+ `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`, with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
 
 | Column               | Description                                                  |
 | -------------------- | ------------------------------------------------------------ |
@@ -141,37 +141,46 @@ For every combination of `filtergroup`, `call_class`, `call_type`, and `SBSindel
 | `start`              | Zero-based inclusive start position.                         |
 | `end`                | Zero-based exclusive end position.                           |
 | `duplex_coverage`    | Number of final interrogated duplex base pairs at the position (i.e., coverage by each duplex molecule is counted as 1). |
-| `reftnc_plus_strand` | Reference trinucleotide context at the position on the plus strand. |
+| `reftnc_plus_strand` | Reference trinucleotide context of the plus strand at the position. |
 
-These tracks originate from `bin/calculateBurdens.R` and are moved into the `outputResults` folder hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
+These files originate from `bin/calculateBurdens.R` and are moved into the `outputResults` folder hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
 
 ### Filter statistics
 
-Each combination of chromgroup and filter group yields three TSV tables named
+Each combination of chromgroup and filter group yields three TSV tables named:
 `[chromgroup]/filterStats/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
 
 | Table | Columns |
 | --- | --- |
-| `molecule_stats.by_run_id.tsv` | Number of molecules and number of sequenced bases in reference space remaining after each filter, for each run_id. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` contains the filter label and type of statistic, and `value` contains the value of the statistic. |
+| `molecule_stats.by_run_id.tsv` | Number of molecules and number of sequenced bases (in reference space) remaining after each filter, for each run_id. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` contains the filter label and type of statistic, and `value` contains the value of the statistic. |
 | `molecule_stats.by_analysis_id.tsv` | Same as above without aggregating across `run_id`. |
-| `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered` (number of genome bases removed by the filter), `num_genomebases_remaining` (number of genome bases remaining after filtering). |
+| `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered` (number of genome bases removed when applying only this filter), `num_genomebases_remaining` (number of genome bases remaining after applying this and all prior filters). |
 
 ### Final calls
 Final calls files are output to `[chromgroup]/finalCalls/` and are named
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 The pipeline produces four files per subtype:
 
-- **`.finalCalls.tsv`** — Strand-aware tables of the final calls that passed all filters.
+- **`.finalCalls.tsv`** — Tables of the final calls that passed all filters.
   - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`.
-  - Coordinates and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
-  - Strand-resolved measurements (`start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`) are stored as comma-delimited vectors describing every queried base. SBS and indel rows with `SBSindel_call_type = "mutation"` are pivoted to one row per event with strand-specific columns suffixed `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation call types remain one row per strand with a `refstrand` column describing the reporting duplex strand.
-  - Context columns depend on `call_class`:
-    * **SBS** entries include trinucleotide annotations (`reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`).
-    * **Indel** entries retain `indel_width` and omit trinucleotide context columns.
-    * **MDB** entries carry mismatch-damage metrics such as `MDB_score` instead of indel-specific fields.
-- **`.finalCalls_unique.tsv`** — One row per unique SBS or indel mutation. Metadata and context columns mirror `.finalCalls.tsv`, but strand-split `_refstrand_plus_read` / `_refstrand_minus_read` columns are dropped and the table falls back to a single coordinate/allele record per mutation.
-- **`.finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi` courtesy of `writeVcf(index = TRUE)`.
-- **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF of unique mutations.
+  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
+  - Strand-resolved coordinates in query space (i.e., read coordinates) and other measurements: `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`). Measurements for multi-base calls, such as `qual` are stored as comma-delimited values for every base. SBS and indel mutation calls are pivoted to one row per event with strand-specific columns suffixed `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation call types remain one row per strand with a `refstrand` column annotating to which reference strand the call's read aligned.
+  - Columns specific to each `call_class`:
+    * **SBS** and **MDB** entries include:
+      * `reftnc_plus_strand` and `alttnc_plus_strand` — reference and call trinucleotide sequence at the call position on the reference genome plus strand.
+      * `reftnc_pyr` and `alttnc_pyr`— reference and call trinucleotide sequences collapsed to central pyrimidine trinucleotide sequences.
+      * `reftnc_synthesized_strand` and `alttnc_synthesized_strand` — reference and call trinucleotide sequence at the call position on the strand synthesized by the sequencer polymerase.
+      * `reftnc_template_strand` and `alttnc_template_strand` — reference and call trinucleotide sequence at the call position on the strand replicated by the sequencer polymerase (i.e., template strand).
+    * **Indel** entries include: `indel_width`.
+    * **MDB** entries include `MDB_score`.
+- **`.finalCalls_unique.tsv`** — Tables of with only one row per unique SBS or indel mutation, i.e., retaining only one row for calls detected in > 1 molecule. Not created for single-strand call types.
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
+  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
+  - **SBS** entries include: `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr` and `alttnc_pyr`.
+  - **Indel** entries include: `indel_width`.
+
+- **`.finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF containing the same calls as `.finalCalls_unique.tsv`. INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Germline variant calls
 Stored under `[chromgroup]/germlineVariantCalls/` with filenames ending `.germlineVariantCalls.tsv` or `.germlineVariantCalls.vcf.bgz`.

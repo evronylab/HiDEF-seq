@@ -745,7 +745,8 @@ zm_identical_cols_keep <- c(
 
 strand_identical_cols_keep <- c(
 	"seqnames", "start", "end", "ref_plus_strand", "alt_plus_strand",
-	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr"
+	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
+	"indel_width"
 )
 
 strand_identical_cols_discard <- c(

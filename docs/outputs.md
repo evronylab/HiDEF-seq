@@ -14,6 +14,7 @@ This guide documents every final file produced by the `processReads` and `output
 - [outputResults outputs](#outputresults-outputs)
   - [Directory structure](#directory-structure)
   - [Top-level files](#top-level-files)
+  - [Coverage and reference trinucleotides](#coverage-and-reference-trinucleotides)
   - [Filter statistics](#filter-statistics)
   - [Final calls](#final-calls)
   - [Germline variant calls](#germline-variant-calls)
@@ -118,26 +119,6 @@ outputResults/
 
 Files inside these folders are further keyed by `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type`.
 
-Per-base coverage by HiDEF-seq final interrogated bases and per-base trinucleotide sequences of covered bases are output by `calculateBurdensChromgroupFiltergroup` into the `outputResults/[chromgroup]/coverage_reftnc` folder rather than in the folder storing the results of the `calculateBurdensChromgroupFiltergroup` workflow.
-
-#### Coverage and reference trinucleotides
-
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/[chromgroup]/coverage_reftnc/`
-
-For every combination of `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` analysed by `calculateBurdensChromgroupFiltergroup`, the pipeline writes a bgzipped BED file named
-`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`
-with a companion Tabix index (`.tbi`). Each record represents a contiguous run of interrogated bases with non-zero duplex coverage and includes:
-
-| Column | Description |
-| --- | --- |
-| `seqnames` | Reference sequence name. |
-| `start` | Zero-based inclusive start position of the coverage run. |
-| `end` | Zero-based exclusive end position of the coverage run. |
-| `duplex_coverage` | Number of duplex molecules covering every base in the run. |
-| `reftnc_plus_strand` | Reference trinucleotide context for the covered bases on the plus strand. |
-
-These tracks originate from `bin/calculateBurdens.R` (see commit [`ff39255`](https://github.com/evronylab/HiDEF-seq/commit/ff392550b52344c6dcc33d36c2339b71912be003)) and are moved into the `outputResults` hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
-
 ### Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
 
@@ -147,22 +128,40 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outpu
 | `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | Read-group metadata joined with sample annotations. Columns reflect BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.) and may vary with instrument metadata. |
 | `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
+### Coverage and reference trinucleotides
+
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/[chromgroup]/coverage_reftnc/`
+
+For every combination of `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` analysed by `calculateBurdensChromgroupFiltergroup`, the pipeline writes a bgzipped BED file named
+`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz` with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
+
+| Column               | Description                                                  |
+| -------------------- | ------------------------------------------------------------ |
+| `seqnames`           | Reference sequence name.                                     |
+| `start`              | Zero-based inclusive start position.                         |
+| `end`                | Zero-based exclusive end position.                           |
+| `duplex_coverage`    | Number of final interrogated duplex base pairs at the position (i.e., coverage by each duplex molecule is counted as 1). |
+| `reftnc_plus_strand` | Reference trinucleotide context at the position on the plus strand. |
+
+These tracks originate from `bin/calculateBurdens.R` and are moved into the `outputResults` folder hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
+
 ### Filter statistics
+
 Each combination of chromgroup and filter group yields three TSV tables named
 `[chromgroup]/filterStats/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
 
 | Table | Columns |
 | --- | --- |
-| `molecule_stats.by_run_id.tsv` | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` encodes sequential filter labels (for example `num_molecules.min_rq_eachstrand.passfilter`). |
-| `molecule_stats.by_analysis_id.tsv` | Same as above without `run_id`, aggregating across runs. |
-| `region_genome_filter_stats.tsv` | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered`, `num_genomebases_remaining` (bases remaining after filtering). |
+| `molecule_stats.by_run_id.tsv` | Number of molecules and number of sequenced bases in reference space remaining after each filter, for each run_id. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` contains the filter label and type of statistic, and `value` contains the value of the statistic. |
+| `molecule_stats.by_analysis_id.tsv` | Same as above without aggregating across `run_id`. |
+| `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter`, `binsize`, `threshold`, `padding`, `region_filter_threshold_file`, `num_genomebases_individually_filtered` (number of genome bases removed by the filter), `num_genomebases_remaining` (number of genome bases remaining after filtering). |
 
 ### Final calls
-Files live under `[chromgroup]/finalCalls/` and are named
+Final calls files are output to `[chromgroup]/finalCalls/` and are named
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 The pipeline produces four files per subtype:
 
-- **`.finalCalls.tsv`** — One row per strand-specific call that passed all filters.
+- **`.finalCalls.tsv`** — One row per mutation call or one row per non-mutation single-strand call for calls that passed all filters.
   - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`, `refstrand`.
   - Coordinates and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
   - Strand-resolved metrics include `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, and `sx`. For SBS and indel `SBSindel_call_type = "mutation"` outputs, the pipeline also writes `_refstrand_plus_read` and `_refstrand_minus_read` variants of each of those columns (`start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`) to show per-strand measurements.

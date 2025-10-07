@@ -15,10 +15,10 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 - [Pipeline runtime parameters](#pipeline-runtime-parameters)
 - [Reference genome resources](#reference-genome-resources)
 - [Call extraction settings](#call-extraction-settings)
-- [Germline VCF filter definitions](#germline-vcf-filter-definitions)
-- [Filter group definitions](#filter-group-definitions)
+- [Germline VCF filter settings](#germline-vcf-filter-settings)
+- [Filter group settings](#filter-group-settings)
 - [Region filter configuration](#region-filter-configuration)
-- [Sensitivity estimation](#sensitivity-estimation)
+- [Sensitivity estimation settings](#sensitivity-estimation-settings)
 
 ## Global analysis identifier
 
@@ -133,7 +133,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `call_types[].MDB_sensitivity` | float (0-1) | set only for MDB call_class entries | Sensitivity for calls of this MDB type. Used to calculate sensitivity-corrected burdens. |
 | `call_types[].MDB_base_opposite_strand` | string or `null` | optional | When set, requires the specified base on the opposite strand for MDB calls; `null` disables this filter. |
 
-## Germline VCF filter definitions
+## Germline VCF filter settings
 
 ### Threshold fields
 | Key | Type | Required | Description |
@@ -146,7 +146,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `germline_vcf_types[]`.`indel_min_Depth`, `indel_min_VAF`, `indel_min_GQ`, `indel_min_QUAL` | numeric | yes | Minimum thresholds in order to include an indel variant. |
 | `germline_vcf_types[]`.`indel_inspad`, `indel_delpad` | string | yes; set to `NA` or `m0b0` to disable | Specification of padding to add around germline insertion (`indel_inspad`) and deletion (`indel_delpad`) variants for filtering HiDEF-seq calls. Specified as `m<multiplier>b<offset>` (for example `m2b15`). `m` multiplies the insertion or deletion length, `b` adds a fixed base count, and the pipeline adds flanking bases on both sides of each variant's span where each flank size is the larger of these two numbers. |
 
-## Filter group definitions
+## Filter group settings
 
 ### Basic molecule- and call-level filters
 
@@ -175,36 +175,42 @@ Filter groups enable creation of different sets of filter thresholds, each of wh
 
 ## Region filter configuration
 
-### Read filters (`region_filters[].read_filters[]`)
+### Region-based molecule filters
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `region_filters[]` | list | optional | Filters based on genomic regions that filter molecules that have more than `read_threshold` covered by the region filter. |
-| `region_filter_file` | path | yes | bigWig track of the region filter providing per-base scores. |
-| `binsize` | integer | yes | Size of bins (in bases) within each of which bigWig per-base scores are averaged before applying `threshold`. `binsize: 1` retains the original bigWig per-base scores. |
-| `threshold` | string | yes | Threshold applied to the bigWig score to select regions that will comprise the set of filter regions. Encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
-| `padding` | Integer | yes | Number of bases to expand each region of the region filter. |
-| `read_threshold` | string | yes | Optional per-read comparison using the same syntax as `threshold`. |
-| `applyto_chromgroups` | string | yes | `all` or a comma-separated list of chromgroups to which the filter is applied. |
-| `applyto_filtergroups` | string | yes | `all` or a comma-separated list of filter groups to which the filter is applied. |
-| `is_germline_filter` | boolean, `true` or `false` | yes | Boolean indicating whether the filter targets germline variant contexts. If `true`, the filter is excluded from sensitivity calculations that analyze germline variant calls. |
+| `region_filters[].read_filters[]` | list | optional | Region-based molecule filters that are applied as follows: each molecule is assessed against the set of genomic regions defined by the region filter and the below `binsize`, `threshold`, and `padding` settings. If the fraction of the molecule covered by the region filter (average of each strand) passes the `read_threshold` setting, then the entire molecule is filtered out. Otherwise, the filter does not remove the molecule or any part of it. |
+| `region_filters[].read_filters[].region_filter_file` | path | yes | bigWig file of the region filter providing per-base scores. |
+| `region_filters[].read_filters[].binsize` | integer | yes | Size of bins (in bases) within each of which bigWig per-base scores are averaged before applying `threshold`. `binsize: 1` retains the original bigWig per-base scores. |
+| `region_filters[].read_filters[].threshold` | string | yes | Threshold applied to the bigWig score to select regions that will comprise the set of filter regions. Encoded as `<operator><value>` using `lt` (<), `lte` (≤), `gt` (>), or `gte` (≥); for example `gte0.1`. |
+| `region_filters[].read_filters[].padding` | integer | yes | Number of bases to add to each flank of each region of the region filter. |
+| `region_filters[].read_filters[].read_threshold` | string | yes | Fraction of the molecule that must be covered by the region filter as described above (average of both strands) in order to be filtered. Encoded as for `threshold`. Encoded as `<operator><value>` as in `threshold`, but with `<value>` limited to a range of 0-1. |
+| `region_filters[].read_filters[].applyto_chromgroups` | string | yes | `all` or a comma-separated list of chromgroups to which the filter is applied. |
+| `region_filters[].read_filters[].applyto_filtergroups` | string | yes | `all` or a comma-separated list of filter groups to which the filter is applied. |
+| `region_filters[].read_filters[].is_germline_filter` | boolean, `true` or `false` | yes | Boolean indicating whether the filter targets germline variant contexts (for example, a filter based on gnomAD variants). If `true`, the filter is excluded from sensitivity calculations that rely on germline variant calls that pass non-germline filters. |
 
-### Genome filters (`region_filters[].genome_filters[]`)
-| Key | Description |
-| --- | --- |
-| `region_filter_file` | bigWig describing genome regions to mask during burden calculations. |
-| `binsize`, `threshold`, `padding` | Same semantics as the read filters. |
-| `applyto_chromgroups`, `applyto_filtergroups`, `is_germline_filter` | Behave as in the read filter configuration (without a `read_threshold`). |
+### Genome region filters 
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `region_filters[].genome_filters[]` | list | optional | Filters based on genomic regions that filter calls. Deletions are filtered out even if they partially overlap filtered regions. |
+| `region_filters[].genome_filters[].region_filter_file` | path | yes | bigWig file of the region filter providing per-base scores. |
+| `region_filters[].genome_filters[]`.`binsize`, `threshold`, `padding` | integer, string, integer | yes | Same formats as in `region_filters[].read_filters[]`. |
+| `region_filters[].genome_filters[]`.`applyto_chromgroups`, `applyto_filtergroups`, `is_germline_filter` | string, string, boolean | yes | Same formats as in `region_filters[].read_filters[]`. Note, `genome_filters[]` do not have a `read_threshold` setting as they filter calls rather than molecules. |
 
-## Sensitivity estimation
+## Sensitivity estimation settings
 
-### Sensitivity parameters
-| Key | Type | Description |
-| --- | --- | --- |
-| `sensitivity_parameters.use_chromgroup` | string | Chromgroup whose sensitivity estimates seed other groups. Leave blank to skip sensitivity correction (burdens default to 1.0). |
-| `sensitivity_parameters.sensitivity_vcf` | path | External population reference germline VCF used to identify high-confidence heterozygous or homozygous variants for sensitivity analysis. |
-| `sensitivity_parameters.genotype` | string (`heterozygous` or `homozygous`) | Determines which genotype states are tallied when measuring detection sensitivity. |
-| `sensitivity_parameters.SBS_min_Depth_quantile`, `SBS_min_VAF`, `SBS_max_VAF`, `SBS_min_GQ_quantile`, `SBS_min_QUAL_quantile`, `SBS_min_variant_detections` | numeric | Thresholds applied to SBS variants; quantile parameters evaluate empirical distributions, whereas absolute thresholds apply directly. |
-| `sensitivity_parameters.indel_min_Depth_quantile`, `indel_min_VAF`, `indel_max_VAF`, `indel_min_GQ_quantile`, `indel_min_QUAL_quantile`, `indel_min_variant_detections` | numeric | Analogous thresholds for indel sensitivity selection. |
-| `sensitivity_parameters.default_sensitivity` | numeric | Optional fallback sensitivity applied when no qualifying variants are detected. |
+Settings for estimating sensitivity for SBS and indels. Sensitivity is estimated separated for SBS and indels first for mutations (double-strand events) by counting the number of a set of high-confidence germline variants that are detected per the number of opportunities to detect them in the final interrogated bases (while including interrogated bases that were only filtered by germline-related filters), and correcting for zygosity of the germline variant.
 
-MDB-specific sensitivity overrides can also be provided per call type through `call_types[].MDB_sensitivity`.
+After calculating sensitivity for mutations, sensitivity estimates are assigned to SBSindel_call_types `mismatch-ss` and `mismatch-ds` (single-strand events) as the square-root of the respective call type's estimated sensitivity for mutations. MDB sensitivities for all SBSindel_call_types, including `mismatch-os` and `match` calls, are not calculated and instead set manually in the `call_types` section.
+
+Below also are filter settings to select high-confidence germline variants used for sensitivity analysis. These filters are calculated and applied separately for each `germline_vcf_file` and all filters must pass for the variant in all germline VCF files in order for the variant to be used for sensitivity estimation.
+
+Sex chromosomes and mitochondrial chromosome are excluded from sensitivity analysis, due to the complication of pseudo-autosomal regions.
+
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `sensitivity_parameters.use_chromgroup` | string | optional | Chromgroup in which sensitivity is estimated, and these estimates are then used for all other chromgroups. Leave blank to skip sensitivity estimation (sets sensitivities for all SBS and indel call types to 1.0). |
+| `sensitivity_parameters.sensitivity_vcf` | path | yes | External population reference germline VCF intersected with the analyzed individual's germline variants in order to retain only high-confidence variants for sensitivity analysis. |
+| `sensitivity_parameters.genotype` | string (`heterozygous` or `homozygous`) | yes | Determines which germline variants are used for sensitivity estimation. Heterozygous germline variants are more numerous, but sensitivity estimates per site are noisier due to allele-sampling noise, while when using homozygous variants there is more noise due to fewer sites. |
+| `sensitivity_parameters.SBS_min_Depth_quantile`, `SBS_min_VAF`, `SBS_max_VAF`, `SBS_min_GQ_quantile`, `SBS_min_QUAL_quantile` | numeric | yes | Thresholds applied to germline SBS variants to include them in sensitivity analysis. Quantile parameters are calculated separately for each `germline_vcf_file`. |
+| `sensitivity_parameters.SBS_min_variant_detections` | numeric | yes | Minimum number of times high-confidence germline SBS variants were detected in the HiDEF-seq sample (counting 1 detection per molecule) in order to calculate sensitivity, and otherwise sensitivity is set to the default 1.0 |
+| `sensitivity_parameters.indel_min_Depth_quantile`, `indel_min_VAF`, `indel_max_VAF`, `indel_min_GQ_quantile`, `indel_min_QUAL_quantile`, `indel_min_variant_detections` | numeric | yes | Analogous settings for indel sensitivity estimation. |

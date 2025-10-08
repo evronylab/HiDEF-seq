@@ -521,7 +521,7 @@ workflow outputResults {
 
     emit:
     out_ch = outputResultsSample.out.out_ch
-    out_files = outputResultsSample.out.out_files
+    out_file = outputResultsSample.out.out_file
 
 }
 
@@ -1201,7 +1201,7 @@ process outputResultsSample {
     
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
-      path("**/${params.analysis_id}.${individual_id}.${sample_id}.*"), emit: out_files
+      path("${params.analysis_id}.${individual_id}.${sample_id}.qs2"), emit: out_file
 
     storeDir { dirOutputResults(individual_id, sample_id) }
     publishDir { dirSampleLogs(individual_id, sample_id) },

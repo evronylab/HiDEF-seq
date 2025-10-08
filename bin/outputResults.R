@@ -649,11 +649,7 @@ for(i in chromgroups){
 			basename %>%
 			str_c("region_genome_filter_",.,".passfilter")
 		
-		germline_filter_cols_keep <- c(
-			"germline_vcf.passfilter",
-			germlineVariantCalls %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
-			"max_germlineBAM_VariantReads.passfilter",
-			"max_germlineBAM_VAF.passfilter",
+		germline_filter_cols_keep <- c( #not including germline_vcf.passfilter, since FALSE for all calls, and not including germline_vcf_indel_region_filter, max_germlineBAM_VariantReads.passfilter, max_germlineBAM_VAF.passfilter, since these are not relevant annotation to output for germline calls themselves (only relevant for somatic calls that are filtered based on germline calls).
 			region_read_filters_cols_keep,
 			region_genome_filters_cols_keep,
 			"germline_vcf_types_detected", "germline_vcf_files_detected"
@@ -994,6 +990,12 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
 			) %>%
 			select(-ci)
+	) %>%
+	
+	#Set sensitivity and sensitivity_source to NA when sensitivity_corrected = FALSE
+	mutate(
+		sensitivity = if_else(sensitivity_corrected == TRUE, sensitivity, NA),
+		sensitivity_source = if_else(sensitivity_corrected == TRUE, sensitivity_source, NA)
 	)
 
 #Output as tsv

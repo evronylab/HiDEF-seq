@@ -314,10 +314,7 @@ for(i in seq_along(calculateBurdensFiles)){
 	
 	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
 	if(yaml.config$save_coverage_in_final_qs2 == FALSE){
-		calculateBurdensFile[["bam.gr.filtertrack.bytype.coverage_tnc"]] <- calculateBurdensFile %>%
-			pluck("bam.gr.filtertrack.bytype.coverage_tnc") %>%
-			select(-bam.gr.filtertrack.coverage)
-		
+		calculateBurdensFile[["bam.gr.filtertrack.bytype.coverage_tnc"]]$bam.gr.filtertrack.coverage <- NULL
 		invisible(gc())
 	}
 	

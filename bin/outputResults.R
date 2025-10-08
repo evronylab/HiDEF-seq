@@ -286,7 +286,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		pluck("finalCalls.bytype") %>%
 		mutate(
 			!!!sample_annotations,
-			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = chromgroups),
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
@@ -306,13 +306,21 @@ for(i in seq_along(calculateBurdensFiles)){
 		pluck("finalCalls.reftnc_spectra") %>%
 		mutate(
 			!!!sample_annotations,
-			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = chromgroups),
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
 		relocate(filtergroup, call_class, .after = chromgroup)
 	
 	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
+	if(yaml.config$save_coverage_in_final_qs2 == FALSE){
+		calculateBurdensFile[["bam.gr.filtertrack.bytype.coverage_tnc"]] <- calculateBurdensFile %>%
+			pluck("bam.gr.filtertrack.bytype.coverage_tnc") %>%
+			select(-bam.gr.filtertrack.coverage)
+		
+		invisible(gc())
+	}
+	
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile %>%
 		pluck("bam.gr.filtertrack.bytype.coverage_tnc") %>%
 		mutate(
@@ -345,7 +353,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			pluck("sensitivity") %>%
 			mutate(
 				!!!sample_annotations,
-				chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+				chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = chromgroups),
 				filtergroup = filtergroup %>% factor(levels = filtergroups),
 				.before = 1
 			) %>%
@@ -357,7 +365,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		pluck("finalCalls.burdens") %>%
 		mutate(
 			!!!sample_annotations,
-			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = c(chromgroups)),
+			chromgroup = !!calculateBurdensFile$chromgroup %>% factor(levels = chromgroups),
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%

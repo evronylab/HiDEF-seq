@@ -1191,8 +1191,15 @@ process calculateBurdensChromgroupFiltergroup {
 */
 process outputResultsSample {
     cpus 1
-    memory '32 GB'
-    time '2h'
+    memory { 
+      def baseMemory = params.mem_outputResultsSample as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time { 
+        def baseTime = params.time_outputResultsSample as nextflow.util.Duration
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries params.maxRetries_outputResultsSample
     tag { "outputResultsSample: ${sample_id}" }
     container "${params.hidefseq_container}"
     

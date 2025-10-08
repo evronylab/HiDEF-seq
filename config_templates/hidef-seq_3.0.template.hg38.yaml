@@ -107,6 +107,7 @@ time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by th
 maxRetries_calculateBurdensChromgroupFiltergroup: 3
 
 remove_intermediate_files:  #true or false
+save_coverage_in_final_qs2: #true or false
 
 ###
 ### Genome reference

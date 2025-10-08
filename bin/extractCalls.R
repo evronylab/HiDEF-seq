@@ -1176,8 +1176,8 @@ calls.gr <- calls.gr %>%
     ) |
     (
       call_type == "insertion" & call_type.opposite_strand == "deletion" &
-        start_refspace <= end_refspace.opposite_strand &
-        end_refspace >= start_refspace.opposite_strand
+        start_refspace >= start_refspace.opposite_strand &
+        end_refspace <= end_refspace.opposite_strand
     ) |
     (
       call_type == "deletion" & call_type.opposite_strand == "SBS" &
@@ -1186,8 +1186,8 @@ calls.gr <- calls.gr %>%
     ) |
     (
       call_type == "deletion" & call_type.opposite_strand == "insertion" &
-        start_refspace <= end_refspace.opposite_strand &
-        end_refspace >= start_refspace.opposite_strand
+        start_refspace <= start_refspace.opposite_strand &
+        end_refspace >= end_refspace.opposite_strand
     ) |
     (
       call_type == "deletion" & call_type.opposite_strand == "deletion" &

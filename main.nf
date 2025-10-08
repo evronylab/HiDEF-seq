@@ -224,10 +224,13 @@ workflow {
               def individual_id = sample.individual_id
               def sample_id = sample.sample_id
               def calculateBurdensFile = file("${dirCalculateBurdens(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
-              return tuple(individual_id, sample_id, calculateBurdensFile)
+              return tuple(individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile)
           }
 
     def calculateBurdens_grouped_ch = calculateBurdens_out
+        .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
+            return tuple(individual_id, sample_id, calculateBurdensFile)
+        }
         .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
 
     outputResults_out = outputResults(calculateBurdens_grouped_ch).out_ch

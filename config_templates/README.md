@@ -85,7 +85,9 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
 | `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous settings for `filterCallsChunk` processes. |
 | `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
+| `mem_outputResultsSample`, `time_outputResultsSample`, `maxRetries_outputResultsSample` | string/integer | optional | Baseline memory, time limit, and retry count for `outputResultsSample` processes. Each retry increases the memory request by one half of the baseline value and extends the time limit by one additional baseline duration. |
 | `remove_intermediate_files` | boolean, `true` or `false` | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
+| `save_coverage_in_final_qs2` | boolean, `true` or `false` | optional | When set to `false`, omits genome-wide coverage GRanges objects from the `.qs2` serialized output to reduce file size and memory usage when loading the object. |
 
 ## Reference genome resources
 

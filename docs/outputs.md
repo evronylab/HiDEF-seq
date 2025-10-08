@@ -226,8 +226,8 @@ Trinucleotide distributions of interrogated bases are output to `[chromgroup]/in
 
 The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
 
-- `.bam.gr.filtertrack.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction` summarizing counts of interrogated base pairs (i.e., duplex coverage).
-- `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction` summarizing counts of interrogated (i.e., coverage of both reference plus and minus strands).
+- `.bam.gr.filtertrack.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated base pairs (i.e., duplex coverage) together with ratios of the interrogated-base trinucleotide fractions to the whole-genome and chromgroup-restricted fractions.
+- `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases across both strands and the corresponding genome/chromgroup fraction ratios.
 
 ### Genome spectra
 Trinucleotide distributions of the genome are output to `[chromgroup]/genome.spectra/` and are named:
@@ -244,8 +244,13 @@ Summaries of sensitivity analyses are output to `[chromgroup]/sensitivity/` and 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
 - Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`
 - Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
-- `sensitivity`, : Sensitivity estimate, calculated as `high_confidence_germline_vcf_variants_sum_zm_detected` /  `high_confidence_germline_vcf_variants_sum_duplex_coverage` for homozygous variants, and 2 * this value for heterozygous variants. 
-- `sensitivity_source`: Sensitivity estimation method/source. When sensitivity is borrowed from another chromgroup, the table records `sensitivity_source = "calculated_other_chromgroup"`. If no calculated sensitivity exists for that chromgroup/filtergroup pair, the value defaults to `1` with `sensitivity_source = "default_other_chromgroup"`.
+- `sensitivity`, : Sensitivity estimate, calculated as `high_confidence_germline_vcf_variants_sum_zm_detected` /  `high_confidence_germline_vcf_variants_sum_duplex_coverage` for homozygous variants, and 2 * this value for heterozygous variants.
+- `sensitivity_source`: Provenance of the sensitivity value. Possible values are:
+  - `calculated` — sensitivity derived from high-confidence germline variants detected in the current chromgroup/filtergroup.
+  - `default` — sensitivity left at the default value of 1 because thresholds were not met or sensitivity analysis was not configured for that call type.
+  - `yaml.config` — sensitivity sourced directly from YAML configuration (MDB call types).
+  - `calculated_other_chromgroup` — sensitivity borrowed from another chromgroup where it was successfully calculated for the same filtergroup.
+  - `default_other_chromgroup` — no calculated sensitivity was available to borrow, so the default value of 1 was used.
 
 ### Final-call burdens
 Final calls are output to `[chromgroup]/finalCalls.burdens/` and are named:
@@ -255,13 +260,14 @@ Final calls are output to `[chromgroup]/finalCalls.burdens/` and are named:
 - Annotations for type of burden calculation:
   - Unique calls (boolean TRUE/FALSE for mutations, NA otherwise): `unique_calls`
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`
-  - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the chromgroup's chromosomes (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected_chromgroup`
+  - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_chromgroup` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
   - Corrected for sensitivity: `sensitivity_corrected` (boolean TRUE/FALSE).
 
 - Number of calls corrected for above selected correction methods, and Poisson 95% lower (lci) and upper (uci) confidence intervals: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
+- Pre-correction call counts retained alongside corrected values (only populated for trinucleotide- and sensitivity-corrected rows): `num_calls_noncorrected`.
 - Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
 - Sensitivity estimate and source (from the sensitivity summary table, annotated when `sensitivity_corrected` is TRUE, NA otherwise): `sensitivity`, `sensitivity_source`.
-- Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`, 
+- Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.
 
 ### Estimated SBS mutation error probability
 Estimated SBS mutation error probabilities are output to `[chromgroup]/estimatedSBSMutationErrorProbability/` and are named:

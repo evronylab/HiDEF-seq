@@ -471,7 +471,7 @@ cat(" DONE\n")
 ######################
 cat("## Outputting configuration parameters...")
 
-opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv"))
+opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv")) %>% invisible
 
 run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
 

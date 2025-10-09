@@ -100,21 +100,30 @@ During `processReads`, the pipeline adds to the sharedLogs directory:
 ## outputResults outputs
 
 ### Directory structure
-The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`, with separate sub-folders for the outputs of each chromgroup as follows:
+The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`. Each output type has its own sub-directory that, in turn, contains folders for every chromgroup processed, as illustrated below:
 
 ```
 outputResults/
-  └─ [chromgroup]/
-       ├─ coverage_reftnc/
-       ├─ filterStats/
-       ├─ finalCalls/
-       ├─ germlineVariantCalls/
-       ├─ finalCalls.spectra/
-       ├─ interrogatedBases.spectra/
-       ├─ genome.spectra/
-       ├─ sensitivity/
-       ├─ finalCalls.burdens/
-       └─ estimatedSBSMutationErrorProbability/
+  ├─ coverage_reftnc/
+  │   └─ [chromgroup]/
+  ├─ filterStats/
+  │   └─ [chromgroup]/
+  ├─ finalCalls/
+  │   └─ [chromgroup]/
+  ├─ germlineVariantCalls/
+  │   └─ [chromgroup]/
+  ├─ finalCalls.spectra/
+  │   └─ [chromgroup]/
+  ├─ interrogatedBases.spectra/
+  │   └─ [chromgroup]/
+  ├─ genome.spectra/
+  │   └─ [chromgroup]/
+  ├─ sensitivity/
+  │   └─ [chromgroup]/
+  ├─ finalCalls.burdens/
+  │   └─ [chromgroup]/
+  └─ estimatedSBSMutationErrorProbability/
+      └─ [chromgroup]/
 ```
 
 Files inside these folders are further keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
@@ -130,7 +139,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outpu
 
 ### Coverage and reference trinucleotides
 
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/[chromgroup]/coverage_reftnc/`
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/coverage_reftnc/[chromgroup]/`
 
 For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, the `calculateBurdensChromgroupFiltergroup` process that is run for each `sample_id`, `chromgroup`, and `filtergroup` writes a bgzipped BED file named:
  `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`, with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
@@ -148,7 +157,7 @@ These files originate from `bin/calculateBurdens.R` and are moved into the `outp
 ### Filter statistics
 
 Each combination of chromgroup and filter group yields three TSV tables named:
-`[chromgroup]/filterStats/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
+`filterStats/[chromgroup]/[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].{table}.tsv`.
 
 | Table | Columns |
 | --- | --- |
@@ -157,7 +166,7 @@ Each combination of chromgroup and filter group yields three TSV tables named:
 | `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter` (filter label derived from the threshold file basename), `binsize` (per YAML configuration), `threshold` (per YAML configuration), `padding` (per YAML configuration), `region_filter_threshold_file` (per YAML configuration), `num_genomebases_individually_filtered` (number of genome bases removed when applying only this filter), `num_genomebases_remaining` (number of genome bases remaining after applying this and all prior filters). |
 
 ### Final calls
-Final calls files are output to `[chromgroup]/finalCalls/` and are named:
+Final calls files are output to `finalCalls/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
 The pipeline produces four files per subtype:
@@ -184,7 +193,7 @@ The pipeline produces four files per subtype:
 - **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF containing the same calls as `.finalCalls_unique.tsv`. INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Germline variant calls
-Germline variant call files are output to `[chromgroup]/germlineVariantCalls/` and are named:
+Germline variant call files are output to `germlineVariantCalls/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].*`.
 
 The pipeline produces two files:
@@ -198,7 +207,7 @@ The pipeline produces two files:
 - `.germlineVariantCalls.vcf.bgz`—  Bgzipped VCF containing the same calls as `.germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Final-call spectra
-Trinucleotide distributions and call spectra of final calls are output to `[chromgroup]/finalCalls.spectra/` and are named:
+Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
 The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
@@ -221,7 +230,7 @@ The pipeline produces several files per per below, and each table contains metad
 Each `_spectrum` file is paired with a `.pdf` spectrum plot generated via `plot_spectrum`.
 
 ### Interrogated-base spectra
-Trinucleotide distributions of interrogated bases are output to `[chromgroup]/interrogatedBases.spectra/` and are named:
+Trinucleotide distributions of interrogated bases are output to `interrogatedBases.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
 The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
@@ -230,7 +239,7 @@ The pipeline produces several files per per below, and each table contains metad
 - `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases across both strands and the corresponding genome/chromgroup fraction ratios.
 
 ### Genome spectra
-Trinucleotide distributions of the genome are output to `[chromgroup]/genome.spectra/` and are named:
+Trinucleotide distributions of the genome are output to `genome.spectra/[chromgroup]/` and are named:
 
 - `genome.reftnc_pyr.tsv`: `analysis_id`, `individual_id`, `sample_id`, `reftnc_pyr`, `count`, `fraction`.
 - `genome.reftnc_both_strands.tsv`: Same metadata with `reftnc`, `count`, `fraction`.
@@ -238,7 +247,7 @@ Trinucleotide distributions of the genome are output to `[chromgroup]/genome.spe
 - `[chromgroup].genome_chromgroup.reftnc_both_strands.tsv`: Same as `genome.reftnc_both_strands.tsv`, restricting to `[chromgroup]`.
 
 ### Sensitivity summaries
-Summaries of sensitivity analyses are output to `[chromgroup]/sensitivity/` and are named:
+Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].sensitivity.tsv` with columns:
 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
@@ -253,7 +262,7 @@ Summaries of sensitivity analyses are output to `[chromgroup]/sensitivity/` and 
   - `default_other_chromgroup` — no calculated sensitivity was available to borrow, so the default value of 1 was used.
 
 ### Final-call burdens
-Final calls are output to `[chromgroup]/finalCalls.burdens/` and are named:
+Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].finalCalls.burdens.tsv`, with one row per type of burden calculation (see below), with columns:
 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
@@ -270,7 +279,7 @@ Final calls are output to `[chromgroup]/finalCalls.burdens/` and are named:
 - Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.
 
 ### Estimated SBS mutation error probability
-Estimated SBS mutation error probabilities are output to `[chromgroup]/estimatedSBSMutationErrorProbability/` and are named:
+Estimated SBS mutation error probabilities are output to `estimatedSBSMutationErrorProbability/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].estimatedSBSMutationErrorProbability.*`. 
 
 The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:

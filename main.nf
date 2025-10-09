@@ -18,6 +18,56 @@ def dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_i
 def dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
 def dirOutputResults = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/outputResults" }
 
+//Script to save nextflow process logs upon completion of each process
+process {
+    afterScript = '''
+        if [[ -f ".command.log" ]]; then
+            # Use environment variables or defaults
+            FINAL_LOG_DIR="${NF_LOG_DIR:-''' + "${sharedLogsDir}" + '''}"
+            FINAL_LOG_NAME="${NF_LOG_NAME:-${task.process}.command.log}"
+            
+            mkdir -p "${FINAL_LOG_DIR}"
+            cp ".command.log" "${FINAL_LOG_DIR}/${FINAL_LOG_NAME}"
+        fi
+    '''
+    
+    // Set environment variables for log directories
+    withName: 'processGermlineVCFs|processGermlineBAMs|prepareRegionFilters|ccsChunk' {
+      env.NF_LOG_DIR = "${sharedLogsDir}"
+    }
+    withName: 'pbmm2Align|mergeAlignedSampleBAMs|splitBAM|extractCallsChunk|filterCallsChunk|calculateBurdensChromgroupFiltergroup|outputResultsSample|removeIntermediateFilesProcess' {
+      env.NF_LOG_DIR = { dirSampleLogs(individual_id, sample_id) }
+    }
+
+    // Set environment variables for log file names
+    withName: 'processGermlineVCFs' {
+        env.NF_LOG_NAME = '${individual_id}.${task.process}.command.log'
+    }
+    
+    withName: 'processGermlineBAMs' {
+        env.NF_LOG_NAME = '${germline_bam_file}.${task.process}.command.log'
+    }
+    
+    withName: 'prepareRegionFilters' {
+        env.NF_LOG_NAME = '${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log'
+    }
+    
+    withName: 'ccsChunk' {
+        env.NF_LOG_NAME = '${task.process}.chunk${chunkID}.command.log'
+    }
+
+    withName: 'filterCallsChunk' {
+        env.NF_LOG_NAME = '${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log'
+    }
+    
+    withName: 'calculateBurdensChromgroupFiltergroup' {
+        env.NF_LOG_NAME = '${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log'
+    }
+    
+    withName: 'pbmm2Align|mergeAlignedSampleBAMs|splitBAM|extractCallsChunk|outputResultsSample|removeIntermediateFilesProcess' {
+        env.NF_LOG_NAME = { chunkID ? "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log" : "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
+    }
+}
 
 /*****************************************************************
  * Main Workflow
@@ -557,11 +607,6 @@ process makeBarcodesFasta {
     
     output:
       tuple val(run_id), path("barcodes.fasta")
-
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
       """
@@ -596,10 +641,6 @@ process ccsChunk {
 
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.chunk${chunkID}.command.log" }
 
     script:
     // Build the LD_PRELOAD command if the parameter is set.
@@ -635,11 +676,6 @@ process mergeCCSchunks {
     output:
       tuple val(run_id), path("${run_id}.ccs.bam"), path("${run_id}.ccs.bam.pbi")
 
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
-
     script:
     """
     source ${params.conda_base_script}
@@ -663,11 +699,6 @@ process filterAdapter {
     
     output:
       tuple val(run_id), path("${run_id}.ccs.filtered.bam"), path("${run_id}.ccs.filtered.bam.pbi")
-
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
     """
@@ -698,10 +729,6 @@ process limaDemux {
     
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.summary"
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.counts"
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
     
     script:
     """
@@ -731,12 +758,6 @@ process pbmm2Align {
     
     output:
       tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
-
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode:"copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
-
     
     script:
     """
@@ -767,10 +788,6 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
     storeDir { dirProcessReads(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
 
     script:
     """
@@ -836,11 +853,6 @@ process splitBAM {
       val(chunkID)
 
     storeDir { dirSplitBAMs(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
-
 
     script:
     """
@@ -880,11 +892,6 @@ process installBSgenome {
     output:
       val(true)
 
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
-
     script:
     """
     installBSgenome.R -c ${params.paramsFileName}
@@ -906,10 +913,6 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
     storeDir "${params.cache_dir}"
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.command.log" }
 
     script:
     """
@@ -943,10 +946,6 @@ process processGermlineVCFs {
       path "${individual_id}.germline_vcf_variants.qs2"
 
     storeDir "${params.cache_dir}"
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${individual_id}.${task.process}.command.log" }
 
     script:
     """
@@ -972,10 +971,6 @@ process processGermlineBAMs {
       path("${germline_bam_file}.vcf.gz*")
 
     storeDir "${params.cache_dir}"
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${germline_bam_file}.${task.process}.command.log" }
 
     script:
     """
@@ -1029,10 +1024,6 @@ process prepareRegionFilters {
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
     storeDir "${params.cache_dir}"
-    publishDir "${sharedLogsDir}",
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log" }
 
     script:
     """
@@ -1085,10 +1076,6 @@ process extractCallsChunk {
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
     storeDir { dirExtractCalls(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log" }
 
     script:
     """
@@ -1120,10 +1107,6 @@ process filterCallsChunk {
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
     storeDir { dirFilterCalls(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log" }
 
     script:
     """
@@ -1155,10 +1138,6 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir { dirCalculateBurdens(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log" }
 
     script:
     """
@@ -1213,10 +1192,6 @@ process outputResultsSample {
       path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
         
     storeDir { dirOutputResults(individual_id, sample_id) }
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      mode: "copy",
-      pattern: ".command.log",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
 
     script:
     """
@@ -1240,11 +1215,6 @@ process removeIntermediateFilesProcess {
     output:
       val(true)
     
-    publishDir { dirSampleLogs(individual_id, sample_id) },
-      pattern: ".command.log",
-      mode: "copy",
-      saveAs: { fn -> "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
-
     script:
      """
     set -euo pipefail

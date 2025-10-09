@@ -5,7 +5,7 @@ HiDEF-seq is a single-molecule sequencing method with single-molecule fidelity. 
 
 The latest HiDEF-seq v3 library preparation protocol (with random fragmentation and whole-genome coverage; link coming soon) and this HiDEF-seq v3 analysis pipeline are compatible with both PacBio Revio instruments (ccs consensus sequence data) and Sequel II instruments (subread sequence data). See the HiDEF-seq library preparation protocol for important settings required for sequencing on PacBio Revio instruments, without which the data cannot be analyzed.
 
-HiDEF-seq analysis also requires standard germline sequencing data for filtering germline variants, which we also recommend to sequence on PacBio instruments.
+HiDEF-seq analysis also requires standard germline sequencing data for filtering germline variants, which should also be sequenced on PacBio Revio instruments (i.e., same platform as HiDEF-seq data) to minimize false-positive calls due to missed germline variants.
 
 The HiDEF-seq analysis pipeline is designed to be run by Nextflow and a pre-configured docker image. Below are instructions on how to run the pipeline.
 

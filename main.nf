@@ -521,7 +521,6 @@ workflow outputResults {
 
     emit:
     out_ch = outputResultsSample.out.out_ch
-    out_file = outputResultsSample.out.out_file
 
 }
 
@@ -1208,8 +1207,11 @@ process outputResultsSample {
     
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
-      path("${params.analysis_id}.${individual_id}.${sample_id}.qs2"), emit: out_file
-
+      path("${params.analysis_id}.${individual_id}.${sample_id}.qs2")
+      path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv", optional: true)
+      path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv", optional: true)
+      path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}", optional: true)
+        
     storeDir { dirOutputResults(individual_id, sample_id) }
     publishDir { dirSampleLogs(individual_id, sample_id) },
       mode: "copy",
@@ -1219,7 +1221,6 @@ process outputResultsSample {
     script:
     """
     outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
-
     """
 }
 

@@ -108,6 +108,11 @@ cat("    sample_id:",sample_id_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Define custom functions
 ######################
 #Function to write vcf from finalCalls/germlineCalls

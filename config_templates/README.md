@@ -87,7 +87,6 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
 | `mem_outputResultsSample`, `time_outputResultsSample`, `maxRetries_outputResultsSample` | string/integer | optional | Analogous settings for `outputResultsSample` processes. |
 | `remove_intermediate_files` | boolean, `true` or `false` | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
-| `save_coverage_in_final_qs2` | boolean, `true` or `false` | optional | When set to `false`, omits genome-wide coverage GRanges objects from the final `.qs2` serialized output to reduce its file size and to reduce memory usage of the `outputResultsSample` process. |
 
 ## Reference genome resources
 

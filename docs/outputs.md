@@ -279,7 +279,7 @@ The pipeline produces several files per per below, and each table contains metad
 - `total.tsv` — Total SBS mutation error probability across all trinucleotide channels.
 
 ### Serialized object (.qs2)
-For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. When the YAML parameter `save_coverage_in_final_qs2` is set to `false`, coverage GRanges are excluded from the serialized object to reduce its size and in-memory footprint. Each component of the object is listed below with its schema.
+For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
 Top-level configuration loaded from the analysis YAML, stored as nested lists per the structure and parameters documented in [`config_templates/`](../config_templates).
@@ -354,7 +354,7 @@ Table containing genome coverage by interrogated base pairs (i.e., duplex covera
 
 | Column | Description |
 | --- | --- |
-| `bam.gr.filtertrack.coverage` | List-column of GRanges coverage objects for interrogated base pairs (i.e., duplex coverage counting once coverage by both strands of a molecule). Omitted when `save_coverage_in_final_qs2` is `false` in the YAML configuration. |
+| `bam.gr.filtertrack.coverage` | List-column of GRanges coverage objects for interrogated base pairs (i.e., duplex coverage counting once coverage by both strands of a molecule). |
 | `bam.gr.filtertrack.reftnc_pyr`, `bam.gr.filtertrack.reftnc_both_strands` | Same format as `.bam.gr.filtertrack.reftnc_pyr.tsv` and `bam.gr.filtertrack.reftnc_both_strands.tsv` described above. |
 
 #### genome.reftnc and genome_chromgroup.reftnc

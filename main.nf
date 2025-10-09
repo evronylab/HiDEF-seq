@@ -1037,7 +1037,7 @@ process prepareRegionFilters {
     script:
     """
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
-    cut -f 1,2 ${params.genome_fai} | awk '{print \$1 "\t0\t" \$2}' | sort -k1,1 -k2,2n > chromsizes.bed
+    awk '{print \$1 "\t0\t" \$2}' ${params.genome_fai} | sort -k1,1 -k2,2n > chromsizes.bed
 
     if [[ ${binsize} -eq 1 ]]; then
       scale_command=""

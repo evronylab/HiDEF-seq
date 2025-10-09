@@ -1065,13 +1065,22 @@ germline_bam_samtools_mpileup_file <- cache_dir %>%
 		".bw"
 	)
 
+tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".")
+system(paste("/bin/bash -c",shQuote(paste(
+	"awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
+	"| sort -k1,1 -k2,2n >",
+	tmpchromsizes
+)
+)))
+
 tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
 
 system(paste("/bin/bash -c",shQuote(paste(
-	yaml.config$wiggletools_bin,"lt",
+	yaml.config$wiggletools_bin, "lt",
 	filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
-	germline_bam_samtools_mpileup_file,"|",
-	yaml.config$wigToBigWig_bin,"stdin <(cut -f 1,2",
+	"trim", tmpchromsizes, "fillIn", tmpchromsizes,
+	germline_bam_samtools_mpileup_file, "|",
+	yaml.config$wigToBigWig_bin, "stdin <(cut -f 1,2",
 	yaml.config$genome_fai,")",
 	tmpbw
 	)
@@ -1086,7 +1095,7 @@ germline_bam_samtools_mpileup_filter <- tmpbw %>%
 	} %>%
 	select(-score)
 
-invisible(file.remove(tmpbw))
+invisible(file.remove(tmpchromsizes, tmpbw))
 
 #Subtract filtered regions from filter trackers
 bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%

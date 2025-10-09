@@ -100,33 +100,23 @@ During `processReads`, the pipeline adds to the sharedLogs directory:
 ## outputResults outputs
 
 ### Directory structure
-The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`. Each output type has its own sub-directory that, in turn, contains folders for every chromgroup processed, as illustrated below:
+The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`. Each output type has its own sub-directory per below:
 
 ```
 outputResults/
   ├─ coverage_reftnc/
-  │   └─ [chromgroup]/
   ├─ filterStats/
-  │   └─ [chromgroup]/
   ├─ finalCalls/
-  │   └─ [chromgroup]/
   ├─ germlineVariantCalls/
-  │   └─ [chromgroup]/
   ├─ finalCalls.spectra/
-  │   └─ [chromgroup]/
   ├─ interrogatedBases.spectra/
-  │   └─ [chromgroup]/
   ├─ genome.spectra/
-  │   └─ [chromgroup]/
   ├─ sensitivity/
-  │   └─ [chromgroup]/
   ├─ finalCalls.burdens/
-  │   └─ [chromgroup]/
   └─ estimatedSBSMutationErrorProbability/
-      └─ [chromgroup]/
 ```
 
-Files inside these folders are further keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
+Each of these sub-folders in turn contains sub-folders for each `chromgroup` that contain results files keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
 
 ### Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`

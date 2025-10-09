@@ -1098,7 +1098,7 @@ qs_save(
 		sensitivity,
 		finalCalls.burdens,
 		estimatedSBSMutationErrorProbability
-	)
+	),
 	str_c(output_basename,".qs2")
 )
 

@@ -1167,7 +1167,7 @@ process calculateBurdensChromgroupFiltergroup {
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${dirOutputResults(individual_id, sample_id)}/${chromgroup}/coverage_reftnc
+    TARGET_DIR=${dirOutputResults(individual_id, sample_id)}/coverage_reftnc/${chromgroup}
 
     mkdir -p \$TARGET_DIR || {
       echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
@@ -1208,9 +1208,9 @@ process outputResultsSample {
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
       path("${params.analysis_id}.${individual_id}.${sample_id}.qs2")
-      path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv", optional: true)
-      path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv", optional: true)
-      path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}", optional: true)
+      path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
+      path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
+      path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
         
     storeDir { dirOutputResults(individual_id, sample_id) }
     publishDir { dirSampleLogs(individual_id, sample_id) },

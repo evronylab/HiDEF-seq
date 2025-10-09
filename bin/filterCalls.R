@@ -1065,7 +1065,7 @@ germline_bam_samtools_mpileup_file <- cache_dir %>%
 		".bw"
 	)
 
-tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".")
+tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".",fileext=".bed")
 system(paste("/bin/bash -c",shQuote(paste(
 	"awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
 	"| sort -k1,1 -k2,2n >",

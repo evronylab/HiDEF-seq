@@ -18,55 +18,14 @@ def dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_i
 def dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
 def dirOutputResults = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/outputResults" }
 
-//Script to save nextflow process logs upon completion of each process
-process {
-    afterScript = '''
+//Function to save nextflow process logs upon completion of each process
+def generateAfterScript(logDir, logName) {
+    return """
         if [[ -f ".command.log" ]]; then
-            # Use environment variables or defaults
-            FINAL_LOG_DIR="${NF_LOG_DIR:-''' + "${sharedLogsDir}" + '''}"
-            FINAL_LOG_NAME="${NF_LOG_NAME:-${task.process}.command.log}"
-            
-            mkdir -p "${FINAL_LOG_DIR}"
-            cp ".command.log" "${FINAL_LOG_DIR}/${FINAL_LOG_NAME}"
+            mkdir -p "${logDir}"
+            cp ".command.log" "${logDir}/${logName}"
         fi
-    '''
-    
-    // Set environment variables for log directories
-    withName: 'processGermlineVCFs|processGermlineBAMs|prepareRegionFilters|ccsChunk' {
-      env.NF_LOG_DIR = "${sharedLogsDir}"
-    }
-    withName: 'pbmm2Align|mergeAlignedSampleBAMs|splitBAM|extractCallsChunk|filterCallsChunk|calculateBurdensChromgroupFiltergroup|outputResultsSample|removeIntermediateFilesProcess' {
-      env.NF_LOG_DIR = { dirSampleLogs(individual_id, sample_id) }
-    }
-
-    // Set environment variables for log file names
-    withName: 'processGermlineVCFs' {
-        env.NF_LOG_NAME = '${individual_id}.${task.process}.command.log'
-    }
-    
-    withName: 'processGermlineBAMs' {
-        env.NF_LOG_NAME = '${germline_bam_file}.${task.process}.command.log'
-    }
-    
-    withName: 'prepareRegionFilters' {
-        env.NF_LOG_NAME = '${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log'
-    }
-    
-    withName: 'ccsChunk' {
-        env.NF_LOG_NAME = '${task.process}.chunk${chunkID}.command.log'
-    }
-
-    withName: 'filterCallsChunk' {
-        env.NF_LOG_NAME = '${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log'
-    }
-    
-    withName: 'calculateBurdensChromgroupFiltergroup' {
-        env.NF_LOG_NAME = '${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log'
-    }
-    
-    withName: 'pbmm2Align|mergeAlignedSampleBAMs|splitBAM|extractCallsChunk|outputResultsSample|removeIntermediateFilesProcess' {
-        env.NF_LOG_NAME = { chunkID ? "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log" : "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log" }
-    }
+    """
 }
 
 /*****************************************************************
@@ -607,6 +566,13 @@ process makeBarcodesFasta {
     
     output:
       tuple val(run_id), path("barcodes.fasta")
+
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${run_id}.${task.process}.command.log"
+      )
+    }
     
     script:
       """
@@ -642,6 +608,13 @@ process ccsChunk {
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
 
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${task.process}.chunk${chunkID}.command.log"
+      )
+    }
+
     script:
     // Build the LD_PRELOAD command if the parameter is set.
     def ld_preload_cmd = (params.ccs_ld_preload && params.ccs_ld_preload.trim()) ? "export LD_PRELOAD=${params.ccs_ld_preload}" : ""
@@ -676,6 +649,13 @@ process mergeCCSchunks {
     output:
       tuple val(run_id), path("${run_id}.ccs.bam"), path("${run_id}.ccs.bam.pbi")
 
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${run_id}.${task.process}.command.log"
+      )
+    }
+
     script:
     """
     source ${params.conda_base_script}
@@ -699,6 +679,13 @@ process filterAdapter {
     
     output:
       tuple val(run_id), path("${run_id}.ccs.filtered.bam"), path("${run_id}.ccs.filtered.bam.pbi")
+
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${run_id}.${task.process}.command.log"
+      )
+    }
     
     script:
     """
@@ -729,6 +716,13 @@ process limaDemux {
     
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.summary"
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.counts"
+
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${run_id}.${task.process}.command.log"
+      )
+    }
     
     script:
     """
@@ -758,7 +752,14 @@ process pbmm2Align {
     
     output:
       tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
-    
+
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+      )
+    }
+
     script:
     """
     source ${params.conda_base_script}
@@ -788,6 +789,13 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
     storeDir { dirProcessReads(individual_id, sample_id) }
+
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+      )
+    }
 
     script:
     """
@@ -854,6 +862,13 @@ process splitBAM {
 
     storeDir { dirSplitBAMs(individual_id, sample_id) }
 
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log"
+      )
+    }
+
     script:
     """
     source ${params.conda_base_script}
@@ -892,6 +907,13 @@ process installBSgenome {
     output:
       val(true)
 
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${task.process}.command.log"
+      )
+    }
+
     script:
     """
     installBSgenome.R -c ${params.paramsFileName}
@@ -913,6 +935,13 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
     storeDir "${params.cache_dir}"
+
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${task.process}.command.log"
+      )
+    }
 
     script:
     """
@@ -947,6 +976,13 @@ process processGermlineVCFs {
 
     storeDir "${params.cache_dir}"
 
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${individual_id}.${task.process}.command.log"
+      )
+    }
+
     script:
     """
     processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id}
@@ -971,6 +1007,13 @@ process processGermlineBAMs {
       path("${germline_bam_file}.vcf.gz*")
 
     storeDir "${params.cache_dir}"
+
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${germline_bam_file}.${task.process}.command.log"
+      )
+    }
 
     script:
     """
@@ -1025,6 +1068,13 @@ process prepareRegionFilters {
 
     storeDir "${params.cache_dir}"
 
+    afterScript{
+      generateAfterScript(
+        "${sharedLogsDir}",
+        "${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log"
+      )
+    }
+
     script:
     """
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
@@ -1077,6 +1127,13 @@ process extractCallsChunk {
 
     storeDir { dirExtractCalls(individual_id, sample_id) }
 
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log"
+      )
+    }
+
     script:
     """
     extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
@@ -1108,6 +1165,13 @@ process filterCallsChunk {
 
     storeDir { dirFilterCalls(individual_id, sample_id) }
 
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log"
+      )
+    }
+
     script:
     """
     filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
@@ -1138,6 +1202,13 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
     storeDir { dirCalculateBurdens(individual_id, sample_id) }
+
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log"
+      )
+    }
 
     script:
     """
@@ -1193,6 +1264,13 @@ process outputResultsSample {
         
     storeDir { dirOutputResults(individual_id, sample_id) }
 
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+      )
+    }
+
     script:
     """
     outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
@@ -1214,6 +1292,13 @@ process removeIntermediateFilesProcess {
     
     output:
       val(true)
+
+    afterScript{
+      generateAfterScript(
+        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+      )
+    }
     
     script:
      """

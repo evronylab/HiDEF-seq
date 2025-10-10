@@ -20,12 +20,15 @@ def dirOutputResults = { individual_id, sample_id -> "${sampleBaseDir(individual
 
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
-    return """
-        if [[ -f ".command.log" ]]; then
-            mkdir -p "${logDir}"
-            cp ".command.log" "${logDir}/${logName}"
-        fi
-    """
+  // Strip workflow prefixes like "processReads:" from the log name
+  logName = logName.replaceAll(/[\w]+:/,'')
+
+  return """
+      if [[ -f ".command.log" ]]; then
+          mkdir -p "${logDir}"
+          cp ".command.log" "${logDir}/${logName}"
+      fi
+  """
 }
 
 /*****************************************************************

@@ -148,6 +148,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
       ref_plus_strand = REF,
       alt_plus_strand = ALT
     ) %>%
+  	distinct %>% # select distinct rows since -R regions can lead to duplicated entries
     makeGRangesFromDataFrame(
       seqnames.field="seqnames",
       start.field="start_refspace",
@@ -155,8 +156,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
       keep.extra.columns=TRUE,
       seqinfo=BSgenome_name %>% get %>% seqinfo
     ) %>%
-  	sort %>% #Sort and select unique rows since -R regions can lead to out of order and duplicated entries
-  	unique
+  	sort
 
   return(vcf)
 }

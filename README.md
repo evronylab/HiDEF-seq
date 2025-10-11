@@ -157,6 +157,7 @@ WORK_DIR=/path/to/nextflow_work
 nextflow -config $NEXTFLOW_CONFIG \
   run $HIDEFSEQ_GITREPO \
   -r $HIDEFSEQ_GITTAG \
+  -latest \
   -params-file $YAML \
   --workflow all \
   -resume \ #optional if resuming prior runs

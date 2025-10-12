@@ -1070,7 +1070,7 @@ process outputResultsSample {
       path("${params.analysis_id}.${individual_id}.${sample_id}.qs2")
       path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
-      path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
+      path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
         
     publishDir { sampleBaseDir(individual_id, sample_id) }, mode: 'move'
 

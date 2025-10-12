@@ -105,6 +105,9 @@ maxRetries_filterCallsChunkChromgroupFiltergroup: 3
 mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
 maxRetries_calculateBurdensChromgroupFiltergroup: 3
+mem_outputResultsSample: 64GB #each retry will increase by half of this amount
+time_outputResultsSample: 4h #each retry will increase by this same amount
+maxRetries_outputResultsSample: 3
 
 output_intermediate_files: true  # true or false
 
@@ -135,7 +138,7 @@ min_strand_overlap: 0.9
 call_types:
   - call_type: SBS # SBS for call_class SBS; insertion or deletion for call_class indel; specific MDB name for call_class MDB
     call_class: SBS # SBS, indel, or MDB
-    analyzein_chromgroups: # comma-separated list, or 'all'
+    analyzein_chromgroups: all # comma-separated list, or 'all'
     SBSindel_call_types:
       - SBSindel_call_type: mutation #mutation, mismatch-ss, mismatch-ds, mismatch-os (MDB only), match (MDB only)
         filtergroup: lenient

@@ -1053,6 +1053,7 @@ calls <- calls %>%
 				seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 			) %>%
 			resize(width=3,fix="center") %>%
+			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 			
 			#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
 			trim %>%
@@ -1062,8 +1063,13 @@ calls <- calls %>%
 			mutate(
 				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
 					as.character %>%
-					factor(levels = trinucleotides_64),
-				
+					factor(levels = trinucleotides_64)
+			) %>%
+			
+			#Remove trinucleotide contexts that are NA, which occurs when the trinucleotide sequence contains 'N'
+			filter(!is.na(reftnc_plus_strand)) %>%
+			
+			mutate(
 				reftnc_minus_strand = reftnc_plus_strand %>%
 					DNAStringSet %>%
 					reverseComplement %>%

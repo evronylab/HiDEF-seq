@@ -5,18 +5,18 @@
 //Library imports
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.DumperOptions
+import java.security.MessageDigest
 
 //Define output directories and related helper functions
 sharedLogsDir = "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
 
-def sampleBaseDir = { individual_id, sample_id -> "${params.analysis_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}" }
-def dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
-def dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processReads" }
-def dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
-def dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
-def dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
-def dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
-def dirOutputResults = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/outputResults" }
+sampleBaseDir = { individual_id, sample_id -> "${params.analysis_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}" }
+dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
+dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processedReads" }
+dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
+dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
+dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
+dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
 
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
@@ -31,24 +31,44 @@ def generateAfterScript(logDir, logName) {
   """
 }
 
+signatureYamlOptions = new DumperOptions()
+signatureYamlOptions.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+signatureYamlOptions.setPrettyFlow(false)
+signatureYamlOptions.setIndent(2)
+
+signatureYaml = new Yaml(signatureYamlOptions)
+
+def configHash(params_input, keys) {
+  def subset = new LinkedHashMap()
+  keys.each { key ->
+    if (params_input.containsKey(key)) {
+      subset[key] = params_input[key]
+    }
+  }
+
+  def serialized = signatureYaml.dump(subset ?: [:])
+  def digest = MessageDigest.getInstance('SHA-256')
+  digest.update(serialized.getBytes('UTF-8'))
+  digest.digest().encodeHex().toString()
+}
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// --workflow options: all, or one or more contiguous (in the correct order) comma-separated workflows: processReads, splitBAMs, prepareFilters, extractCalls, filterCalls, calculateBurdens, outputResults, removeIntermediateFiles
-// Note: the pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
+// The pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
 
 workflow {
 
   // Save copy of parameters file to logs directory
-  def logsDir = file("${sharedLogsDir}")
+  logsDir = file("${sharedLogsDir}")
   logsDir.mkdirs()
 
-  def options = new DumperOptions()
+  options = new DumperOptions()
   options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
   options.setIndent(2)
 
-  def yaml = new Yaml(options)
-  def timestamp = new Date().format('yyyy_MMdd_HHmm')
+  yaml = new Yaml(options)
+  timestamp = new Date().format('yyyy_MMdd_HHmm')
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
 
   // Save copy of run information
@@ -67,103 +87,220 @@ workflow {
   """.stripIndent()
 
   //Get path of parameters file
-  def commandLineTokens = workflow.commandLine.tokenize()
+  commandLineTokens = workflow.commandLine.tokenize()
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
-  //Extract workflows and check that selected workflows are valid.
-  def workflowsToRun = params.workflow.split(',').collect { it.trim() }
-  
-   //valid workflows in order that they can be run
-  def validWorkflows = ["all", "processReads", "splitBAMs", "prepareFilters", "extractCalls", "filterCalls", "calculateBurdens", "outputResults", "removeIntermediateFiles"]
-  
-  def invalidWorkflows = workflowsToRun.findAll { !(it in validWorkflows) }
-  if(invalidWorkflows.size() > 0){
-    error "ERROR: Invalid workflow(s) '${invalidWorkflows.join(', ')}'. Valid options are: ${validWorkflows.join(', ')}"
+  config_signatures = [
+    installBSgenome: configHash(params, ['cache_dir', 'BSgenome']),
+    processGermlineVCFs: configHash(params, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin']),
+    extractCallsChunk: configHash(params, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap']),
+    filterCallsChunkChromgroupFiltergroup: configHash(params, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin']),
+    calculateBurdensChromgroupFiltergroup: configHash(params, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin']),
+    outputResultsSample: configHash(params, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples'])
+  ]
+
+  // create a channel of runs
+  runs_ch = Channel.fromList(params.runs)
+
+  // Create channel for the input reads file.
+  reads_ch = runs_ch.map { run ->
+      tuple(
+        run.run_id,
+        file(run.reads_file),
+        file("${run.reads_file}.pbi")
+      )
   }
 
-  if( workflowsToRun.contains("all") && workflowsToRun.size() > 1 ) {
-    error "ERROR: 'all' cannot be combined with other workflows. Use either 'all' alone or specify individual workflows without 'all'."
+  // Create barcodes FASTA for each run
+  barcodes_ch = runs_ch.map { run ->
+      tuple(
+        run.run_id,
+        run.samples
+          .collect { sample -> ">${sample.barcode_id}\n${sample.barcode}" }
+          .join("\n")
+      )
   }
 
-  if( !workflowsToRun.contains("all") ) {
-    def workflowOrder = validWorkflows.findAll { it != "all" }
-    
-    // Get indices of workflows in the order specified by the user
-    def specifiedIndices = workflowsToRun.collect { workflow ->
-      workflowOrder.indexOf(workflow)
-    }
-    
-    // Check if workflows are specified in correct order (indices should be ascending)
-    if( specifiedIndices != specifiedIndices.sort(false) ) {
-      error "ERROR: Workflows must be specified in the correct order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
-    }
-    
-    // Check if the indices are contiguous (consecutive)
-    for (int i = 1; i < specifiedIndices.size(); i++) {
-      if( specifiedIndices[i] != specifiedIndices[i-1] + 1 ) {
-        error "ERROR: Workflows must be contiguous in this order: ${workflowOrder.join(' -> ')}. You specified: ${workflowsToRun.join(', ')}"
+  makeBarcodesFasta(barcodes_ch)
+
+  filterAdapter_input_ch = null
+  countZMWs_initial_ch = null
+
+  if( params.reads_type == 'subreads' ) {
+      // Run CCS in chunks.
+      ccsChunk(
+        reads_ch
+          .combine(Channel.from(1..params.ccs_chunks))
+          .map { tuple(it[0], it[1], it[2], it[3]) }
+      )
+
+      ccs_grouped_ch = ccsChunk.out.bampbi_tuple
+          .groupTuple(by: 0) // Group by run_id
+          .map { run_id, bamFiles, pbiFiles, chunkIDs ->
+            // Sort by chunkID
+            def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
+            def sortedBamFiles = sortedIndices.collect { bamFiles[it] }
+            def sortedPbiFiles = sortedIndices.collect { pbiFiles[it] }
+            tuple(run_id, sortedBamFiles, sortedPbiFiles)
+          }
+
+      mergeCCSchunks(ccs_grouped_ch)
+
+      filterAdapter_input_ch = mergeCCSchunks.out
+
+      countZMWs_initial_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
+        .mix(mergeCCSchunks.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") })
+  }
+  else if( params.reads_type == 'ccs' ) {
+      filterAdapter_input_ch = reads_ch
+
+      countZMWs_initial_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
+  }
+  else {
+      error "Unsupported reads_type '${params.reads_type}'."
+  }
+
+  filterAdapter(filterAdapter_input_ch)
+
+  // Join filterAdapter and makeBarcodesFasta outputs by run_id
+  limaDemux_input_ch = filterAdapter.out
+      .join(makeBarcodesFasta.out, by:0)
+      .map { r_id, bamFile, pbiFile, barcodesFasta ->
+        tuple(r_id, bamFile, pbiFile, barcodesFasta)
       }
+
+  // Demultiplex with lima.
+  limaDemux(limaDemux_input_ch)
+
+  // Create channels for each demultiplexed sample.
+  // Here, for each sample the input BAM is assumed to have the name:
+  // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
+  demuxMap_ch = limaDemux.out.bam
+  .transpose()
+  .map { run_id, bamFile ->
+      def m = bamFile.name =~ /${run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
+      if (!m) {
+          error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
+      }
+      tuple(run_id, m[0][1], bamFile)
     }
-  }
 
-  // Helper function to check if a workflow should be run
-  def shouldRun = { workflowName -> 
-    workflowsToRun.contains("all") || workflowsToRun.contains(workflowName)
-  }
+  // Create samples to align channel by matching run samples with demux BAMs
+  sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
 
-  //Initialize workflow output variables
-  def processReads_out = null
-  def splitBAMs_out = null
-  def prepareFilters_out = null
-  def extractCalls_out = null
-  def filterCalls_out = null
-  def calculateBurdens_out = null
-  def outputResults_out = null
-
-  // Run processReads workflow
-  if (shouldRun("processReads")) {
-    processReads_out = processReads()
-  }
-
-  // Run splitBAMs workflow
-  if (shouldRun("splitBAMs")) {
-    processReads_out = processReads_out ?:
-      Channel.fromList(params.samples)
-          .map { sample ->
-              def individual_id = sample.individual_id
-              def sample_id = sample.sample_id
-              def bamFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam")
-              def pbiFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi")
-              def baiFile = file("${dirProcessReads(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
-              return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile)
+  samples_to_align_ch = Channel.fromList(params.runs)
+      .flatMap { run ->
+          run.samples.collect { sample ->
+              tuple(run.run_id, sample.sample_id, sample.barcode_id)
           }
+      }
+      .combine(demuxMap_ch, by: 0) // Combine by run_id
+      .filter { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
+          barcode_id == demux_barcode_id
+      }
+      .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
+          tuple(run_id, sample_to_individual[sample_id], sample_id, demux_bam)
+      }
 
-    splitBAMs_out = splitBAMs(processReads_out)
-  }
+  // Run pbmm2 alignment for each sample.
+  pbmm2Align(samples_to_align_ch)
 
-  // Run prepareFilters workflow
-  if (shouldRun("prepareFilters")) {
-    prepareFilters_out = prepareFilters()
-  }
+  countZMWs_ch = countZMWs_initial_ch.mix(
+      filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
+      samples_to_align_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
+      pbmm2Align.out.map { f -> tuple(f[3], f[4], "zmwcount.txt") }
+    )
 
-  // Run extractCalls workflow
-  if (shouldRun("extractCalls")) {
-    splitBAMs_out = splitBAMs_out ?:
-      Channel.fromList(params.samples)
-          .combine(Channel.from(1..params.analysis_chunks))
-          .map { sample, chunkID ->
-              def individual_id = sample.individual_id
-              def sample_id = sample.sample_id
-              def bamFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam")
-              def pbiFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi")
-              def baiFile = file("${dirSplitBAMs(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai")
-              return tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
-          }
+  // Count ZMWs
+  countZMWs(countZMWs_ch)
 
-    prepareFilters_out = prepareFilters_out ?: Channel.value(true)
+  // Group pbmm2Align outputs by sample_id for merging
+  pbmm2_grouped_ch = pbmm2Align.out
+    .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+        tuple(individual_id, sample_id, bamFile, pbiFile)
+    }
+    .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
 
-    extractCalls_out = extractCalls(splitBAMs_out, prepareFilters_out)
-  }
+  // Merge BAM files by sample_id across runs
+  mergeAlignedSampleBAMs(pbmm2_grouped_ch)
+
+  analysis_chunk_ids_ch = Channel.from(1..params.analysis_chunks)
+
+  splitBAM(
+    mergeAlignedSampleBAMs.out
+      .combine(analysis_chunk_ids_ch)
+      .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
+        tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
+      }
+  )
+
+  splitBAMs_out = splitBAM.out
+
+  // Run installBSgenome
+  installBSgenome(Channel.value(config_signatures.installBSgenome))
+
+  // Run extractGenomeTrinucleotides
+  extractGenomeTrinucleotides()
+
+  // Create channel for individual_ids for processGermlineVCFs
+  individual_ids_ch = Channel
+    .from(params.individuals)
+    .map { individual -> individual.individual_id }
+
+  // Run processGermlineVCFs
+  processGermlineVCFs(
+    individual_ids_ch.map { tuple(it, config_signatures.processGermlineVCFs) }
+  )
+
+  // Create channel for germline BAMs
+  germlinebams_ch = Channel.fromList(params.individuals)
+    .map { run ->
+      tuple( file(run.germline_bam_file), run.germline_bam_type )
+    }
+
+  // Run processGermlineBAMs
+  processGermlineBAMs( germlinebams_ch )
+
+  // Create channel for the region filters
+  region_filters_ch = Channel.fromList(params.region_filters)
+      .flatMap { region_filter ->
+        def filters = []
+
+        region_filter.read_filters?.each { filter ->
+          filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
+        }
+
+        region_filter.genome_filters?.each { filter ->
+          filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
+        }
+
+        filters
+      }
+      .unique() // Avoid preparing the same region filter/binsize/threshold configuration twice
+
+  // Run prepareRegionFilters
+  prepareRegionFilters( region_filters_ch )
+
+  // Create a completion signal by collecting all outputs
+  prepareFilters_out = installBSgenome.out
+    .mix(
+      extractGenomeTrinucleotides.out,
+      processGermlineVCFs.out,
+      processGermlineBAMs.out,
+      prepareRegionFilters.out
+    )
+    .collect()
+    .map { true }
+
+  extractCalls_input_ch = splitBAMs_out
+      .combine(prepareFilters_out)
+      .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, prepareFiltersReady ->
+        tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, config_signatures.extractCallsChunk)
+      }
+
+  extractCallsChunk(extractCalls_input_ch)
+
+  extractCalls_out = extractCallsChunk.out
 
   //Prepare a list with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs.
   //Created as a list first instead of a channel to allow static calculation of its size for later downstream use
@@ -187,365 +324,35 @@ workflow {
   //Create a channel from the chromgroups_filtergroups_list
   chromgroups_filtergroups_ch = Channel.fromList(chromgroups_filtergroups_list)
 
-  // Run filterCalls workflow
-  if (shouldRun("filterCalls")) {
-    extractCalls_out = extractCalls_out ?:
-      Channel.fromList(params.samples)
-          .combine(Channel.from(1..params.analysis_chunks))
-          .map { sample, chunkID ->
-              def individual_id = sample.individual_id
-              def sample_id = sample.sample_id
-              def extractCallsFile = file("${dirExtractCalls(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2")
-              return tuple(individual_id, sample_id, extractCallsFile, chunkID)
-          }
-
-    filterCalls_out = filterCalls(extractCalls_out.combine(chromgroups_filtergroups_ch))
-  }
-
-  // Run calculateBurdens workflow
-  if (shouldRun("calculateBurdens")) {
-    filterCalls_out = filterCalls_out ?:
-      Channel.fromList(params.samples)
-          .combine(Channel.from(1..params.analysis_chunks))
-          .combine(chromgroups_filtergroups_ch)
-          .map { sample, chunkID, chromgroup, filtergroup ->
-              def individual_id = sample.individual_id
-              def sample_id = sample.sample_id
-              def filterCallsFile = file("${dirFilterCalls(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
-              return tuple(individual_id, sample_id, chromgroup, filtergroup, chunkID, filterCallsFile)
-          }
-
-    def filterCalls_grouped_ch = filterCalls_out
-        .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
-        .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
-            // Sort by chunkID
-            def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
-            def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
-            return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles)
-        }
-
-    calculateBurdens_out = calculateBurdens(filterCalls_grouped_ch)
-  }
-
-  // Run outputResults workflow
-  if (shouldRun("outputResults")) {
-    calculateBurdens_out = calculateBurdens_out ?:
-      Channel.fromList(params.samples)
-          .combine(chromgroups_filtergroups_ch)
-          .map { sample, chromgroup, filtergroup ->
-              def individual_id = sample.individual_id
-              def sample_id = sample.sample_id
-              def calculateBurdensFile = file("${dirCalculateBurdens(individual_id, sample_id)}/${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
-              return tuple(individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile)
-          }
-
-    def calculateBurdens_grouped_ch = calculateBurdens_out
-        .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
-            return tuple(individual_id, sample_id, calculateBurdensFile)
-        }
-        .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
-
-    outputResults_out = outputResults(calculateBurdens_grouped_ch).out_ch
-  }
-
-  // Run removeIntermediateFiles workflow (conditional)
-  if (shouldRun("removeIntermediateFiles") && params.remove_intermediate_files) {
-    outputResults_out = outputResults_out ?:
-      Channel.fromList(params.samples).map { s -> tuple(s.individual_id, s.sample_id) }
-
-    removeIntermediateFiles(outputResults_out)
-  }
-
-}
-
-
-/*****************************************************************
- * Individual Workflow Definitions
- *****************************************************************/
-
-workflow processReads {
-
-    main:
-    // create a channel of runs
-    runs_ch = Channel.fromList(params.runs)
-
-    // Create channel for the input reads file.
-    reads_ch = runs_ch.map { run ->
-        def reads_file = file(run.reads_file)
-        def pbi_file = file("${run.reads_file}.pbi")
-        return tuple(run.run_id, reads_file, pbi_file)
-    }
-    
-    // Create barcodes FASTA for each run
-    barcodes_ch = runs_ch.map { run ->
-        def barcodeFastaContent = run.samples
-            .collect { sample ->
-              return ">${sample.barcode_id}\n${sample.barcode}"
-            }
-            .join("\n")
-        return tuple(run.run_id, barcodeFastaContent)
-    }
-    
-    makeBarcodesFasta( barcodes_ch )
-      
-    // Branch according to data type.
-    if( params.reads_type == 'subreads' ) {
-        // Run CCS in chunks.
-        chunkIDs = Channel.from(1..params.ccs_chunks)
-
-        ccsChunk( reads_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3]) } )
-        
-        // Merge all CCS chunks per run
-        ccs_grouped_ch = ccsChunk.out.bampbi_tuple
-            .groupTuple(by: 0) // Group by run_id
-            .map { run_id, bamFiles, pbiFiles, chunkIDs ->
-              // Sort by chunkID
-              def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
-              def sortedBamFiles = sortedIndices.collect { bamFiles[it] }
-              def sortedPbiFiles = sortedIndices.collect { pbiFiles[it] }
-              return tuple(run_id, sortedBamFiles, sortedPbiFiles)
-            }
-
-        mergeCCSchunks(ccs_grouped_ch)
-        
-        // Filter for reads with adapters on both ends.
-        filterAdapter( mergeCCSchunks.out )
-    }
-    else if( params.reads_type == 'ccs' ) {
-        // Filter for reads with adapters on both ends.
-        filterAdapter( reads_ch )
-    }
-    else {
-        error "Unsupported reads_type '${params.reads_type}'."
-    }
-
-    // Join filterAdapter and makeBarcodesFasta outputs by run_id
-    limaDemux_input_ch = filterAdapter.out
-        .join( makeBarcodesFasta.out, by:0 )
-        .map { r_id, bamFile, pbiFile, barcodesFasta ->
-          tuple(r_id, bamFile, pbiFile, barcodesFasta)
-        }
-
-    // Demultiplex with lima.
-    limaDemux( limaDemux_input_ch )
-    
-    // Create channels for each demultiplexed sample.
-    // Here, for each sample the input BAM is assumed to have the name:
-    // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
-    demuxMap_ch = limaDemux.out.bam
-    .transpose()
-    .map { run_id, bamFile ->
-        def m = bamFile.name =~ /${run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
-        if (!m) {
-            error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
-        }
-        return tuple(run_id, m[0][1], bamFile)
+  filterCallsChunkChromgroupFiltergroup_input_ch = extractCalls_out
+      .combine(chromgroups_filtergroups_ch)
+      .map { individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup ->
+        tuple(individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup, config_signatures.filterCallsChunkChromgroupFiltergroup)
       }
 
-    // Create samples to align channel by matching run samples with demux BAMs
-    def sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
+  filterCallsChunkChromgroupFiltergroup(filterCallsChunkChromgroupFiltergroup_input_ch)
 
-    samples_to_align_ch = Channel.fromList(params.runs)
-        .flatMap { run ->
-            run.samples.collect { sample ->
-                return tuple(run.run_id, sample.sample_id, sample.barcode_id)
-            }
-        }
-        .combine(demuxMap_ch, by: 0) // Combine by run_id
-        .filter { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-            return barcode_id == demux_barcode_id
-        }
-        .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-            return tuple(run_id, sample_to_individual[sample_id], sample_id, demux_bam)
-        }
-
-    // Run pbmm2 alignment for each sample.
-    pbmm2Align( samples_to_align_ch )
-
-    // Create channels for counting ZMWs of BAMs created during processing
-    if( params.reads_type == 'subreads' ) {
-      countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
-        .mix(mergeCCSchunks.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") })
-    }
-    else if( params.reads_type == 'ccs' ) {
-      countZMWs_ch = reads_ch.map { f -> tuple(f[1], f[2], "zmwcount.txt") }
-    }
-
-    countZMWs_ch = countZMWs_ch.mix(
-        filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
-        samples_to_align_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
-        pbmm2Align.out.map { f -> tuple(f[3], f[4], "zmwcount.txt") }
-      )
-
-    // Count ZMWs
-    countZMWs( countZMWs_ch )
-
-    // Group pbmm2Align outputs by sample_id for merging
-    pbmm2_grouped_ch = pbmm2Align.out
-      .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
-          return tuple(individual_id, sample_id, bamFile, pbiFile)
-      }
-      .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
-
-    // Merge BAM files by sample_id across runs
-    mergeAlignedSampleBAMs(pbmm2_grouped_ch)
-
-    emit:
-    mergeAlignedSampleBAMs.out
-
-}
-
-
-workflow splitBAMs {
-
-    take:
-    alignedSamples_ch
-    
-    main:
-    chunkIDs = Channel.from(1..params.analysis_chunks)
-
-    splitBAM( alignedSamples_ch | combine(chunkIDs) | map { it -> tuple(it[0], it[1], it[2], it[3], it[4], it[5]) } )
-
-    emit:
-    splitBAM.out
-
-}
-
-
-workflow prepareFilters {
-    
-    main:
-    // Run installBSgenome
-    installBSgenome()
-
-    // Run extractGenomeTrinucleotides
-    extractGenomeTrinucleotides()
-
-    // Create channel for individual_ids for processGermlineVCFs
-    individual_ids_ch = Channel
-      .from(params.individuals)
-      .map { individual -> individual.individual_id }
-
-    // Run processGermlineVCFs
-    processGermlineVCFs( individual_ids_ch )
-
-    // Create channel for germline BAMs
-    germlinebams_ch = Channel.fromList(params.individuals)
-      .map { run ->
-        return tuple( file(run.germline_bam_file), run.germline_bam_type )
+  calculateBurdensChromgroupFiltergroup_input_ch = filterCallsChunkChromgroupFiltergroup.out
+      .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
+      .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+          // Sort by chunkID
+          def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
+          def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
+          return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
       }
 
-    // Run processGermlineBAMs
-    processGermlineBAMs( germlinebams_ch )
+  calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch)
 
-    // Create channel for the region filters
-    region_filters_ch = Channel.fromList(params.region_filters)
-        .flatMap { region_filter ->
-          def filters=[]
+  outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out
+      .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
+          tuple(individual_id, sample_id, calculateBurdensFile)
+      }
+      .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
+      .map { individual_id, sample_id, calculateBurdensFiles ->
+          tuple(individual_id, sample_id, calculateBurdensFiles, config_signatures.outputResultsSample)
+      }
 
-          region_filter.read_filters?.each { filter ->
-            filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
-          }
-
-          region_filter.genome_filters?.each { filter ->
-            filters << tuple(filter.region_filter_file, filter.binsize, filter.threshold)
-          }
-
-          return filters
-        }
-        .unique() // Avoid preparing the same region filter/binsize/threshold configuration twice
-
-    // Run prepareRegionFilters
-    prepareRegionFilters( region_filters_ch )
-
-    // Create a completion signal by collecting all outputs
-    done_ch = installBSgenome.out
-      .mix(
-        extractGenomeTrinucleotides.out,
-        processGermlineVCFs.out,
-        processGermlineBAMs.out,
-        prepareRegionFilters.out
-      )
-      .collect()
-      .map { true }
-
-    emit:
-    done_ch
-
-}
-
-
-workflow extractCalls {
-
-    take:
-    splitBAMs_ch
-    prepareFilters_done
-    
-    main:
-    // Create dependency on prepareFilters_done and then remove it from the input (-2 is the second to last index)
-    splitBAMs_ch = splitBAMs_ch
-        .combine(prepareFilters_done)
-        .map { it.dropRight(1) }
-
-    extractCallsChunk( splitBAMs_ch )
-
-    emit:
-    extractCallsChunk.out
-
-}
-
-
-workflow filterCalls {
-
-    take:
-    extractCalls_ch
-
-    main:
-
-    filterCallsChunk( extractCalls_ch )
-
-    emit:
-    filterCallsChunk.out
-
-}
-
-
-workflow calculateBurdens {
-
-    take:
-    filterCalls_grouped_ch
-
-    main:
-    calculateBurdensChromgroupFiltergroup( filterCalls_grouped_ch )
-
-    emit:
-    calculateBurdensChromgroupFiltergroup.out
-
-}
-
-workflow outputResults {
-
-    take:
-    calculateBurdens_out
-
-    main:
-    outputResultsSample(calculateBurdens_out)
-
-    emit:
-    out_ch = outputResultsSample.out.out_ch
-
-}
-
-workflow removeIntermediateFiles {
-
-    take:
-    outputResults_out
-
-    main:
-    removeIntermediateFilesProcess(outputResults_out)
-
-    emit:
-    removeIntermediateFilesProcess.out
+  outputResultsSample(outputResultsSample_input_ch)
 
 }
 
@@ -554,9 +361,6 @@ workflow removeIntermediateFiles {
  * Process Definitions
  *****************************************************************/
 
-/*
-  makeBarcodesFasta: Writes the barcode FASTA content to a file from a value input.
-*/
 process makeBarcodesFasta {
     cpus 1
     memory '2 GB'
@@ -791,7 +595,7 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    storeDir { dirProcessReads(individual_id, sample_id) }
+    publishDir { dirProcessReads(individual_id, sample_id) }, mode: 'link'
 
     afterScript{
       generateAfterScript(
@@ -863,7 +667,7 @@ process splitBAM {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
       val(chunkID)
 
-    storeDir { dirSplitBAMs(individual_id, sample_id) }
+    publishDir { dirSplitBAMs(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
 
     afterScript{
       generateAfterScript(
@@ -906,7 +710,10 @@ process installBSgenome {
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
-      
+
+    input:
+      val(config_sig)
+
     output:
       val(true)
 
@@ -937,7 +744,7 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz")
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'copy'
 
     afterScript{
       generateAfterScript(
@@ -972,12 +779,12 @@ process processGermlineVCFs {
     container "${params.hidefseq_container}"
       
     input:
-      val(individual_id)
+      tuple val(individual_id), val(config_sig)
 
     output:
       path "${individual_id}.germline_vcf_variants.qs2"
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'copy'
 
     afterScript{
       generateAfterScript(
@@ -1009,7 +816,7 @@ process processGermlineBAMs {
       path("${germline_bam_file}.bw")
       path("${germline_bam_file}.vcf.gz*")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'copy'
 
     afterScript{
       generateAfterScript(
@@ -1069,7 +876,7 @@ process prepareRegionFilters {
     output:
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
-    storeDir "${params.cache_dir}"
+    publishDir "${params.cache_dir}", mode: 'copy'
 
     afterScript{
       generateAfterScript(
@@ -1110,11 +917,11 @@ process prepareRegionFilters {
 */
 process extractCallsChunk {
     cpus 1
-    memory { 
+    memory {
       def baseMemory = params.mem_extractCallsChunk as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
-    time { 
+    time {
         def baseTime = params.time_extractCallsChunk as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
@@ -1123,12 +930,12 @@ process extractCallsChunk {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(config_sig)
     
     output:
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    storeDir { dirExtractCalls(individual_id, sample_id) }
+    publishDir { dirExtractCalls(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
 
     afterScript{
       generateAfterScript(
@@ -1144,29 +951,29 @@ process extractCallsChunk {
 }
 
 /*
-  filterCallsChunk: Run filterCalls.R for each analysis chunk, chromgroup, filtergroup combination
+  filterCallsChunkChromgroupFiltergroup: Run filterCalls.R for each analysis chunk, chromgroup, filtergroup combination
 */
-process filterCallsChunk {
+process filterCallsChunkChromgroupFiltergroup {
     cpus 1
-    memory { 
-      def baseMemory = params.mem_filterCallsChunk as nextflow.util.MemoryUnit
+    memory {
+      def baseMemory = params.mem_filterCallsChunkChromgroupFiltergroup as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
-    time { 
-        def baseTime = params.time_filterCallsChunk as nextflow.util.Duration
+    time {
+        def baseTime = params.time_filterCallsChunkChromgroupFiltergroup as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
-    maxRetries params.maxRetries_filterCallsChunk
-    tag { "filterCallsChunk: ${sample_id} -> chunk ${chunkID}" }
+    maxRetries params.maxRetries_filterCallsChunkChromgroupFiltergroup
+    tag { "filterCallsChunkChromgroupFiltergroup: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
-    
+
     input:
-      tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup)
+      tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup), val(config_sig)
     
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    storeDir { dirFilterCalls(individual_id, sample_id) }
+    publishDir { dirFilterCalls(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
 
     afterScript{
       generateAfterScript(
@@ -1186,11 +993,11 @@ process filterCallsChunk {
 */
 process calculateBurdensChromgroupFiltergroup {
     cpus 2
-    memory { 
+    memory {
       def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
-    time { 
+    time {
         def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
@@ -1199,12 +1006,12 @@ process calculateBurdensChromgroupFiltergroup {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles)
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
     
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
 
-    storeDir { dirCalculateBurdens(individual_id, sample_id) }
+    publishDir { dirCalculateBurdens(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
 
     afterScript{
       generateAfterScript(
@@ -1220,7 +1027,7 @@ process calculateBurdensChromgroupFiltergroup {
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
 
     #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${dirOutputResults(individual_id, sample_id)}/coverage_reftnc/${chromgroup}
+    TARGET_DIR=${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc/${chromgroup}
 
     mkdir -p \$TARGET_DIR || {
       echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
@@ -1243,11 +1050,11 @@ process calculateBurdensChromgroupFiltergroup {
 */
 process outputResultsSample {
     cpus 1
-    memory { 
+    memory {
       def baseMemory = params.mem_outputResultsSample as nextflow.util.MemoryUnit
       baseMemory * (1 + 0.5*(task.attempt - 1))
     }
-    time { 
+    time {
         def baseTime = params.time_outputResultsSample as nextflow.util.Duration
         baseTime * (1 + (task.attempt - 1))
     }
@@ -1256,7 +1063,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(individual_id), val(sample_id), path(calculateBurdensFiles)
+      tuple val(individual_id), val(sample_id), path(calculateBurdensFiles), val(config_sig)
     
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
@@ -1265,7 +1072,7 @@ process outputResultsSample {
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
         
-    storeDir { dirOutputResults(individual_id, sample_id) }
+    publishDir { sampleBaseDir(individual_id, sample_id) }, mode: 'move'
 
     afterScript{
       generateAfterScript(
@@ -1277,42 +1084,5 @@ process outputResultsSample {
     script:
     """
     outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
-    """
-}
-
-/*
-  removeIntermediateFilesProcess: Removes intermediate files to save disk space after successful completion.
-*/
-process removeIntermediateFilesProcess {
-    cpus 1
-    memory '2 GB'
-    time '2h'
-    tag { "removeIntermediateFilesProcess: ${sample_id}" }
-    container "${params.hidefseq_container}"
-    
-    input:
-      tuple val(individual_id), val(sample_id)
-    
-    output:
-      val(true)
-
-    afterScript{
-      generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
-      )
-    }
-    
-    script:
-     """
-    set -euo pipefail
-    echo "Starting cleanup of intermediate files for ${params.analysis_id}.${individual_id}.${sample_id}."
-
-    rm -rf "${dirSplitBAMs(individual_id, sample_id)}"
-    rm -rf "${dirExtractCalls(individual_id, sample_id)}"
-    rm -rf "${dirFilterCalls(individual_id, sample_id)}"
-    rm -rf "${dirCalculateBurdens(individual_id, sample_id)}"
-
-    echo "Cleanup completed."
     """
 }

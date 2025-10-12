@@ -793,9 +793,8 @@ cat("DONE\n")
 ######################
 ### Genome 'N' base sequences
 ######################
+#Only applied to filtertrackers, since any call containing reference 'N' sequence was filtered upstream in extractCalls, as including them there and then filtering them here leads to issues with trinucleotide sequence extraction.
 cat("## Applying genome 'N' base sequence filter...")
-
-passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
 #Extract 'N' base sequence ranges
 region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
@@ -809,12 +808,6 @@ bam.gr.filtertrack <- bam.gr.filtertrack %>%
 
 genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr.filtertrack %>%
 	GRanges_subtract(region_genome_filter)
-
-#Annotate filtered calls. Annotates even if partial overlap (relevant for deletions).
-calls[[passfilter_label]] <- ! overlapsAny_bymcols(
-	calls.gr, region_genome_filter,
-	ignore.strand = TRUE
-)
 
 #Record number of filtered genome bases to stats
 region_genome_filter_stats <- region_genome_filter_stats %>%

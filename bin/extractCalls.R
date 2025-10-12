@@ -1031,10 +1031,11 @@ bam <- bam.gr %>%
 rm(bam.gr)
 invisible(gc())
 
-#Combine calls of all runs
+#Combine calls of all runs and filter out any calls with reference sequence 'N', since that doesn't work with downstream trinucleotide extraction.
 calls <- calls %>%
   bind_rows(.id="run_id") %>%
-  mutate(run_id=factor(run_id))
+  mutate(run_id=factor(run_id)) %>%
+	filter(! ref_plus_strand %>% str_detect("N"))
 
 #Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
 calls <- calls %>%

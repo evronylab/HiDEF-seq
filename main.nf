@@ -421,10 +421,12 @@ workflow prepareFilters {
     // Run extractGenomeTrinucleotides
     extractGenomeTrinucleotides()
 
-    // Create channel for individual_ids for processGermlineVCFs
+    // Create channel for individual_ids for processGermlineVCFs, gated on installBSgenome completing
     individual_ids_ch = Channel
       .from(params.individuals)
       .map { individual -> individual.individual_id }
+      .combine(installBSgenome.out)
+      .map { individual_id, bsgenome_done -> individual_id }
 
     // Run processGermlineVCFs
     processGermlineVCFs( individual_ids_ch )

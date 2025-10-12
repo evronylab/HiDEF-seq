@@ -1031,11 +1031,10 @@ bam <- bam.gr %>%
 rm(bam.gr)
 invisible(gc())
 
-#Combine calls of all runs and filter out any calls with reference sequence 'N', since that doesn't work with downstream trinucleotide extraction.
+#Combine calls of all runs
 calls <- calls %>%
   bind_rows(.id="run_id") %>%
-  mutate(run_id=factor(run_id)) %>%
-	filter(! ref_plus_strand %>% str_detect("N"))
+  mutate(run_id=factor(run_id))
 
 #Annotate for each calls its trinucleotide context when call_class = SBS or MDB. For indels, this is set to NA.
 calls <- calls %>%
@@ -1054,6 +1053,7 @@ calls <- calls %>%
 				seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 			) %>%
 			resize(width=3,fix="center") %>%
+			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 			
 			#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
 			trim %>%
@@ -1063,8 +1063,13 @@ calls <- calls %>%
 			mutate(
 				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
 					as.character %>%
-					factor(levels = trinucleotides_64),
-				
+					factor(levels = trinucleotides_64)
+			) %>%
+			
+			#Remove trinucleotide contexts that are NA, which occurs when the trinucleotide sequence contains 'N'
+			filter(!is.na(reftnc_plus_strand)) %>%
+			
+			mutate(
 				reftnc_minus_strand = reftnc_plus_strand %>%
 					DNAStringSet %>%
 					reverseComplement %>%

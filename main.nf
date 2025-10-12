@@ -246,6 +246,8 @@ workflow {
   individual_ids_ch = Channel
     .from(params.individuals)
     .map { individual -> individual.individual_id }
+    .combine(installBSgenome.out)
+    .map { individual_id, bsgenome_done -> individual_id }
 
   // Run processGermlineVCFs
   processGermlineVCFs(

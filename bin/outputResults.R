@@ -106,7 +106,7 @@ cat("> Processing:\n")
 cat("    individual_id:",individual_id,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 
-cat("DONE\n")
+cat(" DONE\n")
 
 ######################
 ### Load custom shared functions

@@ -99,9 +99,9 @@ analysis_chunks: 40 # for splitBAMs, extractCalls, and filterCalls
 mem_extractCallsChunk: 64GB # each retry will increase by half of this amount
 time_extractCallsChunk: 4h # each retry will increase by this same amount
 maxRetries_extractCallsChunk: 3
-mem_filterCallsChunk: 64GB # each retry will increase by half of this amount
-time_filterCallsChunk: 8h # each retry will increase by this same amount
-maxRetries_filterCallsChunk: 3
+mem_filterCallsChunkChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
+time_filterCallsChunkChromgroupFiltergroup: 8h # each retry will increase by this same amount
+maxRetries_filterCallsChunkChromgroupFiltergroup: 3
 mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
 maxRetries_calculateBurdensChromgroupFiltergroup: 3
@@ -109,7 +109,7 @@ mem_outputResultsSample: 64GB #each retry will increase by half of this amount
 time_outputResultsSample: 4h #each retry will increase by this same amount
 maxRetries_outputResultsSample: 3
 
-remove_intermediate_files:  #true or false
+output_intermediate_files: true  # true or false
 
 ###
 ### Genome reference

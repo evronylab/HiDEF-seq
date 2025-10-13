@@ -83,10 +83,10 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `lima_min_score` | integer | yes | Minimum Lima barcode score enforced by `limaDemux`. See [lima documentation](https://lima.how/faq/filter-input.html#--min-score) for details. |
 | `analysis_chunks` | integer | yes | Number of chunks to split processed BAM files into in the `splitBAMs` workflow for subsequent `extractCalls` and `filterCalls` workflows. Higher values increase parallelism. |
 | `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
-| `mem_filterCallsChunk`, `time_filterCallsChunk`, `maxRetries_filterCallsChunk` | string/integer | optional | Analogous settings for `filterCallsChunk` processes. |
+| `mem_filterCallsChunkChromgroupFiltergroup`, `time_filterCallsChunkChromgroupFiltergroup`, `maxRetries_filterCallsChunkChromgroupFiltergroup` | string/integer | optional | Analogous settings for `filterCallsChunkChromgroupFiltergroup` processes. |
 | `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
 | `mem_outputResultsSample`, `time_outputResultsSample`, `maxRetries_outputResultsSample` | string/integer | optional | Analogous settings for `outputResultsSample` processes. |
-| `remove_intermediate_files` | boolean, `true` or `false` | optional | When true, enables the `removeIntermediateFiles` workflow segment to delete intermediate per-sample directories once outputs are finalised. |
+| `output_intermediate_files` | boolean, `true` or `false` | optional | When true, publishes intermediate per-sample outputs (for example `processedReads`, `splitBAMs`, `extractCalls`, and `calculateBurdens`). When false, those directories are omitted from `analysis_output_dir`. |
 
 ## Reference genome resources
 

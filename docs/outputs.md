@@ -29,7 +29,7 @@ This guide documents every final file produced by the `processReads` and `output
 ## Main analysis directory layout
 
 ### Sample root directory
-For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to the folder `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Within each of these folders are folders for each of the Nextflow pipeline's workflow outputs (`processReads`, `outputResults`, …).
+For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to the folder `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Within each of these folders are intermediate directories (for example `processedReads`, `splitBAMs`, `extractCalls`) when publication is enabled, as well as the per-sample `logs/` folder and all final analysis outputs.
 
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
@@ -40,12 +40,12 @@ Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].s
 - Any additional helper tables emitted globally, including cached configuration manifests and chunk-level tracking TSVs.
 
 ### Per-sample logs
-Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunk`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.), renamed with the full `analysis_id.individual_id.sample_id.processName.command.log` pattern for clarity.
+Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.), renamed with the full `analysis_id.individual_id.sample_id.processName.command.log` pattern for clarity.
 
 ## processReads outputs
 
 ### CCS BAM files
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/processReads/`
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/processedReads/`
 
 | File | Description |
 | --- | --- |
@@ -100,10 +100,10 @@ During `processReads`, the pipeline adds to the sharedLogs directory:
 ## outputResults outputs
 
 ### Directory structure
-The outputs of `outputResults` are saved in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults`. Each output type has its own sub-directory per below:
+The outputs of `outputResults` are saved directly in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Each output type has its own sub-directory per below:
 
 ```
-outputResults/
+[analysis_id].[individual_id].[sample_id]/
   ├─ coverage_reftnc/
   ├─ filterStats/
   ├─ finalCalls/
@@ -119,7 +119,7 @@ outputResults/
 Each of these sub-folders in turn contains sub-folders for each `chromgroup` that contain results files keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
 
 ### Top-level files
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/`
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
 
 | File | Description |
 | --- | --- |
@@ -129,7 +129,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outpu
 
 ### Coverage and reference trinucleotides
 
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/coverage_reftnc/[chromgroup]/`
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/coverage_reftnc/[chromgroup]/`
 
 For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, the `calculateBurdensChromgroupFiltergroup` process that is run for each `sample_id`, `chromgroup`, and `filtergroup` writes a bgzipped BED file named:
  `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`, with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
@@ -142,7 +142,7 @@ For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, th
 | `duplex_coverage`    | Number of final interrogated duplex base pairs at the position (i.e., coverage by each duplex molecule is counted as 1). |
 | `reftnc_plus_strand` | Reference trinucleotide context of the plus strand at the position. |
 
-These files originate from `bin/calculateBurdens.R` and are moved into the `outputResults` folder hierarchy by the `calculateBurdensChromgroupFiltergroup` process so they accompany other per-chromgroup summaries.
+These files originate from `bin/calculateBurdens.R` and are placed alongside the other per-chromgroup summaries within each sample directory by the `calculateBurdensChromgroupFiltergroup` process.
 
 ### Filter statistics
 
@@ -278,7 +278,7 @@ The pipeline produces several files per per below, and each table contains metad
 - `total.tsv` — Total SBS mutation error probability across all trinucleotide channels.
 
 ### Serialized object (.qs2)
-For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/outputResults/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
+For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
 Top-level configuration loaded from the analysis YAML, stored as nested lists per the structure and parameters documented in [`config_templates/`](../config_templates).

@@ -451,47 +451,47 @@ bam <- bam %>%
 			
 			#Filter for SBS and indel calls
 			calls %>%
-			filter(
-			  call_class %in% c("SBS","indel")
-			  ) %>%
-		  
-			#Change call_class to factor so that count results are listed for both SBS and indel below.
-			mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
-			
-			#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
-			count(run_id,zm,strand,call_class) %>%
-		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
-			pivot_wider(
-				names_from = call_class,
-				values_from = n,
-				names_glue = "num_{call_class}calls",
-				names_expand = TRUE #Necessary if there are no calls
-				) %>%
-			
-			#Calculate filters for each molecule
-			group_by(run_id,zm) %>%
-			summarize(
-				#max_num_SBScalls_eachstrand.passfilter
-				max_num_SBScalls_eachstrand.passfilter = all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_eachstrand),
+				filter(
+				  call_class %in% c("SBS","indel")
+				  ) %>%
+			  
+				#Change call_class to factor so that count results are listed for both SBS and indel below.
+				mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
 				
-				#max_num_indelcalls_eachstrand.passfilter
-				max_num_indelcalls_eachstrand.passfilter = all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_eachstrand),
+				#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
+				count(run_id,zm,strand,call_class) %>%
+			  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+				pivot_wider(
+					names_from = call_class,
+					values_from = n,
+					names_glue = "num_{call_class}calls",
+					names_expand = TRUE #Necessary if there are no calls
+					) %>%
 				
-				#max_num_SBScalls_stranddiff.passfilter
-				max_num_SBScalls_stranddiff.passfilter = (num_SBScalls * if_else(strand == "+",  1L, -1L)) %>%
-					sum %>%
-					abs %>%
-					#Curly braces ensure the '.' refers to the immediately preceding result
-					{. <= filtergroup_toanalyze_config$max_num_SBScalls_stranddiff},
-				
-				#max_num_indelcalls_stranddiff.passfilter
-				max_num_indelcalls_stranddiff.passfilter = (num_indelcalls * if_else(strand == "+",  1L, -1L)) %>%
-					sum %>%
-					abs %>%
-				  {. <= filtergroup_toanalyze_config$max_num_indelcalls_stranddiff},
-
-				.groups = "drop"
-			),
+				#Calculate filters for each molecule
+				group_by(run_id,zm) %>%
+				summarize(
+					#max_num_SBScalls_eachstrand.passfilter
+					max_num_SBScalls_eachstrand.passfilter = all(num_SBScalls <= filtergroup_toanalyze_config$max_num_SBScalls_eachstrand),
+					
+					#max_num_indelcalls_eachstrand.passfilter
+					max_num_indelcalls_eachstrand.passfilter = all(num_indelcalls <= filtergroup_toanalyze_config$max_num_indelcalls_eachstrand),
+					
+					#max_num_SBScalls_stranddiff.passfilter
+					max_num_SBScalls_stranddiff.passfilter = (num_SBScalls * if_else(strand == "+",  1L, -1L)) %>%
+						sum %>%
+						abs %>%
+						#Curly braces ensure the '.' refers to the immediately preceding result
+						{. <= filtergroup_toanalyze_config$max_num_SBScalls_stranddiff},
+					
+					#max_num_indelcalls_stranddiff.passfilter
+					max_num_indelcalls_stranddiff.passfilter = (num_indelcalls * if_else(strand == "+",  1L, -1L)) %>%
+						sum %>%
+						abs %>%
+					  {. <= filtergroup_toanalyze_config$max_num_indelcalls_stranddiff},
+	
+					.groups = "drop"
+				),
 		by = join_by(run_id,zm)
 	) %>%
 	mutate(across(
@@ -536,8 +536,8 @@ bam <- bam %>%
 				max_num_indelmutations.passfilter = all(num_indelmutations <= filtergroup_toanalyze_config$max_num_indelmutations),
 				
 				.groups = "drop"
-			)
-		,by = join_by(run_id,zm)
+			),
+		by = join_by(run_id,zm)
 	) %>%
 	mutate(across(
 		c(

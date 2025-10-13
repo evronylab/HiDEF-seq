@@ -94,7 +94,7 @@ ccs_ld_preload: /hidef/bin/pbconda/lib/libpthread-setaffinity.so
 ccs_chunks: 30 # for processReads workflow
 lima_min_score: 80
 
-analysis_chunks: 40 # for splitBAMs, extractCalls, and filterCalls
+analysis_chunks: 60 # for splitBAMs, extractCalls, and filterCalls
 
 mem_extractCallsChunk: 64GB # each retry will increase by half of this amount
 time_extractCallsChunk: 4h # each retry will increase by this same amount
@@ -224,22 +224,22 @@ filtergroups:
     max_num_indelcalls_stranddiff: 999999
     max_num_indelmutations: 20
     max_num_softclipbases_eachstrand: 999999
-    max_num_softclipbases_avgstrands: 30
+    max_num_softclipbases_avgstrands: 20
     max_num_SBScalls_postVCF_eachstrand: 999999
-    max_num_SBSmutations_postVCF: 999999
+    max_num_SBSmutations_postVCF: 8
     max_num_indelcalls_postVCF_eachstrand: 999999
     max_num_indelmutations_postVCF: 999999
     min_qual: 93 # filter applied to both strands for all call types
     min_qual_method: all # how to filter min_qual for insertions/deletions with qual length > 1: mean, all, or any
-    read_trim_bp: 10
+    read_trim_bp: 40
     ccsindel_inspad: m2b15 # set to NA or m0b0 to disable this filter
     ccsindel_delpad: m2b15 # set to NA or m0b0 to disable this filter
     min_germlineBAM_TotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
     max_germlineBAM_VariantReads: 3 # applied only to SBS
     max_germlineBAM_VAF: 0.05 # applied only to SBS
-    min_frac_subreads_cvg: 0.5 # filter applied to both strands for all call types
+    min_frac_subreads_cvg: 0.8 # filter applied to both strands for all call types
     min_num_subreads_match: 0 # filter applied to both strands for all call types
-    min_frac_subreads_match: 0.5 # filter applied to both strands for all call types
+    min_frac_subreads_match: 0.85 # filter applied to both strands for all call types
     min_subreads_cvgmatch_method: all # how to filter min_frac_subreads_cvg and min_num/frac_subreads_match for insertions/deletions with sa/sm/sx tag lengths > 1: mean, all, or any
     max_finalcalls_eachstrand: 1 # filter applied independently for each call_type/SBSindel_call_type combo. If either strand fails, the entire molecule is filtered.
   - filtergroup: strict
@@ -256,22 +256,22 @@ filtergroups:
     max_num_indelcalls_stranddiff: 999999
     max_num_indelmutations: 20
     max_num_softclipbases_eachstrand: 999999
-    max_num_softclipbases_avgstrands: 30
+    max_num_softclipbases_avgstrands: 20
     max_num_SBScalls_postVCF_eachstrand: 999999
     max_num_SBSmutations_postVCF: 8
     max_num_indelcalls_postVCF_eachstrand: 999999
     max_num_indelmutations_postVCF: 999999
     min_qual: 93
     min_qual_method: all
-    read_trim_bp: 10
+    read_trim_bp: 40
     ccsindel_inspad: m2b15
     ccsindel_delpad: m2b15
     min_germlineBAM_TotalReads: 15
     max_germlineBAM_VariantReads: 3
     max_germlineBAM_VAF: 0.05
-    min_frac_subreads_cvg: 0.5
+    min_frac_subreads_cvg: 0.8
     min_num_subreads_match: 0
-    min_frac_subreads_match: 0.6
+    min_frac_subreads_match: 0.85
     min_subreads_cvgmatch_method: all
     max_finalcalls_eachstrand: 1
 
@@ -312,7 +312,37 @@ region_filters:
       applyto_chromgroups: all
       applyto_filtergroups: all
       is_germline_filter: false
+    - region_filter_file: [mappability filter, such as k50 UMAP]
+      binsize: 20
+      threshold: lt0.4
+      padding: 0
+      read_threshold: gte0.3
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+    - region_filter_file: [blacklist regions such as the ENCODE blacklist]
+      binsize: 20
+      threshold: gte0.1
+      padding: 0
+      read_threshold: gte0.3
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
   - genome_filters: # define any number of genome filters
+    - region_filter_file: [mappability filter, such as k50 UMAP]
+      binsize: 1
+      threshold: lt0.95
+      padding: 0
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
+    - region_filter_file: [blacklist regions such as the ENCODE blacklist]
+      binsize: 1
+      threshold: gte0.1
+      padding: 0
+      applyto_chromgroups: all
+      applyto_filtergroups: all
+      is_germline_filter: false
     - region_filter_file: hg38.satellites.bw
       binsize: 1
       threshold: gte0.1
@@ -320,19 +350,26 @@ region_filters:
       applyto_chromgroups: all
       applyto_filtergroups: all
       is_germline_filter: false
-    - region_filter_file: [gnomAD genomes SNVs AF >= 0.001 bigWig]
+    - region_filter_file: [gnomAD genomes PASS SNVs AF >= 0.001 bigWig]
       binsize: 1
       threshold: gte0.1
       padding: 0
       applyto_chromgroups: all
       applyto_filtergroups: all
       is_germline_filter: true
-    - region_filter_file: [gnomAD genomes indels AF >= 0.001 bigWig]
+    - region_filter_file: [gnomAD genomes PASS indels AF >= 0.001 bigWig]
+      binsize: 1
+      threshold: gte0.1
+      padding: 1
+      applyto_chromgroups: all
+      applyto_filtergroups: strict
+      is_germline_filter: true
+    - region_filter_file: [gnomAD genomes non-PASS SNVs AF >= 0.001 bigWig]
       binsize: 1
       threshold: gte0.1
       padding: 0
       applyto_chromgroups: all
-      applyto_filtergroups: strict
+      applyto_filtergroups: all
       is_germline_filter: true
 
 ###

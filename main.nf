@@ -38,6 +38,7 @@ signatureYamlOptions.setIndent(2)
 
 signatureYaml = new Yaml(signatureYamlOptions)
 
+// Function to calculate a hash for a subset of keys from a parameters file
 def configHash(params_input, keys) {
   def subset = new LinkedHashMap()
   keys.each { key ->
@@ -55,9 +56,11 @@ def configHash(params_input, keys) {
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
-// The pipeline analyzes all genomic regions up to and including extractCalls. Then it restricts analysis and output files to chromgroups.
-
 workflow {
+
+  //******************
+  // General configuration
+  //******************
 
   // Save copy of parameters file to logs directory
   logsDir = file("${sharedLogsDir}")
@@ -86,10 +89,11 @@ workflow {
   Nextflow Build: ${workflow.nextflow.build}
   """.stripIndent()
 
-  //Get path of parameters file
+  // Get path of parameters file
   commandLineTokens = workflow.commandLine.tokenize()
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
+  // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
   config_signatures = [
     installBSgenome: configHash(params, ['cache_dir', 'BSgenome']),
     processGermlineVCFs: configHash(params, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin']),
@@ -99,7 +103,7 @@ workflow {
     outputResultsSample: configHash(params, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples'])
   ]
 
-  // create a channel of runs
+  // Create a channel of runs
   runs_ch = Channel.fromList(params.runs)
 
   // Create channel for the input reads file.
@@ -111,8 +115,12 @@ workflow {
       )
   }
 
-  // Create barcodes FASTA for each run
-  barcodes_ch = runs_ch.map { run ->
+  //******************
+  // makeBarcodesFasta
+  //******************
+
+  // Create input channel
+  makeBarcodesFasta_input_ch = runs_ch.map { run ->
       tuple(
         run.run_id,
         run.samples
@@ -121,7 +129,14 @@ workflow {
       )
   }
 
-  makeBarcodesFasta(barcodes_ch)
+  // Run process
+  makeBarcodesFasta(makeBarcodesFasta_input_ch)
+
+  //******************
+  // makeBarcodesFasta
+  //******************
+
+  // Run ccs if read_type is subreads, and create channels for subsequent processes
 
   filterAdapter_input_ch = null
   countZMWs_initial_ch = null
@@ -134,7 +149,7 @@ workflow {
           .map { tuple(it[0], it[1], it[2], it[3]) }
       )
 
-      ccs_grouped_ch = ccsChunk.out.bampbi_tuple
+      mergeCCSchunks_input_ch = ccsChunk.out.bampbi_tuple
           .groupTuple(by: 0) // Group by run_id
           .map { run_id, bamFiles, pbiFiles, chunkIDs ->
             // Sort by chunkID
@@ -144,7 +159,7 @@ workflow {
             tuple(run_id, sortedBamFiles, sortedPbiFiles)
           }
 
-      mergeCCSchunks(ccs_grouped_ch)
+      mergeCCSchunks(mergeCCSchunks_input_ch)
 
       filterAdapter_input_ch = mergeCCSchunks.out
 
@@ -160,19 +175,33 @@ workflow {
       error "Unsupported reads_type '${params.reads_type}'."
   }
 
+  //******************
+  // filterAdapter
+  //******************
+
+  // Run process
   filterAdapter(filterAdapter_input_ch)
 
-  // Join filterAdapter and makeBarcodesFasta outputs by run_id
+  //******************
+  // limaDemux
+  //******************
+
+  // Create input channel
   limaDemux_input_ch = filterAdapter.out
       .join(makeBarcodesFasta.out, by:0)
       .map { r_id, bamFile, pbiFile, barcodesFasta ->
         tuple(r_id, bamFile, pbiFile, barcodesFasta)
       }
 
-  // Demultiplex with lima.
+  // Run process
   limaDemux(limaDemux_input_ch)
 
-  // Create channels for each demultiplexed sample.
+  //******************
+  // pbmm2Align
+  //******************
+
+  // Create input channel
+
   // Here, for each sample the input BAM is assumed to have the name:
   // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
   demuxMap_ch = limaDemux.out.bam
@@ -185,10 +214,9 @@ workflow {
       tuple(run_id, m[0][1], bamFile)
     }
 
-  // Create samples to align channel by matching run samples with demux BAMs
   sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
 
-  samples_to_align_ch = Channel.fromList(params.runs)
+  pbmm2Align_input_ch = Channel.fromList(params.runs)
       .flatMap { run ->
           run.samples.collect { sample ->
               tuple(run.run_id, sample.sample_id, sample.barcode_id)
@@ -202,69 +230,95 @@ workflow {
           tuple(run_id, sample_to_individual[sample_id], sample_id, demux_bam)
       }
 
-  // Run pbmm2 alignment for each sample.
-  pbmm2Align(samples_to_align_ch)
+  // Run process
+  pbmm2Align(pbmm2Align_input_ch)
 
-  countZMWs_ch = countZMWs_initial_ch.mix(
+  //******************
+  // countZMWs
+  //******************
+
+  // Create input channel
+  countZMWs_input_ch = countZMWs_initial_ch.mix(
       filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
-      samples_to_align_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
+      pbmm2Align_input_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
       pbmm2Align.out.map { f -> tuple(f[3], f[4], "zmwcount.txt") }
     )
 
-  // Count ZMWs
-  countZMWs(countZMWs_ch)
+  // Run process
+  countZMWs(countZMWs_input_ch)
 
-  // Group pbmm2Align outputs by sample_id for merging
-  pbmm2_grouped_ch = pbmm2Align.out
+  //******************
+  // mergeAlignedSampleBAMs
+  //******************
+
+  // Create input channel
+  mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
     .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
         tuple(individual_id, sample_id, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
 
-  // Merge BAM files by sample_id across runs
-  mergeAlignedSampleBAMs(pbmm2_grouped_ch)
+  // Run process
+  mergeAlignedSampleBAMs(mergeAlignedSampleBAMs_input_ch)
 
-  analysis_chunk_ids_ch = Channel.from(1..params.analysis_chunks)
+  //******************
+  // splitBAM
+  //******************
 
-  splitBAM(
-    mergeAlignedSampleBAMs.out
-      .combine(analysis_chunk_ids_ch)
+  // Create input channel
+  splitBAM_input_ch = mergeAlignedSampleBAMs.out
+      .combine(Channel.from(1..params.analysis_chunks))
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
       }
-  )
 
-  splitBAMs_out = splitBAM.out
+  // Run process
+  splitBAM(splitBAM_input_ch)
 
-  // Run installBSgenome
+  //******************
+  // installBSgenome
+  //******************
   installBSgenome(Channel.value(config_signatures.installBSgenome))
 
-  // Run extractGenomeTrinucleotides
+  //******************
+  // extractGenomeTrinucleotides
+  //******************
   extractGenomeTrinucleotides()
 
-  // Create channel for individual_ids for processGermlineVCFs
-  individual_ids_ch = Channel
+  //******************
+  // processGermlineVCFs
+  //******************
+
+  // Create input channel
+  processGermlineVCFs_input_ch = Channel
     .from(params.individuals)
     .map { individual -> individual.individual_id }
     .combine(installBSgenome.out)
     .map { individual_id, bsgenome_done -> individual_id }
+    .map { tuple(it, config_signatures.processGermlineVCFs) }
 
-  // Run processGermlineVCFs
-  processGermlineVCFs(
-    individual_ids_ch.map { tuple(it, config_signatures.processGermlineVCFs) }
-  )
+  // Run process
+  processGermlineVCFs(processGermlineVCFs_input_ch)
 
-  // Create channel for germline BAMs
-  germlinebams_ch = Channel.fromList(params.individuals)
+  //******************
+  // processGermlineBAMs
+  //******************
+
+  // Create input channel
+  processGermlineBAMs_input_ch = Channel.fromList(params.individuals)
     .map { run ->
       tuple( file(run.germline_bam_file), run.germline_bam_type )
     }
 
-  // Run processGermlineBAMs
-  processGermlineBAMs( germlinebams_ch )
+  // Run process
+  processGermlineBAMs(processGermlineBAMs_input_ch)
 
-  // Create channel for the region filters
-  region_filters_ch = Channel.fromList(params.region_filters)
+  //******************
+  // processGermlineBAMs
+  //******************
+
+  // Create input channel
+  prepareRegionFilters_input_ch = Channel.fromList(params.region_filters)
       .flatMap { region_filter ->
         def filters = []
 
@@ -280,11 +334,15 @@ workflow {
       }
       .unique() // Avoid preparing the same region filter/binsize/threshold configuration twice
 
-  // Run prepareRegionFilters
-  prepareRegionFilters( region_filters_ch )
+  // Run process
+  prepareRegionFilters(prepareRegionFilters_input_ch)
 
-  // Create a completion signal by collecting all outputs
-  prepareFilters_out = installBSgenome.out
+  //******************
+  // extractCallsChunk
+  //******************
+
+  // Create a completion signal for all filter-related processes by collecting all outputs
+  prepareFilters_done = installBSgenome.out
     .mix(
       extractGenomeTrinucleotides.out,
       processGermlineVCFs.out,
@@ -294,15 +352,19 @@ workflow {
     .collect()
     .map { true }
 
-  extractCalls_input_ch = splitBAMs_out
-      .combine(prepareFilters_out)
+  // Create input channel
+  extractCalls_input_ch = splitBAM.out
+      .combine(prepareFilters_done)
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, prepareFiltersReady ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, config_signatures.extractCallsChunk)
       }
 
+  // Run process
   extractCallsChunk(extractCalls_input_ch)
 
-  extractCalls_out = extractCallsChunk.out
+  //******************
+  // filterCallsChunkChromgroupFiltergroup
+  //******************
 
   //Prepare a list with all call_types.analyzein_chromgroups and call_types.SBSindel_call_types.filtergroup configured pairs.
   //Created as a list first instead of a channel to allow static calculation of its size for later downstream use
@@ -323,17 +385,20 @@ workflow {
     }
     .unique()
 
-  //Create a channel from the chromgroups_filtergroups_list
-  chromgroups_filtergroups_ch = Channel.fromList(chromgroups_filtergroups_list)
-
-  filterCallsChunkChromgroupFiltergroup_input_ch = extractCalls_out
-      .combine(chromgroups_filtergroups_ch)
+  // Create input channel
+  filterCallsChunkChromgroupFiltergroup_input_ch = extractCallsChunk.out
+      .combine(Channel.fromList(chromgroups_filtergroups_list))
       .map { individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup ->
         tuple(individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup, config_signatures.filterCallsChunkChromgroupFiltergroup)
       }
 
+  // Run process
   filterCallsChunkChromgroupFiltergroup(filterCallsChunkChromgroupFiltergroup_input_ch)
 
+  //******************
+  // calculateBurdensChromgroupFiltergroup
+  //******************
+  // Create input channel
   calculateBurdensChromgroupFiltergroup_input_ch = filterCallsChunkChromgroupFiltergroup.out
       .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
       .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
@@ -343,8 +408,14 @@ workflow {
           return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
       }
 
+  // Run process
   calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch)
 
+  //******************
+  // outputResultsSample
+  //******************
+
+  // Create input channel
   outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out
       .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
           tuple(individual_id, sample_id, calculateBurdensFile)
@@ -354,6 +425,7 @@ workflow {
           tuple(individual_id, sample_id, calculateBurdensFiles, config_signatures.outputResultsSample)
       }
 
+  // Run process
   outputResultsSample(outputResultsSample_input_ch)
 
 }

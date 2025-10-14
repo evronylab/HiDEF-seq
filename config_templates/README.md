@@ -63,7 +63,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `analysis_output_dir` | path | yes | Root directory for final output folders. |
-| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources). |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources). Populate a shared cache with a single Nextflow run at a time (or point concurrent runs to distinct caches) so that parallel executions do not overwrite the same files while they are being written. |
 
 ## Container and tool paths
 

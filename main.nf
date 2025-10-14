@@ -17,6 +17,7 @@ dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sam
 dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
 dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
 dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
+dirCoverage_Reftnc = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc" }
 
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
@@ -416,7 +417,7 @@ workflow {
   //******************
 
   // Create input channel
-  outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out
+  outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out.tuple_qs2
       .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
           tuple(individual_id, sample_id, calculateBurdensFile)
       }
@@ -1083,9 +1084,11 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
     
     output:
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2")
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.bed.gz"), path("*.bed.gz.tbi"), emit: coverage_reftnc
 
-    publishDir { dirCalculateBurdens(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
+    publishDir { dirCalculateBurdens(individual_id, sample_id) }, mode: 'link', pattern: "*.calculateBurdens.qs2", enabled: params.output_intermediate_files
+    publishDir { "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}" }, mode: 'move', pattern: "*.bed.gz*"
 
     afterScript{
       generateAfterScript(
@@ -1099,23 +1102,6 @@ process calculateBurdensChromgroupFiltergroup {
     set -euo pipefail
 
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
-
-    #Move bed.gz[.tbi] files safely (with checks) to output results directory.
-    TARGET_DIR=${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc/${chromgroup}
-
-    mkdir -p \$TARGET_DIR || {
-      echo "ERROR: Failed to create output directory \$TARGET_DIR" >&2
-      exit 1
-    }
-
-    for file in *.bed.gz*; do
-      if [[ -f \$file ]]; then  # Check file exists
-        mv \$file \$TARGET_DIR || {
-          echo "ERROR: Failed to move file \$file" >&2
-          exit 1
-        }
-      fi
-    done
     """
 }
 

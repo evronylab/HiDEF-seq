@@ -34,13 +34,17 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
 - `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
-- `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).
+- `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).  Each log name begins with the process name followed by identifiers that scope the task (for example `makeBarcodesFasta.${analysis_id}.${run_id}.command.log`, `ccsChunk.${analysis_id}.${run_id}.chunk003.command.log`, `processGermlineVCFs.${individual_id}.command.log`, `prepareRegionFilters.${region_filter_file}.bin${binsize}.${threshold}.command.log`, or simply `installBSgenome.command.log`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
 - CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
 - Any additional helper tables emitted globally, including cached configuration manifests and chunk-level tracking TSVs.
 
 ### Per-sample logs
-Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.), renamed with the full `analysis_id.individual_id.sample_id.processName.command.log` pattern for clarity.
+Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.).  Logs are renamed to start with the process name followed by the sample identifiers and any additional context keys needed by that process:
+
+- Core sample scope: `processName.${analysis_id}.${individual_id}.${sample_id}.command.log` (for example `mergeAlignedSampleBAMs.A123.I456.S789.command.log`).
+- Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
+- Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
 
 ## processReads outputs
 

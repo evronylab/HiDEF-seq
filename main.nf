@@ -818,7 +818,7 @@ process extractGenomeTrinucleotides {
       path("${params.BSgenome.BSgenome_name}.bed.gz")
       path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
 
-    publishDir "${params.cache_dir}", mode: 'copy'
+    storeDir "${params.cache_dir}"
 
     afterScript{
       generateAfterScript(
@@ -858,7 +858,7 @@ process processGermlineVCFs {
     output:
       path "${individual_id}.germline_vcf_variants.qs2"
 
-    publishDir "${params.cache_dir}", mode: 'copy'
+    storeDir "${params.cache_dir}"
 
     afterScript{
       generateAfterScript(
@@ -890,7 +890,7 @@ process processGermlineBAMs {
       path("${germline_bam_file}.bw")
       path("${germline_bam_file}.vcf.gz*")
 
-    publishDir "${params.cache_dir}", mode: 'copy'
+    storeDir "${params.cache_dir}"
 
     afterScript{
       generateAfterScript(
@@ -950,7 +950,7 @@ process prepareRegionFilters {
     output:
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
-    publishDir "${params.cache_dir}", mode: 'copy'
+    storeDir "${params.cache_dir}"
 
     afterScript{
       generateAfterScript(

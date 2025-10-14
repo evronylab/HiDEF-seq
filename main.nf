@@ -451,7 +451,7 @@ process makeBarcodesFasta {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${run_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
     
@@ -492,7 +492,7 @@ process ccsChunk {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${task.process}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.chunk${chunkID}.command.log"
       )
     }
 
@@ -533,7 +533,7 @@ process mergeCCSchunks {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${run_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
 
@@ -564,7 +564,7 @@ process filterAdapter {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${run_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
     
@@ -601,7 +601,7 @@ process limaDemux {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${run_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
     
@@ -637,7 +637,7 @@ process pbmm2Align {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
 
@@ -674,7 +674,7 @@ process mergeAlignedSampleBAMs {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
 
@@ -746,7 +746,7 @@ process splitBAM {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
       )
     }
 
@@ -863,7 +863,7 @@ process processGermlineVCFs {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${individual_id}.${task.process}.command.log"
+        "${task.process}.${individual_id}.command.log"
       )
     }
 
@@ -895,7 +895,7 @@ process processGermlineBAMs {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${germline_bam_file}.${task.process}.command.log"
+        "${task.process}.${germline_bam_file}.command.log"
       )
     }
 
@@ -1014,7 +1014,7 @@ process extractCallsChunk {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
       )
     }
 
@@ -1052,7 +1052,7 @@ process filterCallsChunkChromgroupFiltergroup {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.chunk${chunkID}.command.log"
       )
     }
 
@@ -1090,7 +1090,7 @@ process calculateBurdensChromgroupFiltergroup {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.command.log"
       )
     }
 
@@ -1151,7 +1151,7 @@ process outputResultsSample {
     afterScript{
       generateAfterScript(
         dirSampleLogs(individual_id, sample_id),
-        "${params.analysis_id}.${individual_id}.${sample_id}.${task.process}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
 

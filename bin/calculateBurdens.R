@@ -342,7 +342,7 @@ for(i in seq_along(filterCallsFiles)){
 	invisible(gc())
 }
 
-#Combine finalCalls and germlineVariantCalls each to one tibble. Do not remove call_toanalyze since needed later to filter after done using SBS/mismatch-ss calls that are only present for downstream calculations.
+#Combine finalCalls and germlineVariantCalls each to one tibble. Do not remove call_toanalyze column since needed later to filter after done using SBS/mismatch-ss calls that are only present for downstream calculations.
 finalCalls <- finalCalls %>%
 	bind_rows(.id = "analysis_chunk") %>%
 	mutate(analysis_chunk = analysis_chunk %>% as.integer)

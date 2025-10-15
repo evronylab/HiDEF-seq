@@ -604,7 +604,7 @@ cat("## Outputting germline variant calls...")
 strand_identical_cols_keep <- c(
 	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
 	"analysis_chunk", "run_id", "zm",
-	"call_class", "call_type",
+	"call_class", "call_type", "SBSindel_call_type",
 	"seqnames", "start_refspace", "end_refspace", "ref_plus_strand", "alt_plus_strand",
 	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",
 	"indel_width"
@@ -615,6 +615,13 @@ strand_identical_cols_discard <- c(
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand",
 	"deletion.bothstrands.startendmatch", "MDB_score"
+)
+
+strand_redundant_cols_discard <- c(
+	"qual.opposite_strand",
+	"sa.opposite_strand",
+	"sm.opposite_strand",
+	"sx.opposite_strand"
 )
 
 #Output germline variant calls to tsv and vcf, separately for each combination of chromgroup x filtergroup
@@ -687,13 +694,13 @@ for(i in chromgroups){
 			) %>%
 			
 			#Collapse to one row per mutation
-			pivot_wider(
-				id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
-				names_from = refstrand,
-				values_from = -all_of(c(strand_identical_cols_keep, germline_filter_cols_keep, strand_identical_cols_discard)),
-				names_glue = "{.value}_{refstrand}",
-				names_expand = TRUE
-			)
+                        pivot_wider(
+                                id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
+                                names_from = refstrand,
+                                values_from = -all_of(c(strand_identical_cols_keep, germline_filter_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
+                                names_glue = "{.value}_{refstrand}",
+                                names_expand = TRUE
+                	)
 		
 		#tsv
 		germlineVariantCalls.out %>%
@@ -977,32 +984,33 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					select(
 						analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type,
 						sensitivity, sensitivity_source
-						),
+					),
 				by = join_by(analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type)
 			) %>%
-			
+
 			#Calculate corrected counts, burdens, and Poisson 95% confidence intervals for number of calls and burdens
 			mutate(
 				num_calls = num_calls / sensitivity,
 				sensitivity_corrected = TRUE,
-				
+
 				ci = num_calls %>% map( function(x){cipoisson(x)} ),
-				
+
 				num_calls_lci = map_dbl(ci,1),
 				num_calls_uci = map_dbl(ci,2),
-				
+
 				burden_calls = num_calls / interrogated_bases_or_bp,
 				burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
 				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
 			) %>%
 			select(-ci)
 	) %>%
-	
+
 	#Set sensitivity and sensitivity_source to NA when sensitivity_corrected = FALSE
 	mutate(
 		sensitivity = if_else(sensitivity_corrected == TRUE, sensitivity, NA),
 		sensitivity_source = if_else(sensitivity_corrected == TRUE, sensitivity_source, NA)
-	)
+	) %>%
+	relocate(unique_calls, reftnc_corrected, reftnc_corrected_chromgroup, sensitivity_corrected, sensitivity, sensitivity_source, .after = SBSindel_call_type)
 
 #Output as tsv
 finalCalls.burdens %>%
@@ -1067,8 +1075,8 @@ estimatedSBSMutationErrorProbability %>%
 			
 			#total error probability tsv
 			metadata %>%
-				mutate(total = list(x$total)) %>%
-				unnest(total) %>%
+				mutate(error_prob = list(x$total)) %>%
+				unnest(error_prob) %>%
 				write_tsv(str_c(output_basename_full, ".estimatedSBSMutationErrorProbability.total.tsv"))
 		}
 	)

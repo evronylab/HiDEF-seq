@@ -295,14 +295,14 @@ for(i in seq_along(filterCallsFiles)){
 		region_genome_filter_stats <- filterCallsFile %>% pluck("region_genome_filter_stats")
 	}
 
-	#Load final calls that pass all filters, and germline variant calls that pass all filters ignoring the germline filters, since we will later also need the calls filtered by germline filters to calculate sensitivity
+	#Load final calls that pass all filters, without filtering on call_toanalyze == TRUE in order to retain SBS/mismatch-ss calls needed for downstream analyses if they are not a call type to analyze.
 	finalCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
-			call_toanalyze == TRUE,
 			if_all(contains("passfilter"), ~ .x == TRUE)
 		)
 	
+	#Load germline variant calls that pass all filters ignoring the germline filters, since we will later also need the calls filtered by germline filters to calculate sensitivity
 	germlineVariantCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
@@ -342,11 +342,10 @@ for(i in seq_along(filterCallsFiles)){
 	invisible(gc())
 }
 
-#Combine finalCalls and germlineVariantCalls each to one tibble
+#Combine finalCalls and germlineVariantCalls each to one tibble. Do not remove call_toanalyze since needed later to filter after done using SBS/mismatch-ss calls that are only present for downstream calculations.
 finalCalls <- finalCalls %>%
 	bind_rows(.id = "analysis_chunk") %>%
-	mutate(analysis_chunk = analysis_chunk %>% as.integer) %>%
-	select(-call_toanalyze)
+	mutate(analysis_chunk = analysis_chunk %>% as.integer)
 
 germlineVariantCalls <- germlineVariantCalls %>%
 	bind_rows(.id = "analysis_chunk") %>%
@@ -384,7 +383,7 @@ cat(" DONE\n")
 ######################
 cat("## Calculating trinucleotide distributions of interrogated bases and the genome...")
 #Convert coverage Rle to coverage runs and write to disk
- 
+
 chunk_runs <- 1e7 #Size of blocks to write to disk. Lower number takes longer, but decreases peak RAM.
 
 bam.gr.filtertrack.bytype %>%
@@ -776,7 +775,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 	nest_join(
 		finalCalls %>%
 			#Remove filter annotation columns since all finalCalls pass filters so this information is not needed for final tsv and vcf outputs
-			select(-c("germline_vcf_types_detected", "germline_vcf_files_detected", contains("passfilter"))) %>%
+			select(-c("germline_vcf_types_detected", "germline_vcf_files_detected", "call_toanalyze", contains("passfilter"))) %>%
 			#Reformat list columns to be comma-delimited.
 			mutate(
 				across(
@@ -873,6 +872,11 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		)
 	) %>%
 	select(-finalCalls)
+
+#Remove SBS/mismatch-ss calls from finalCalls if they were included until here just for populating finalCalls.bytype that is used for downstream calculations.
+finalCalls <- finalCalls %>%
+	filter(call_toanalyze == TRUE) %>%
+	select(-call_toanalyze)
 
 #Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types (including SBS/mismatch-ss even if not in call_types_toanalyze, for downstream SBS mutation error calculation), calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype %>%
@@ -1197,7 +1201,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 
  #Join trinucleotide distributions of calls and genome
 finalCalls.reftnc_spectra.genome_correction <- finalCalls.reftnc_spectra %>%
-	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability. 
+	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability.
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)

@@ -753,7 +753,7 @@ plot_col <- function(df.input, col_name.input, output_basename_full.input){
 	df.input %>%
 		plot_spectrum(
 			pdf_path = str_c(output_name, ".pdf"),
-			name = str_c(output_name %>% basename, " (", sum_counts, "calls)")
+			name = str_c(output_name %>% basename, "\n(", sum_counts, "calls)")
 			)
 }
 

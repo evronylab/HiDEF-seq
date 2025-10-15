@@ -830,15 +830,15 @@ finalCalls.bytype <- call_types_toanalyze %>%
 						) %>%
 						
 						#Collapse to one row per mutation
-                                                pivot_wider(
-                                                        id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
-                                                        names_from = strand,
-                                                        values_from = -any_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
-                                                        names_glue = "{.value}_{strand}",
-                                                        names_expand = TRUE
-                                                )
-                                }
-                        ),
+            pivot_wider(
+              id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
+              names_from = strand,
+              values_from = -any_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
+              names_glue = "{.value}_{strand}",
+              names_expand = TRUE
+						)
+				}
+			),
 			finalCalls
 		),
 		

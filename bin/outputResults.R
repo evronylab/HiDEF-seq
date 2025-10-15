@@ -694,13 +694,13 @@ for(i in chromgroups){
 			) %>%
 			
 			#Collapse to one row per mutation
-                        pivot_wider(
-                                id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
-                                names_from = refstrand,
-                                values_from = -all_of(c(strand_identical_cols_keep, germline_filter_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
-                                names_glue = "{.value}_{refstrand}",
-                                names_expand = TRUE
-                	)
+      pivot_wider(
+	      id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
+	      names_from = refstrand,
+	      values_from = -all_of(c(strand_identical_cols_keep, germline_filter_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
+	      names_glue = "{.value}_{refstrand}",
+	      names_expand = TRUE
+			)
 		
 		#tsv
 		germlineVariantCalls.out %>%

@@ -28,7 +28,7 @@ This guide documents every final file produced by the `processReads` and `output
 ## Main analysis directory layout and logs
 
 ### Directory structure
-For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. The folder always contains a `logs/` directory plus final output directories. When `output_intermediate_files: true` in the analysis YAML, the pipeline also publishes intermediate file directories as indicated below.
+For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. The folder always contains a `logs/` directory plus final output directories. When `output_intermediate_files` is set to `true` in the analysis YAML, the pipeline also publishes intermediate file directories as indicated below.
 
 ```
 [analysis_id].[individual_id].[sample_id]/
@@ -166,14 +166,24 @@ The pipeline emits four artefacts per call subtype:
 
 - **`finalCalls.tsv`** — Strand-level mismatch tables and per-mutation SBS/indel tables share a common schema:
   - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`.
-  - Coordinates and molecule identifiers: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
-  - Alleles and trinucleotide context: `ref_plus_strand`, `alt_plus_strand`; SBS and MDB tables also provide `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`.
-  - SBS mutation tables collapse both strands into one row per event. Columns with `_refstrand_plus_read` and `_refstrand_minus_read` suffixes record strand-specific measurements for `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, and `alt_template_strand`. Additional SBS-only context columns `reftnc_synthesized_strand_refstrand_plus_read`, `reftnc_synthesized_strand_refstrand_minus_read`, `reftnc_template_strand_refstrand_plus_read`, `reftnc_template_strand_refstrand_minus_read`, `alttnc_synthesized_strand_refstrand_plus_read`, `alttnc_synthesized_strand_refstrand_minus_read`, `alttnc_template_strand_refstrand_plus_read`, `alttnc_template_strand_refstrand_minus_read` appear only for SBS mutation tables.
-  - SBS and indel mismatch tables remain one row per strand, indicated by `refstrand`, and include `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sa.opposite_strand`, `sm`, `sm.opposite_strand`, `sx`, `sx.opposite_strand`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`, plus opposite-strand annotations `call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand`. SBS mismatch tables additionally contain context summaries `reftnc_synthesized_strand`, `alttnc_synthesized_strand`, `reftnc_template_strand`, `alttnc_template_strand`.
-  - Indel-specific annotation: `indel_width` (present for indel mutation and indel mismatch tables).
-- **`finalCalls_unique.tsv`** — SBS and indel mutation tables collapsed to a single row per unique genomic event. Columns include `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, genomic coordinates, alleles, `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`, and (for indels) `indel_width`.
-- **`finalCalls.vcf.bgz`** — Bgzipped VCF mirroring `finalCalls.tsv`. INFO annotations correspond to the TSV columns other than CHROM, POS, REF, and ALT. Indexed with `.tbi`.
-- **`finalCalls_unique.vcf.bgz`** — Bgzipped VCF mirroring `finalCalls_unique.tsv`. Indexed with `.tbi`.
+  - Molecule identifiers and coordinates in reference space: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
+  - Alleles: `ref_plus_strand`, `alt_plus_strand`
+  - Strand-specific coordinates in query space (i.e., read coordinates), quality metrics, and additional sequence information: `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`. Measurements for multi-base calls, such as `qual` are stored as comma-delimited values for every base. SBS and indel mutation call tables are pivoted to one row per mutation with these strand-specific columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation (i.e., single-strand) call types remain one row per call with a `refstrand` column annotating to which reference strand the call's read aligned.
+  - Trinucleotide context (SBS and MDB tables only):
+    - `reftnc_plus_strand` and `alttnc_plus_strand` — reference and call trinucleotide sequence at the call position on the reference genome plus strand.
+    - `reftnc_pyr` and `alttnc_pyr`— reference and call trinucleotide sequences collapsed to central pyrimidine trinucleotide sequences.
+    - `reftnc_synthesized_strand` and `alttnc_synthesized_strand` — reference and call trinucleotide sequence at the call position on the strand synthesized by the sequencer polymerase. Mutation tables annotate these for each strand with suffixes `_refstrand_plus_read` and `_refstrand_minus_read`.
+    - `reftnc_template_strand` and `alttnc_template_strand` — reference and call trinucleotide sequence at the call position on the strand replicated by the sequencer polymerase (i.e., template strand). Mutation tables annotate these for each strand with suffixes `_refstrand_plus_read` and `_refstrand_minus_read`.
+  - Opposite-strand information (non-mutation call tables only): `qual.opposite_strand`, `sa.opposite_strand`, `sm.opposite_strand`,  `sx.opposite_strand`, `call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand`. 
+  - Indel width (Indel tables only): `indel_width`.
+  - MDB score (MDB tables only): `MDB_score`.
+- **`finalCalls_unique.tsv`** — Tables with only one row per unique SBS or indel mutation, i.e., retaining only one row for calls detected in > 1 molecule. Not created for single-strand call types.
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
+  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
+  - SBS tables include: `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr` and `alttnc_pyr`.
+  - Indel tables include: `indel_width`.
+- **`finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- **`finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF containing the same calls as `.finalCalls_unique.tsv`. INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Germline variant calls
 Germline variant call files are output to `germlineVariantCalls/[chromgroup]/` and are named:
@@ -183,12 +193,12 @@ The pipeline produces two files:
 
 - `germlineVariantCalls.tsv` — Final germline calls that passed all non-germline filters, with one row per mutation. Columns are grouped as follows:
   - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`.
-  - Coordinates and molecule identifiers: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
+  - Molecule identifiers and coordinates in reference space: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
   - Alleles and trinucleotide context: `ref_plus_strand`, `alt_plus_strand`, `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`.
-  - Strand-resolved read metrics with `_refstrand_plus_read` / `_refstrand_minus_read` suffixes: `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`, `reftnc_synthesized_strand`, `reftnc_template_strand`, `alttnc_synthesized_strand`, `alttnc_template_strand`.
-  - Indel annotation: `indel_width` for indel calls.
+  - Strand-specific coordinates in query space (i.e., read coordinates), quality metrics, and additional sequence information, with `_refstrand_plus_read` / `_refstrand_minus_read` suffixes: `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`, `reftnc_synthesized_strand`, `reftnc_template_strand`, `alttnc_synthesized_strand`, `alttnc_template_strand`.
+  - Indel width: `indel_width` for indel calls.
   - Germline filter information: `region_read_filter_*.passfilter` and `region_genome_filter_*.passfilter` columns (TRUE/FALSE) for each region filter configured with `is_germline_filter: true` in the YAML, plus `germline_vcf_types_detected` and `germline_vcf_files_detected` columns annotating in which germline VCF types and files the calls were detected.
-- `germlineVariantCalls.vcf.bgz` — Bgzipped VCF containing the same calls as `germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- `germlineVariantCalls.vcf.bgz`—  Bgzipped VCF containing the same calls as `.germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Final-call spectra
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
@@ -235,6 +245,8 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].sensitivity.tsv` with columns:
 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
+- Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`.
+- Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
 - `sensitivity`, : Sensitivity estimate, calculated as `high_confidence_germline_vcf_variants_sum_zm_detected` /  `high_confidence_germline_vcf_variants_sum_duplex_coverage` for homozygous variants, and 2 * this value for heterozygous variants.
 - `sensitivity_source`: Provenance of the sensitivity value. Possible values are:
   - `calculated` — sensitivity derived from high-confidence germline variants detected in the current chromgroup/filtergroup.
@@ -242,8 +254,6 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
   - `yaml.config` — sensitivity sourced directly from YAML configuration (MDB call types).
   - `calculated_other_chromgroup` — sensitivity borrowed from another chromgroup where it was successfully calculated for the same filtergroup.
   - `default_other_chromgroup` — no calculated sensitivity was available to borrow, so the default value of 1 was used.
-- Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`.
-- Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
 
 ### Final-call burdens
 Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
@@ -255,8 +265,8 @@ Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`
   - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_chromgroup` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
   - Corrected for sensitivity: `sensitivity_corrected` (boolean TRUE/FALSE).
-- Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
 - Sensitivity estimate and source (from the sensitivity summary table, annotated when `sensitivity_corrected` is TRUE, NA otherwise): `sensitivity`, `sensitivity_source`.
+- Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
 - Number of calls corrected for above selected correction methods, and Poisson 95% lower (lci) and upper (uci) confidence intervals: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
 - Pre-correction call counts retained alongside corrected values (only populated for trinucleotide- and sensitivity-corrected rows): `num_calls_noncorrected`.
 - Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.

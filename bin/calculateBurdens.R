@@ -753,7 +753,14 @@ strand_identical_cols_discard <- c(
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand"
 )
-	
+
+strand_redundant_cols_discard <- c(
+	"qual.opposite_strand",
+	"sa.opposite_strand",
+	"sm.opposite_strand",
+	"sx.opposite_strand"
+)
+
 #Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Before the nest join, remove "germline_vcf_types_detected", "germline_vcf_files_detected", and "passfilter" columns as these are empty, empty, and TRUE, respectively for all finalCalls. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
 	
@@ -823,15 +830,15 @@ finalCalls.bytype <- call_types_toanalyze %>%
 						) %>%
 						
 						#Collapse to one row per mutation
-						pivot_wider(
-							id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
-							names_from = strand,
-							values_from = -any_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard)),
-							names_glue = "{.value}_{strand}",
-							names_expand = TRUE
-						)
-				}
-			),
+                                                pivot_wider(
+                                                        id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
+                                                        names_from = strand,
+                                                        values_from = -any_of(c(zm_identical_cols_keep, strand_identical_cols_keep, strand_identical_cols_discard, strand_redundant_cols_discard)),
+                                                        names_glue = "{.value}_{strand}",
+                                                        names_expand = TRUE
+                                                )
+                                }
+                        ),
 			finalCalls
 		),
 		

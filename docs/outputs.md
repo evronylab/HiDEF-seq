@@ -3,17 +3,16 @@
 This guide documents every final file produced by the `processReads` and `outputResults` workflows described in `main.nf`, including directory layouts, serialized objects, and column-level metadata.
 
 ## Outline
-- [Main analysis directory layout](#main-analysis-directory-layout)
-  - [Sample root directory](#sample-root-directory)
+- [Main analysis directory layout and logs](#main-analysis-directory-layout-and-logs)
+  - [Directory structure](#directory-structure)
   - [Shared logs](#shared-logs)
   - [Per-sample logs](#per-sample-logs)
-- [processReads outputs](#processreads-outputs)
-  - [CCS BAM files](#ccs-bam-files)
-  - [BAM tag reference](#bam-tag-reference)
-  - [QC contributions to shared logs](#qc-contributions-to-shared-logs)
-- [outputResults outputs](#outputresults-outputs)
-  - [Directory structure](#directory-structure)
-  - [Top-level files](#top-level-files)
+- [Top-level files](#top-level-files)
+- [Output folders](#output-folders)
+  - [processedReads](#processedreads)
+    - [CCS BAM files](#ccs-bam-files)
+    - [BAM tag reference](#bam-tag-reference)
+    - [QC contributions to shared logs](#qc-contributions-to-shared-logs)
   - [Coverage and reference trinucleotides](#coverage-and-reference-trinucleotides)
   - [Filter statistics](#filter-statistics)
   - [Final calls](#final-calls)
@@ -24,12 +23,32 @@ This guide documents every final file produced by the `processReads` and `output
   - [Sensitivity summaries](#sensitivity-summaries)
   - [Final-call burdens](#final-call-burdens)
   - [Estimated SBS mutation error probability](#estimated-sbs-mutation-error-probability)
-  - [Serialized object (.qs2)](#serialized-object-qs2)
+- [Serialized object (.qs2)](#serialized-object-qs2)
 
-## Main analysis directory layout
+## Main analysis directory layout and logs
 
-### Sample root directory
-For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to the folder `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Within each of these folders are intermediate directories (for example `processedReads`, `splitBAMs`, `extractCalls`) when publication is enabled, as well as the per-sample `logs/` folder and all final analysis outputs.
+### Directory structure
+For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDEF-seq writes results to `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. The folder always contains a `logs/` directory plus final output directories. When `output_intermediate_files: true` in the analysis YAML, the pipeline also publishes intermediate file directories as indicated below.
+
+```
+[analysis_id].[individual_id].[sample_id]/
+  ├─ logs/
+  ├─ processedReads/
+  ├─ splitBAMs/ (if output_intermediate_files: true)
+  ├─ extractCalls/ (if output_intermediate_files: true)
+  ├─ filterCalls/ (if output_intermediate_files: true)
+  ├─ calculateBurdens/ (if output_intermediate_files: true)
+  ├─ coverage_reftnc/
+  ├─ filterStats/
+  ├─ finalCalls/
+  ├─ germlineVariantCalls/
+  ├─ finalCalls.spectra/
+  ├─ interrogatedBases.spectra/
+  ├─ genome.spectra/
+  ├─ sensitivity/
+  ├─ finalCalls.burdens/
+  └─ estimatedSBSMutationErrorProbability/
+```
 
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
@@ -46,9 +65,20 @@ Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/
 - Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
 - Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
 
-## processReads outputs
+## Top-level files
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
 
-### CCS BAM files
+| File | Description |
+| --- | --- |
+| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
+| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | `analysis_id`, `individual_id`, `sample_id` identifier columns and sequencing run and read group metadata derived from BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
+| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
+
+## Output folders
+
+### processedReads
+
+#### CCS BAM files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/processedReads/`
 
 | File | Description |
@@ -57,7 +87,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/proce
 | `${analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai` | BAM index created with `samtools index`. |
 | `${analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi` | PacBio BAM index created with `pbindex`. |
 
-### BAM tag reference
+#### BAM tag reference
 The table below summarises tags present in the aligned CCS BAM. See references for [PacBio BAM format](https://pacbiofileformats.readthedocs.io/en/13.1/BAM.html), [lima (demultiplexing)](https://lima.how/), [CCS](https://ccs.how/), and [pbmm2](https://github.com/PacificBiosciences/pbmm2) for more information.
 
 | Tag | Category | Description |
@@ -94,42 +124,12 @@ The table below summarises tags present in the aligned CCS BAM. See references f
 | `mg` | Alignment | Gap-compressed sequence identity percentage (`100 * matches / (matches + mismatches + gaps)`). |
 | `NM` | Alignment | Total number of mismatches and gaps in the alignment. |
 
-### QC contributions to shared logs
+#### QC contributions to shared logs
 During `processReads`, the pipeline adds to the sharedLogs directory:
 - Stage-by-stage ZMW counts produced by `countZMWs`.
 - Per-chunk CCS diagnostics (`statistics/*.ccs_report.*`, `statistics/*.summary.json`) and their corresponding `.command.log` files from `ccsChunk`, `mergeCCSchunks`, and `filterAdapter`.
 - Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`) plus associated `.command.log` transcripts.
 - Any additional `.command.log` outputs from global helper steps executed within `processReads`.
-
-## outputResults outputs
-
-### Directory structure
-The outputs of `outputResults` are saved directly in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`. Each output type has its own sub-directory per below:
-
-```
-[analysis_id].[individual_id].[sample_id]/
-  ├─ coverage_reftnc/
-  ├─ filterStats/
-  ├─ finalCalls/
-  ├─ germlineVariantCalls/
-  ├─ finalCalls.spectra/
-  ├─ interrogatedBases.spectra/
-  ├─ genome.spectra/
-  ├─ sensitivity/
-  ├─ finalCalls.burdens/
-  └─ estimatedSBSMutationErrorProbability/
-```
-
-Each of these sub-folders in turn contains sub-folders for each `chromgroup` that contain results files keyed by subsets of `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, and `SBSindel_call_type` fields relevant to the file.
-
-### Top-level files
-Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
-
-| File | Description |
-| --- | --- |
-| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
-| `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | `analysis_id`, `individual_id`, `sample_id` identifier columns and sequencing run and read group metadata derived from BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
-| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
 ### Coverage and reference trinucleotides
 
@@ -160,31 +160,20 @@ Each combination of chromgroup and filter group yields three TSV tables named:
 | `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter` (filter label derived from the threshold file basename), `binsize` (per YAML configuration), `threshold` (per YAML configuration), `padding` (per YAML configuration), `region_filter_threshold_file` (per YAML configuration), `num_genomebases_individually_filtered` (number of genome bases removed when applying only this filter), `num_genomebases_remaining` (number of genome bases remaining after applying this and all prior filters). |
 
 ### Final calls
-Final calls files are output to `finalCalls/[chromgroup]/` and are named:
-`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
+Final-call tables are written to `finalCalls/[chromgroup]/` as `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
-The pipeline produces four files per subtype:
+The pipeline emits four artefacts per call subtype:
 
-- **`.finalCalls.tsv`** — Tables of the final calls that passed all filters.
-  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`, `run_id`, `zm`.
-  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
-  - Strand-specific coordinates in query space (i.e., read coordinates) and other measurements: `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`. Measurements for multi-base calls, such as `qual` are stored as comma-delimited values for every base. SBS and indel mutation call tables are pivoted to one row per mutation with these strand-specific columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation call types remain one row per strand with a `refstrand` column annotating to which reference strand the call's read aligned.
-  - Columns specific to each `call_class`:
-    * **SBS** and **MDB** entries include:
-      * `reftnc_plus_strand` and `alttnc_plus_strand` — reference and call trinucleotide sequence at the call position on the reference genome plus strand.
-      * `reftnc_pyr` and `alttnc_pyr`— reference and call trinucleotide sequences collapsed to central pyrimidine trinucleotide sequences.
-      * `reftnc_synthesized_strand` and `alttnc_synthesized_strand` — reference and call trinucleotide sequence at the call position on the strand synthesized by the sequencer polymerase.
-      * `reftnc_template_strand` and `alttnc_template_strand` — reference and call trinucleotide sequence at the call position on the strand replicated by the sequencer polymerase (i.e., template strand).
-    * **Indel** entries include: `indel_width`.
-    * **MDB** entries include `MDB_score`.
-- **`.finalCalls_unique.tsv`** — Tables of with only one row per unique SBS or indel mutation, i.e., retaining only one row for calls detected in > 1 molecule. Not created for single-strand call types.
-  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
-  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
-  - **SBS** entries include: `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr` and `alttnc_pyr`.
-  - **Indel** entries include: `indel_width`.
-
-- **`.finalCalls.vcf.bgz`** — Bgzipped VCF containing the same calls as `.finalCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
-- **`.finalCalls_unique.vcf.bgz`** — Bgzipped, indexed VCF containing the same calls as `.finalCalls_unique.tsv`. INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- **`finalCalls.tsv`** — Strand-level mismatch tables and per-mutation SBS/indel tables share a common schema:
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`.
+  - Coordinates and molecule identifiers: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
+  - Alleles and trinucleotide context: `ref_plus_strand`, `alt_plus_strand`; SBS and MDB tables also provide `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`.
+  - SBS mutation tables collapse both strands into one row per event. Columns with `_refstrand_plus_read` and `_refstrand_minus_read` suffixes record strand-specific measurements for `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, and `alt_template_strand`. Additional SBS-only context columns `reftnc_synthesized_strand_refstrand_plus_read`, `reftnc_synthesized_strand_refstrand_minus_read`, `reftnc_template_strand_refstrand_plus_read`, `reftnc_template_strand_refstrand_minus_read`, `alttnc_synthesized_strand_refstrand_plus_read`, `alttnc_synthesized_strand_refstrand_minus_read`, `alttnc_template_strand_refstrand_plus_read`, `alttnc_template_strand_refstrand_minus_read` appear only for SBS mutation tables.
+  - SBS and indel mismatch tables remain one row per strand, indicated by `refstrand`, and include `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sa.opposite_strand`, `sm`, `sm.opposite_strand`, `sx`, `sx.opposite_strand`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`, plus opposite-strand annotations `call_class.opposite_strand`, `call_type.opposite_strand`, `alt_plus_strand.opposite_strand`. SBS mismatch tables additionally contain context summaries `reftnc_synthesized_strand`, `alttnc_synthesized_strand`, `reftnc_template_strand`, `alttnc_template_strand`.
+  - Indel-specific annotation: `indel_width` (present for indel mutation and indel mismatch tables).
+- **`finalCalls_unique.tsv`** — SBS and indel mutation tables collapsed to a single row per unique genomic event. Columns include `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, genomic coordinates, alleles, `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`, and (for indels) `indel_width`.
+- **`finalCalls.vcf.bgz`** — Bgzipped VCF mirroring `finalCalls.tsv`. INFO annotations correspond to the TSV columns other than CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- **`finalCalls_unique.vcf.bgz`** — Bgzipped VCF mirroring `finalCalls_unique.tsv`. Indexed with `.tbi`.
 
 ### Germline variant calls
 Germline variant call files are output to `germlineVariantCalls/[chromgroup]/` and are named:
@@ -192,13 +181,14 @@ Germline variant call files are output to `germlineVariantCalls/[chromgroup]/` a
 
 The pipeline produces two files:
 
-- `.germlineVariantCalls.tsv` — Tables of the final germline variant calls that passed all filters, with one row per mutation and strand-specific columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`.
-  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `analysis_chunk`, `run_id`, `zm`.
-  - Coordinates in genome reference space and alleles: `seqnames`, `start_refspace`, `end_refspace`, `ref_plus_strand`, `alt_plus_strand`.
-  - Strand-specific coordinates in query space (i.e., read coordinates) and other strand-specific measurements: `start_queryspace`, `end_queryspace`, `qual`, `qual.opposite_strand`, `sa`, `sm`, `sx`, suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`.
-  - Additional call information: `reftnc_plus_strand`,  `alttnc_plus_strand`, `reftnc_pyr`,  `alttnc_pyr`, and `indel_width`.
-  - Germline filter information: `region_read_filter_*.passfilter` and `region_genome_filter_*.passfilter` columns (TRUE/FALSE) for each region filter configured with `is_germline_filter: true` in the YAML; `germline_vcf_types_detected` and `germline_vcf_files_detected` columns annotating in which germline VCF types and files the calls were detected.
-- `.germlineVariantCalls.vcf.bgz`—  Bgzipped VCF containing the same calls as `.germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
+- `germlineVariantCalls.tsv` — Final germline calls that passed all non-germline filters, with one row per mutation. Columns are grouped as follows:
+  - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`.
+  - Coordinates and molecule identifiers: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
+  - Alleles and trinucleotide context: `ref_plus_strand`, `alt_plus_strand`, `reftnc_plus_strand`, `alttnc_plus_strand`, `reftnc_pyr`, `alttnc_pyr`.
+  - Strand-resolved read metrics with `_refstrand_plus_read` / `_refstrand_minus_read` suffixes: `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`, `reftnc_synthesized_strand`, `reftnc_template_strand`, `alttnc_synthesized_strand`, `alttnc_template_strand`.
+  - Indel annotation: `indel_width` for indel calls.
+  - Germline filter information: `region_read_filter_*.passfilter` and `region_genome_filter_*.passfilter` columns (TRUE/FALSE) for each region filter configured with `is_germline_filter: true` in the YAML, plus `germline_vcf_types_detected` and `germline_vcf_files_detected` columns annotating in which germline VCF types and files the calls were detected.
+- `germlineVariantCalls.vcf.bgz` — Bgzipped VCF containing the same calls as `germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
 ### Final-call spectra
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
@@ -235,18 +225,16 @@ The pipeline produces several files per per below, and each table contains metad
 ### Genome spectra
 Trinucleotide distributions of the genome are output to `genome.spectra/[chromgroup]/` and are named:
 
-- `genome.reftnc_pyr.tsv`: `analysis_id`, `individual_id`, `sample_id`, `reftnc_pyr`, `count`, `fraction`.
-- `genome.reftnc_both_strands.tsv`: Same metadata with `reftnc`, `count`, `fraction`.
-- `[chromgroup].genome_chromgroup.reftnc_pyr.tsv`: Same as `genome.reftnc_pyr.tsv`, restricting to `[chromgroup]`.
-- `[chromgroup].genome_chromgroup.reftnc_both_strands.tsv`: Same as `genome.reftnc_both_strands.tsv`, restricting to `[chromgroup]`.
+- `genome.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction`.
+- `genome.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`.
+- `[chromgroup].genome_chromgroup.reftnc_pyr.tsv`: Spectrum restricted to `[chromgroup]`. Same as `genome.reftnc_pyr.tsv` with additional column `chromgroup`.
+- `[chromgroup].genome_chromgroup.reftnc_both_strands.tsv`: Spectrum restricted to `[chromgroup]`. Same as `genome.reftnc_both_strands.tsv` with additional column `chromgroup`.
 
 ### Sensitivity summaries
 Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].sensitivity.tsv` with columns:
 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
-- Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`
-- Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
 - `sensitivity`, : Sensitivity estimate, calculated as `high_confidence_germline_vcf_variants_sum_zm_detected` /  `high_confidence_germline_vcf_variants_sum_duplex_coverage` for homozygous variants, and 2 * this value for heterozygous variants.
 - `sensitivity_source`: Provenance of the sensitivity value. Possible values are:
   - `calculated` — sensitivity derived from high-confidence germline variants detected in the current chromgroup/filtergroup.
@@ -254,6 +242,8 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
   - `yaml.config` — sensitivity sourced directly from YAML configuration (MDB call types).
   - `calculated_other_chromgroup` — sensitivity borrowed from another chromgroup where it was successfully calculated for the same filtergroup.
   - `default_other_chromgroup` — no calculated sensitivity was available to borrow, so the default value of 1 was used.
+- Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`.
+- Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
 
 ### Final-call burdens
 Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
@@ -265,21 +255,20 @@ Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`
   - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_chromgroup` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
   - Corrected for sensitivity: `sensitivity_corrected` (boolean TRUE/FALSE).
-
-- Number of calls corrected for above selected correction methods, and Poisson 95% lower (lci) and upper (uci) confidence intervals: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
-- Pre-correction call counts retained alongside corrected values (only populated for trinucleotide- and sensitivity-corrected rows): `num_calls_noncorrected`.
 - Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
 - Sensitivity estimate and source (from the sensitivity summary table, annotated when `sensitivity_corrected` is TRUE, NA otherwise): `sensitivity`, `sensitivity_source`.
+- Number of calls corrected for above selected correction methods, and Poisson 95% lower (lci) and upper (uci) confidence intervals: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
+- Pre-correction call counts retained alongside corrected values (only populated for trinucleotide- and sensitivity-corrected rows): `num_calls_noncorrected`.
 - Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.
 
 ### Estimated SBS mutation error probability
 Estimated SBS mutation error probabilities are output to `estimatedSBSMutationErrorProbability/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].estimatedSBSMutationErrorProbability.*`. 
 
-The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
+The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`) and additional fields:
 
 - `by_channel_pyr.tsv` — `channel_pyr` (reference>call central pyrimidine trinucleotide channel) and `error_prob` (error probability).
-- `total.tsv` — Total SBS mutation error probability across all trinucleotide channels.
+- `total.tsv` — Total SBS mutation error probability across all trinucleotide channels recorded in `error_prob`.
 
 ### Serialized object (.qs2)
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.

@@ -943,6 +943,7 @@ sensitivity <- sensitivity %>%
 		
 		sensitivity = sensitivity.new %>% replace_na(1)
 	) %>%
+	relocate(sensitivity, sensitivity_source, .after = last_col()) %>%
 	ungroup %>% 
 	select(-sensitivity.new)
 

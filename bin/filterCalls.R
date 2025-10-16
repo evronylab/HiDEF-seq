@@ -984,23 +984,31 @@ cat("## Applying read SBS region filter...")
 #Extract padding configuration
 sbs_flank <- filtergroup_toanalyze_config %>% pull(ccs_sbs_flank)
 
+if(sbs_flank == 0){sbs_flank <- NULL}
+
 #Create GRanges of sbs flanks with configured padding
-read_sbs_region_filter <- c(
-	#Left flank
-	calls.gr %>%
-		filter(call_class=="SBS") %>%
-		flank(width=sbs_flank, start = TRUE, ignore.strand = TRUE) %>%
-		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-		trim,
-	
-	#Right flank
-	calls.gr %>%
-		filter(call_class=="SBS") %>%
-		flank(width=sbs_flank, start = FALSE, ignore.strand = TRUE) %>%
-		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-		trim
-) %>%
-	select(run_id, zm)
+if(!is.null(sbs_flank)){
+	read_sbs_region_filter <- c(
+		#Left flank
+		calls.gr %>%
+			filter(call_class=="SBS") %>%
+			flank(width=sbs_flank, start = TRUE, ignore.strand = TRUE) %>%
+			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+			trim,
+		
+		#Right flank
+		calls.gr %>%
+			filter(call_class=="SBS") %>%
+			flank(width=sbs_flank, start = FALSE, ignore.strand = TRUE) %>%
+			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+			trim
+	) %>%
+		select(run_id, zm)
+}else{
+	read_sbs_region_filter <- calls.gr %>%
+		select(run_id, zm) %>%
+		slice(0)
+}
 	
 #Annotate calls filtered by read_sbs_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Applied to both indels and SBS calls. Insertions immediately adjacent to an SBS will be filtered using the overlap_adjacent_query_insertion = TRUE option.
 calls[["read_sbs_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
@@ -1034,43 +1042,59 @@ cat("DONE\n")
 cat("## Applying read indel region filters (not applied to indels)...")
 
 #Extract padding configuration
-indel_ins_pad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
-indel_del_pad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
+ccs_ins_pad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
+ccs_del_pad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
 
-if(!is.na(indel_ins_pad)){
-	indel_ins_pad <- indel_ins_pad %>%
+#Create GRanges of insertions with configured padding
+if(!is.null(ccs_ins_pad)){
+	ccs_ins_pad <- ccs_ins_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+	
+	read_ins_region_filter <- calls.gr %>%
+		filter(call_class=="indel", call_type == "insertion") %>%
+		mutate(
+			padding_m = ccs_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+			padding_b = ccs_ins_pad$b,
+			start = start - pmax(padding_m,padding_b),
+			end = end + pmax(padding_m,padding_b)
+		) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+		trim %>%
+		select(run_id, zm)
+	
 }else{
-	indel_ins_pad <- tibble(m = 0, b = 0)
+	read_ins_region_filter <- calls.gr %>%
+		select(run_id, zm) %>%
+		slice(0)
 }
 
-if(!is.na(indel_del_pad)){
-	indel_del_pad <- indel_del_pad %>%
+#Create GRanges of deletions with configured padding
+if(!is.null(ccs_del_pad)){
+	ccs_del_pad <- ccs_del_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+	
+	read_del_region_filter <- calls.gr %>%
+		filter(call_class=="indel", call_type == "deletion") %>%
+		mutate(
+			padding_m = ccs_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer,
+			padding_b = ccs_del_pad$b,
+			start = start - pmax(padding_m,padding_b),
+			end = end + pmax(padding_m,padding_b)
+		) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+		trim %>%
+		select(run_id, zm)
+	
 }else{
-	indel_del_pad <- tibble(m = 0, b = 0)
+	read_del_region_filter <- calls.gr %>%
+		select(run_id, zm) %>%
+		slice(0)
 }
 
-#Create GRanges of indels with configured padding
-read_indel_region_filter <- calls.gr %>%
-	filter(call_class=="indel") %>%
-	mutate(
-		padding_m = case_when(
-			call_type == "insertion" ~ indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-			call_type == "deletion" ~ indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer
-		),
-		padding_b = case_when(
-			call_type == "insertion" ~ indel_ins_pad$b,
-			call_type == "deletion" ~ indel_del_pad$b
-		),
-		start = start - pmax(padding_m,padding_b),
-		end = end + pmax(padding_m,padding_b)
-	) %>%
-	suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-	trim %>%
-	select(run_id, zm)
+#Combine insertion and deletion GRanges with configured padding
+read_indel_region_filter <- c(read_ins_region_filter, read_del_region_filter)
  
 #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels.
 calls[["read_indel_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
@@ -1106,7 +1130,7 @@ molecule_stats <- molecule_stats %>%
 		)
 	)
 
-rm(read_indel_region_filter)
+rm(read_ins_region_filter, read_del_region_filter, read_indel_region_filter)
 invisible(gc())
 
 cat("DONE\n")
@@ -1600,42 +1624,54 @@ for(i in names(germline_vcf_variants)){
 	indel_ins_pad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_ins_pad)
 	indel_del_pad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_del_pad)
 	
-	if(!is.na(indel_ins_pad)){
+	#Create GRanges of insertions with configured padding
+	if(!is.null(indel_ins_pad)){
 		indel_ins_pad <- indel_ins_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+		
+		germline_vcf_ins_region_filter <- germline_vcf_variants %>%
+			pluck(i) %>%
+			filter(call_class=="indel", call_type == "insertion") %>%
+			mutate(
+				padding_m = indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+				padding_b = indel_ins_pad$b,
+				start = start - pmax(padding_m,padding_b),
+				end = end + pmax(padding_m,padding_b)
+			)
 	}else{
-		indel_ins_pad <- tibble(m = 0, b = 0)
+		germline_vcf_ins_region_filter <- germline_vcf_variants %>%
+			pluck(i) %>%
+			slice(0)
 	}
 	
-	if(!is.na(indel_del_pad)){
+	#Create GRanges of deletions with configured padding
+	if(!is.null(indel_del_pad)){
 		indel_del_pad <- indel_del_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
+		
+		germline_vcf_del_region_filter <- germline_vcf_variants %>%
+			pluck(i) %>%
+			filter(call_class=="indel", call_type == "deletion") %>%
+			mutate(
+				padding_m = indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer,
+				padding_b = indel_del_pad$b,
+				start = start - pmax(padding_m,padding_b),
+				end = end + pmax(padding_m,padding_b)
+			)
 	}else{
-		indel_del_pad <- tibble(m = 0, b = 0)
+		germline_vcf_del_region_filter <- germline_vcf_variants %>%
+			pluck(i) %>%
+			slice(0)
 	}
 	
-	#Create GRanges of variants to filter with configured padding
-	germline_vcf_indel_region_filter <- germline_vcf_variants %>%
-		pluck(i) %>%
-		filter(call_class == "indel") %>%
-		mutate(
-			padding_m = case_when(
-				call_type == "insertion" ~ indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-				call_type == "deletion" ~ indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer
-			),
-			padding_b = case_when(
-				call_type == "insertion" ~ indel_ins_pad$b,
-				call_type == "deletion" ~ indel_del_pad$b
-			),
-			start = start - pmax(padding_m,padding_b),
-			end = end + pmax(padding_m,padding_b)
-		) %>%
-		select(-padding_m,-padding_b) %>%
+	#Combine insertion and deletion GRanges with configured padding
+	germline_vcf_indel_region_filter <- c(germline_vcf_ins_region_filter, germline_vcf_del_region_filter) %>%
 		makeGRangesFromDataFrame(
 			seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 		) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
 		GenomicRanges::reduce(ignore.strand=TRUE)
 	
@@ -1686,7 +1722,7 @@ molecule_stats <- molecule_stats %>%
 		)
 	)
 
-rm(germline_vcf_indel_region_filter)
+rm(germline_vcf_ins_region_filter, germline_vcf_del_region_filter, germline_vcf_indel_region_filter)
 invisible(gc())
 
 cat("DONE\n")

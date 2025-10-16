@@ -353,11 +353,6 @@ min_threshold_eachstrand <- function(x, y, threshold, mode = c("mean","all","any
 	chosenmode(x) && chosenmode(y) && !any(is.na(y))
 }
 
-#Function to find overlaps that also returns insertion vs insertion (zero-width range) overlaps.
-findOverlaps_all <- function(x,y){
-	union( findOverlaps(x,y), findOverlaps(x,y,type="equal") )
-}
-
 ######################
 ### Load read and extracted call information
 ######################
@@ -987,26 +982,25 @@ cat("DONE\n")
 cat("## Applying read SBS region filter...")
 
 #Extract padding configuration
-sbs_pad <- filtergroup_toanalyze_config %>% pull(ccs_sbs_pad)
+sbs_flank <- filtergroup_toanalyze_config %>% pull(ccs_sbs_flank)
 
 #Create GRanges of sbs flanks with configured padding
 read_sbs_region_filter <- c(
 	#Left flank
 	calls.gr %>%
 		filter(call_class=="SBS") %>%
-		flank(width=sbs_pad, start = TRUE, ignore.strand = TRUE) %>%
+		flank(width=sbs_flank, start = TRUE, ignore.strand = TRUE) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-		trim %>%
-		select(run_id, zm),
+		trim,
 	
 	#Right flank
 	calls.gr %>%
 		filter(call_class=="SBS") %>%
-		flank(width=sbs_pad, start = FALSE, ignore.strand = TRUE) %>%
+		flank(width=sbs_flank, start = FALSE, ignore.strand = TRUE) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-		trim %>%
-		select(run_id, zm)
-)
+		trim
+) %>%
+	select(run_id, zm)
 	
 #Annotate calls filtered by read_sbs_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Applied to both indels and SBS calls. Insertions immediately adjacent to an SBS will be filtered using the overlap_adjacent_query_insertion = TRUE option.
 calls[["read_sbs_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
@@ -1040,23 +1034,23 @@ cat("DONE\n")
 cat("## Applying read indel region filters (not applied to indels)...")
 
 #Extract padding configuration
-indel_inspad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
-indel_delpad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
+indel_ins_pad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
+indel_del_pad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
 
-if(!is.na(indel_inspad)){
-	indel_inspad <- indel_inspad %>%
+if(!is.na(indel_ins_pad)){
+	indel_ins_pad <- indel_ins_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
 }else{
-	indel_inspad <- tibble(m = 0, b = 0)
+	indel_ins_pad <- tibble(m = 0, b = 0)
 }
 
-if(!is.na(indel_delpad)){
-	indel_delpad <- indel_delpad %>%
+if(!is.na(indel_del_pad)){
+	indel_del_pad <- indel_del_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
 }else{
-	indel_delpad <- tibble(m = 0, b = 0)
+	indel_del_pad <- tibble(m = 0, b = 0)
 }
 
 #Create GRanges of indels with configured padding
@@ -1064,19 +1058,19 @@ read_indel_region_filter <- calls.gr %>%
 	filter(call_class=="indel") %>%
 	mutate(
 		padding_m = case_when(
-			call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-			call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+			call_type == "insertion" ~ indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+			call_type == "deletion" ~ indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer
 		),
 		padding_b = case_when(
-			call_type == "insertion" ~ indel_inspad$b,
-			call_type == "deletion" ~ indel_delpad$b
+			call_type == "insertion" ~ indel_ins_pad$b,
+			call_type == "deletion" ~ indel_del_pad$b
 		),
 		start = start - pmax(padding_m,padding_b),
 		end = end + pmax(padding_m,padding_b)
 	) %>%
 	suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 	trim %>%
-	select(run_id, zm, -padding_m, -padding_b)
+	select(run_id, zm)
  
 #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels.
 calls[["read_indel_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
@@ -1603,23 +1597,23 @@ for(i in names(germline_vcf_variants)){
 	
 	#Extract germline VCF type and padding configuration
 	vcf_type <- germline_vcf_variants %>% pluck(i,"germline_vcf_type",1)
-	indel_inspad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_inspad)
-	indel_delpad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_delpad)
+	indel_ins_pad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_ins_pad)
+	indel_del_pad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_del_pad)
 	
-	if(!is.na(indel_inspad)){
-		indel_inspad <- indel_inspad %>%
+	if(!is.na(indel_ins_pad)){
+		indel_ins_pad <- indel_ins_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
 	}else{
-		indel_inspad <- tibble(m = 0, b = 0)
+		indel_ins_pad <- tibble(m = 0, b = 0)
 	}
 	
-	if(!is.na(indel_delpad)){
-		indel_delpad <- indel_delpad %>%
+	if(!is.na(indel_del_pad)){
+		indel_del_pad <- indel_del_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
 	}else{
-		indel_delpad <- tibble(m = 0, b = 0)
+		indel_del_pad <- tibble(m = 0, b = 0)
 	}
 	
 	#Create GRanges of variants to filter with configured padding
@@ -1628,12 +1622,12 @@ for(i in names(germline_vcf_variants)){
 		filter(call_class == "indel") %>%
 		mutate(
 			padding_m = case_when(
-				call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-				call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+				call_type == "insertion" ~ indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+				call_type == "deletion" ~ indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer
 			),
 			padding_b = case_when(
-				call_type == "insertion" ~ indel_inspad$b,
-				call_type == "deletion" ~ indel_delpad$b
+				call_type == "insertion" ~ indel_ins_pad$b,
+				call_type == "deletion" ~ indel_del_pad$b
 			),
 			start = start - pmax(padding_m,padding_b),
 			end = end + pmax(padding_m,padding_b)

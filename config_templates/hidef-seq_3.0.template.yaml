@@ -188,7 +188,7 @@ call_types:
 ###
 ### Germline VCF filters
 ###
-# These filters, except for inspad/delpad filters, are not applied to MDB calls.
+# These filters, except for ins_pad/del_pad filters, are not applied to MDB calls.
 germline_vcf_types: #define one germline_vcf_type for each used for above germline_vcf_files
   - germline_vcf_type: 
     SBS_FILTERS: #Put filters in quotations to avoid bare '.' from being read as NA
@@ -203,8 +203,8 @@ germline_vcf_types: #define one germline_vcf_type for each used for above germli
     indel_min_VAF: 
     indel_min_GQ: 
     indel_min_QUAL: 
-    indel_inspad: m2b15 # set to NA or m0b0 to disable this filter
-    indel_delpad: m2b15 # set to NA or m0b0 to disable this filter
+    indel_ins_pad: m2b15 # set to NA or m0b0 to disable this filter
+    indel_del_pad: m2b15 # set to NA or m0b0 to disable this filter
 
 ###
 ### Call filters
@@ -232,7 +232,7 @@ filtergroups:
     min_qual: 93 # filter applied to both strands for all call types
     min_qual_method: all # how to filter min_qual for insertions/deletions with qual length > 1: mean, all, or any
     read_trim_bp: 40
-    ccs_sbs_pad: 0
+    ccs_sbs_flank: 0
     ccs_ins_pad: m2b15 # set to NA or m0b0 to disable this filter
     ccs_del_pad: m2b15 # set to NA or m0b0 to disable this filter
     min_germlineBAM_TotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
@@ -265,7 +265,7 @@ filtergroups:
     min_qual: 93
     min_qual_method: all
     read_trim_bp: 40
-    ccs_sbs_pad: 1
+    ccs_sbs_flank: 1
     ccs_ins_pad: m2b15
     ccs_del_pad: m2b15
     min_germlineBAM_TotalReads: 15

@@ -232,8 +232,8 @@ calculate_molecule_stats_frombamfiltertrack <- function(bam.gr.filtertrack.input
 		)
 }
 
-#Function returning a TRUE/FALSE vector signifying for each element of a query GRanges if it overlaps any element of a subject GRanges, joining on optional columns.
-overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore.strand = TRUE) {
+#Function returning a TRUE/FALSE vector signifying for each element of a query GRanges if it overlaps any element of a subject GRanges, joining on optional columns. If overlap_adjacent_query_insertion = TRUE, then insertions (zero width) in query will be considered an overlap to an immediately adjacent non-insertion subject range.
+overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore.strand = TRUE, overlap_adjacent_query_insertion = FALSE) {
 	
 	stopifnot(inherits(query, "GenomicRanges"), inherits(subject, "GenomicRanges"))
 	
@@ -243,6 +243,21 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 	if(length(subject) == 0){return(rep(FALSE, nq))} #Empty subject
 	
 	hits <- findOverlaps(query, subject, ignore.strand = ignore.strand)
+	
+	if(overlap_adjacent_query_insertion == TRUE){
+		hits_adjacent_query_insertion <- findOverlaps(query, subject, ignore.strand = ignore.strand, maxgap = 0)
+		
+		q_hits_adjacent_query_insertion <- queryHits(hits_adjacent_query_insertion)
+		s_hits_adjacent_query_insertion <- subjectHits(hits_adjacent_query_insertion)
+		
+		hits_adjacent_query_insertion <- hits_adjacent_query_insertion[
+			query[q_hits_adjacent_query_insertion] %>% width == 0 &
+				subject[s_hits_adjacent_query_insertion] %>% width != 0
+			]
+		
+		hits <- GenomicRanges::union(hits, hits_adjacent_query_insertion)
+		rm(hits_adjacent_query_insertion)
+	}
 	
 	if (length(hits) == 0) return(rep(FALSE, nq)) #No overlap
 	
@@ -336,6 +351,11 @@ min_threshold_eachstrand <- function(x, y, threshold, mode = c("mean","all","any
 	)
 
 	chosenmode(x) && chosenmode(y) && !any(is.na(y))
+}
+
+#Function to find overlaps that also returns insertion vs insertion (zero-width range) overlaps.
+findOverlaps_all <- function(x,y){
+	union( findOverlaps(x,y), findOverlaps(x,y,type="equal") )
 }
 
 ######################
@@ -962,13 +982,66 @@ invisible(gc())
 cat("DONE\n")
 
 ######################
+### Read SBS region filter
+######################
+cat("## Applying read SBS region filter...")
+
+#Extract padding configuration
+sbs_pad <- filtergroup_toanalyze_config %>% pull(ccs_sbs_pad)
+
+#Create GRanges of sbs flanks with configured padding
+read_sbs_region_filter <- c(
+	#Left flank
+	calls.gr %>%
+		filter(call_class=="SBS") %>%
+		flank(width=sbs_pad, start = TRUE, ignore.strand = TRUE) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+		trim %>%
+		select(run_id, zm),
+	
+	#Right flank
+	calls.gr %>%
+		filter(call_class=="SBS") %>%
+		flank(width=sbs_pad, start = FALSE, ignore.strand = TRUE) %>%
+		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+		trim %>%
+		select(run_id, zm)
+)
+	
+#Annotate calls filtered by read_sbs_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Applied to both indels and SBS calls. Insertions immediately adjacent to an SBS will be filtered using the overlap_adjacent_query_insertion = TRUE option.
+calls[["read_sbs_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
+	calls.gr, read_sbs_region_filter,
+	join_mcols = c("run_id","zm"),
+	ignore.strand = TRUE,
+	overlap_adjacent_query_insertion = TRUE
+)
+
+#Subtract read_indel_region_filter bases from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
+bam.gr.filtertrack <- bam.gr.filtertrack %>%
+	GRanges_subtract_bymcols(read_sbs_region_filter, join_mcols = c("run_id","zm"), ignore.strand = TRUE)
+
+#Record number of molecule reference space bases remaining after filters
+molecule_stats <- molecule_stats %>%
+	bind_rows(
+		calculate_molecule_stats_frombamfiltertrack(
+			bam.gr.filtertrack.input = bam.gr.filtertrack,
+			stat_label.suffix = "passreadsbsregionfilter"
+		)
+	)
+
+rm(read_sbs_region_filter)
+invisible(gc())
+
+cat("DONE\n")
+
+######################
 ### Read indel region filters
 ######################
 cat("## Applying read indel region filters (not applied to indels)...")
 
 #Extract padding configuration
-indel_inspad <- filtergroup_toanalyze_config %>% pull(ccsindel_inspad)
-indel_delpad <- filtergroup_toanalyze_config %>% pull(ccsindel_delpad)
+indel_inspad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
+indel_delpad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
 
 if(!is.na(indel_inspad)){
 	indel_inspad <- indel_inspad %>%
@@ -987,25 +1060,23 @@ if(!is.na(indel_delpad)){
 }
 
 #Create GRanges of indels with configured padding
-read_indel_region_filter <- calls %>%
-  filter(call_class=="indel") %>%
-  mutate(
-    padding_m = case_when(
-      call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-      call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
-    ),
-    padding_b = case_when(
-      call_type == "insertion" ~ indel_inspad$b,
-      call_type == "deletion" ~ indel_delpad$b
-    ),
-    start = start - pmax(padding_m,padding_b),
-    end = end + pmax(padding_m,padding_b)
-  ) %>%
-  select(run_id, zm, seqnames, start, end, strand, -padding_m, -padding_b) %>%
-  makeGRangesFromDataFrame(
-    keep.extra.columns = TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
-  )
+read_indel_region_filter <- calls.gr %>%
+	filter(call_class=="indel") %>%
+	mutate(
+		padding_m = case_when(
+			call_type == "insertion" ~ indel_inspad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
+			call_type == "deletion" ~ indel_delpad$m * nchar(ref_plus_strand) %>% round %>% as.integer
+		),
+		padding_b = case_when(
+			call_type == "insertion" ~ indel_inspad$b,
+			call_type == "deletion" ~ indel_delpad$b
+		),
+		start = start - pmax(padding_m,padding_b),
+		end = end + pmax(padding_m,padding_b)
+	) %>%
+	suppressWarnings %>% #remove warnings of out of bounds regions due to resize
+	trim %>%
+	select(run_id, zm, -padding_m, -padding_b)
  
 #Annotate calls filtered by read_indel_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Not applied to indels.
 calls[["read_indel_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
@@ -1162,7 +1233,7 @@ cat("DONE\n")
 
 cat("## Applying germline BAM variant read filters (only applied to SBS calls)...")
 
-#Format variant regions to VCF POS coordinates for extracting variants from germline BAM bcftools mpileup. Retrieve only SBS calls since only annotating SBS calls.
+#Format variant regions to VCF POS coordinates for extracting variants from germline BAM bcftools mpileup. Retrieve only SBS calls since only annotating SBS calls. Filter is applied both to SBS mutation and SBS non-mutation calls.
 variant_regions_bcftools_mpileup <- calls %>%
 	filter(call_class == "SBS") %>%
 	rename(
@@ -1201,13 +1272,13 @@ germline_bam_bcftools_mpileup_BAMVAF_filter <- germline_bam_bcftools_mpileup_fil
 #Annotate SBS calls with germline BAM bcftools mpileup VCF filters.
 calls[["max_germlineBAM_VariantReads.passfilter"]] <- ! overlapsAny_bymcols(
 	calls.gr, germline_bam_bcftools_mpileup_BAMVariantReads_filter,
-	join_mcols = c("call_class","call_type","SBSindel_call_type","ref_plus_strand","alt_plus_strand"),
+	join_mcols = c("call_class","call_type","ref_plus_strand","alt_plus_strand"), #Not joining by SBSindel_call_type so filter is also applied to mismatch-ss and mismatch-ds calls 
 	ignore.strand = TRUE
 )
 
 calls[["max_germlineBAM_VAF.passfilter"]] <- ! overlapsAny_bymcols(
 	calls.gr, germline_bam_bcftools_mpileup_BAMVAF_filter,
-	join_mcols = c("call_class","call_type","SBSindel_call_type","ref_plus_strand","alt_plus_strand"),
+	join_mcols = c("call_class","call_type","ref_plus_strand","alt_plus_strand"), #Not joining by SBSindel_call_type so filter is also applied to mismatch-ss and mismatch-ds calls
 	ignore.strand = TRUE
 )
 

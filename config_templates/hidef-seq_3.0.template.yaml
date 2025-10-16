@@ -232,8 +232,9 @@ filtergroups:
     min_qual: 93 # filter applied to both strands for all call types
     min_qual_method: all # how to filter min_qual for insertions/deletions with qual length > 1: mean, all, or any
     read_trim_bp: 40
-    ccsindel_inspad: m2b15 # set to NA or m0b0 to disable this filter
-    ccsindel_delpad: m2b15 # set to NA or m0b0 to disable this filter
+    ccs_sbs_pad: 0
+    ccs_ins_pad: m2b15 # set to NA or m0b0 to disable this filter
+    ccs_del_pad: m2b15 # set to NA or m0b0 to disable this filter
     min_germlineBAM_TotalReads: 15 # for insertions/deletions, required at both left and right flanking bases in reference space
     max_germlineBAM_VariantReads: 3 # applied only to SBS
     max_germlineBAM_VAF: 0.05 # applied only to SBS
@@ -264,8 +265,9 @@ filtergroups:
     min_qual: 93
     min_qual_method: all
     read_trim_bp: 40
-    ccsindel_inspad: m2b15
-    ccsindel_delpad: m2b15
+    ccs_sbs_pad: 1
+    ccs_ins_pad: m2b15
+    ccs_del_pad: m2b15
     min_germlineBAM_TotalReads: 15
     max_germlineBAM_VariantReads: 3
     max_germlineBAM_VAF: 0.05

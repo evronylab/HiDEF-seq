@@ -808,8 +808,14 @@ finalCalls.reftnc_spectra %>%
 			
 			plots_to_output <- c(
 				"finalCalls.reftnc_pyr_spectrum.sigfit",
+				"finalCalls.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
+				"finalCalls.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
 				"finalCalls_unique.reftnc_pyr_spectrum.sigfit",
+				"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
+				"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
 				"finalCalls.reftnc_template_strand_spectrum.sigfit",
+				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome.sigfit",
+				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome_chromgroup.sigfit",
 				"finalCalls.refindel_spectrum.sigfit",
 				"finalCalls_unique.refindel_spectrum.sigfit"
 			)
@@ -1011,7 +1017,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		sensitivity = if_else(sensitivity_corrected == TRUE, sensitivity, NA),
 		sensitivity_source = if_else(sensitivity_corrected == TRUE, sensitivity_source, NA)
 	) %>%
-	relocate(unique_calls, reftnc_corrected, reftnc_corrected_chromgroup, sensitivity_corrected, sensitivity, sensitivity_source, .after = SBSindel_call_type)
+	relocate(unique_calls, reftnc_corrected, reftnc_corrected_reference, sensitivity_corrected, sensitivity, sensitivity_source, .after = SBSindel_call_type)
 
 #Output as tsv
 finalCalls.burdens %>%

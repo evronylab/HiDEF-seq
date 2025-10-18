@@ -719,9 +719,9 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 	)
 
 ######################
-### Calculate trinucleotide distributions (SBS and MDB calls) and spectra (SBS and indel calls)
+### Calculate trinucleotide distributions of calls (SBS and MDB) and spectra of calls (SBS and indel)
 ######################
-cat("## Calculating trinucleotide disributions (SBS and MDB calls) and spectra (SBS and indel calls)...")
+cat("## Calculating trinucleotide distributions of calls (SBS and MDB) and spectra of calls (SBS and indel)...")
 
 #Define columns to discard from each finalCalls table after the nest join, depending on the call_class, as these are not relevant for the final tsv and vcf outputs
 alltypes_cols_discard <- c("deletion.bothstrands.startendmatch")
@@ -1056,87 +1056,91 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 rm(BSgenome_for_indel.spectrum)
 invisible(gc())
 
-#Create sigfit-format spectra tables
-finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	mutate(
-		rowname_col = str_c(
-			yaml.config$analysis_id, sample_id_toanalyze,
-			chromgroup_toanalyze, filtergroup_toanalyze,
-			call_class, call_type, SBSindel_call_type,
-			sep="."
-		),
-		
-		across(
-			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
-			function(x){
-				map2(
-					x, rowname_col,
-					function(y, rn){
-						if(is.null(y)){return(NULL)}
-						y %>%
-							select(channel, count) %>%
-							pivot_wider(names_from = channel, values_from = count) %>%
-							mutate(rowname = rn) %>%
-							column_to_rownames("rowname")
-					}
-				)
-			},
-			.names = "{.col}.sigfit"
-		),
-		
-		across(
-			c(finalCalls.reftnc_template_strand_spectrum),
-			function(x){
-				map2(
-					x, rowname_col,
-					function(y, rn){
-						if(is.null(y)){return(NULL)}
-						y %>%
-							mutate(
-								channel = if_else(
-									str_sub(channel,2,2) %in% c("C","T"),
-									str_c("T:",channel),
-									str_c(
-										"U:",
-										str_sub(channel,1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
-										">",
-										str_sub(channel,5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+#Calculate trinucleotide distributions and spectra of SBS and MDB calls corrected for genome and genome_chromgroup distributions. Note, when genome correction factors are 0, setting corrected count to 0 rather than NA. When the sum of counts is 0, setting the fraction to 0 instead of NA.
+ #Helper function to annotate corrected counts and fractions
+annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_type){
+	
+	expr_map <- list(
+		reftnc_pyr = expr(reftnc_pyr == reftnc_pyr),
+		reftnc_template_strand = expr(reftnc_template_strand == reftnc),
+		reftnc_pyr_channel = expr(reftnc_pyr_channel == reftnc_pyr),
+		reftnc_template_strand_channel = expr(reftnc_template_strand_channel == reftnc)
+	)
+	
+	join_by_expr <- expr_map %>% pluck(annotation_type)
+	
+	df %>%
+		mutate(
+			across(
+				all_of(cols),
+				function(s){
+					map2(
+						s, !!sym(ref_col),
+						function(x,y){
+							if (is.null(x)){return(x)}
+							
+							if(annotation_type == "reftnc_pyr_channel"){
+								x <- x %>%
+									mutate(
+										reftnc_pyr_channel = channel %>%
+											str_sub(1, 3) %>%
+											factor(levels = trinucleotides_32_pyr)
 									)
-								) %>%
-									factor(levels = sbs192_labels.sigfit)
+							}else if(annotation_type == "reftnc_template_strand_channel"){
+								x <- x %>%
+									mutate(
+										reftnc_template_strand_channel = channel %>%
+											str_sub(1, 3) %>%
+											factor(levels = trinucleotides_64)
+									)
+							}
+							
+							x %>% left_join(
+								y,
+								by = join_by(!!join_by_expr),
+								suffix = c("", ".bam.gr.filtertrack")
 							) %>%
-							select(channel, count) %>%
-							pivot_wider(names_from = channel, values_from = count) %>%
-							mutate(rowname = rn) %>%
-							column_to_rownames("rowname")
-					}
-				)
-			},
-			.names = "{.col}.sigfit"
-		),
-		
-		across(
-			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
-			function(x){
-				map2(
-					x, rowname_col,
-					function(y, rn){
-						if(is.null(y)){return(NULL)}
-						y %>%
-							indelspectrum.to.sigfit %>%
-							mutate(rowname = rn) %>%
-							column_to_rownames("rowname")
-					}
-				)
-			},
-			.names = "{.col}.sigfit"
+								mutate(
+									count_corrected_to_genome = (count / na_if(fraction_ratio_to_genome, 0)) %>% replace_na(0),
+									fraction_corrected_to_genome = (count_corrected_to_genome / na_if(sum(count_corrected_to_genome), 0)) %>% replace_na(0),
+									count_corrected_to_genome_chromgroup = (count / na_if(fraction_ratio_to_genome_chromgroup, 0)) %>% replace_na(0),
+									fraction_corrected_to_genome_chromgroup = (count_corrected_to_genome_chromgroup / na_if(sum(count_corrected_to_genome_chromgroup), 0)) %>% replace_na(0)
+								) %>%
+								relocate(fraction_ratio_to_genome_chromgroup, .before = count_corrected_to_genome_chromgroup) %>%
+								select(-ends_with(".bam.gr.filtertrack"), -any_of(c("reftnc_pyr_channel", "reftnc_template_strand_channel")))
+						}
+					)
+				}
+			)
 		)
-	) %>%
-	select(-rowname_col)
+}
 
-#Remove unnecessary columns
+ #Annotate corrected counts and fractions
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf))
+	left_join(
+		bam.gr.filtertrack.bytype %>% select(-bam.gr.filtertrack.coverage),
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	) %>%
+	annotate_corrected_counts_fractions(
+		cols = c("finalCalls.reftnc_pyr", "finalCalls_unique.reftnc_pyr"),
+		ref_col = "bam.gr.filtertrack.reftnc_pyr",
+		annotation_type = "reftnc_pyr"
+	) %>%
+	annotate_corrected_counts_fractions(
+		cols = "finalCalls.reftnc_template_strand",
+		ref_col = "bam.gr.filtertrack.reftnc_both_strands",
+		annotation_type = "reftnc_template_strand"
+	) %>%
+	annotate_corrected_counts_fractions(
+		cols = c("finalCalls.reftnc_pyr_spectrum", "finalCalls_unique.reftnc_pyr_spectrum"),
+		ref_col = "bam.gr.filtertrack.reftnc_pyr",
+		annotation_type = "reftnc_pyr_channel"
+	) %>%
+	annotate_corrected_counts_fractions(
+		cols = "finalCalls.reftnc_template_strand_spectrum",
+		ref_col = "bam.gr.filtertrack.reftnc_both_strands",
+		annotation_type = "reftnc_template_strand_channel"
+	)
 
 cat("DONE\n")
 
@@ -1182,7 +1186,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					num_calls_noncorrected = NA_real_,
 					unique_calls = if_else(SBSindel_call_type == "mutation", FALSE, NA),
 					reftnc_corrected = if_else(call_class %in% c("SBS","MDB"), FALSE, NA),
-					reftnc_corrected_chromgroup = NA,
+					reftnc_corrected_reference = NA,
 					sensitivity_corrected = FALSE
 				),
 		
@@ -1194,7 +1198,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					num_calls_noncorrected = NA_real_,
 					unique_calls = TRUE,
 					reftnc_corrected = if_else(call_class =="SBS", FALSE, NA),
-					reftnc_corrected_chromgroup = NA,
+					reftnc_corrected_reference = NA,
 					sensitivity_corrected = FALSE
 				)
 		),
@@ -1206,44 +1210,34 @@ finalCalls.burdens <- finalCalls.burdens %>%
 #Performed for SBS and MDB.
 	#Note: interrogated bases/base pairs are calculated here as the sum of counts of each trinucleotide in bam.gr.filtertrack.bytype rather than directly from the bam.gr.filtertrack.bytype coverage as before, since there may be rare edge cases of interrogated bases being at contig boundaries so they won't contribute to trinucleotide count, and likewise the analyzed calls also could have this issue. So it is more consistent for trinucleotide distribution-corrected analysis to calculate everything using trinucleotide counts.
 
- #Join trinucleotide distributions of calls and genome
-finalCalls.reftnc_spectra.genome_correction <- finalCalls.reftnc_spectra %>%
-	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability.
-	semi_join(
-		call_types_toanalyze,
-		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-	) %>%
-	
-	left_join(
-		bam.gr.filtertrack.bytype %>% select(-bam.gr.filtertrack.coverage),
-		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-	) %>%
-	filter(call_class %in% c("SBS","MDB"))
-
  #Helper function to get the call counts corrected for the distribution of trinucleotides in interrogated bases/base pairs vs the genome.
 #		x and y: calls reftnc and bam.gr.filtertrack reftnc, respectively
 #		reftnc_cols: reftnc columns in x and y to join by (passed as expr(col1 == col2))
-#		ratio_col: column by which to divide the counts column of x
+#		ratio_col_suffix: suffix added to "fraction_ratio_to_" that determines the column of corrected counts
 #		unique_col_annotation: Label to give the unique_calls column in the resulting tibble
-get_burden_data <- function(x, y, reftnc_cols, ratio_col, unique_col_annotation){
-	df <- left_join(x, y, by = join_by(!!reftnc_cols)) %>%
-		mutate(count_corrected = count.x / !!sym(ratio_col))
+get_burden_data <- function(x, y, reftnc_cols, ratio_col_suffix, unique_col_annotation){
+	df <- left_join(x, y, by = join_by(!!reftnc_cols))
 	
 	return(
 		tibble(
 			interrogated_bases_or_bp = df %>% pull(count.y) %>% sum,
-			num_calls = df %>% pull(count_corrected) %>% sum,
+			num_calls = df %>% pull(str_c("count_corrected_to_", ratio_col_suffix)) %>% sum,
 			num_calls_noncorrected = df %>% pull(count.x) %>% sum,
 			unique_calls = unique_col_annotation,
 			reftnc_corrected = TRUE,
-			reftnc_corrected_chromgroup = ratio_col %>% str_remove("fraction_ratio_to_"),
+			reftnc_corrected_reference = ratio_col_suffix,
 			sensitivity_corrected = FALSE
 		)
 	)
 }
 
  #SBS mutations: Not unique calls and unique calls, reftnc_pyr_corrected for whole genome and for chromgroup
-finalCalls.reftnc_spectra.genome_correction.SBSmutations <- finalCalls.reftnc_spectra.genome_correction %>%
+finalCalls.reftnc_spectra.genome_correction.SBSmutations <- finalCalls.reftnc_spectra %>%
+	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability.
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	) %>%
 	filter(call_class == "SBS" & SBSindel_call_type == "mutation")
 
 finalCalls.burdens <- finalCalls.burdens %>%
@@ -1256,7 +1250,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 						finalCalls.reftnc_pyr,
 						bam.gr.filtertrack.reftnc_pyr,
-						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"fraction_ratio_to_genome",FALSE)}
+						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome",FALSE)}
 					)
 				),
 				
@@ -1266,7 +1260,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 						finalCalls_unique.reftnc_pyr,
 						bam.gr.filtertrack.reftnc_pyr,
-						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"fraction_ratio_to_genome",TRUE)}
+						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome",TRUE)}
 					)
 				),
 				
@@ -1276,7 +1270,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 							finalCalls.reftnc_pyr,
 							bam.gr.filtertrack.reftnc_pyr,
-							function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"fraction_ratio_to_genome_chromgroup",FALSE)}
+							function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome_chromgroup",FALSE)}
 					)
 				),
 				
@@ -1286,7 +1280,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 						finalCalls_unique.reftnc_pyr,
 						bam.gr.filtertrack.reftnc_pyr,
-						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"fraction_ratio_to_genome_chromgroup",TRUE)}
+						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome_chromgroup",TRUE)}
 					)
 				)
 		) %>%
@@ -1295,9 +1289,15 @@ finalCalls.burdens <- finalCalls.burdens %>%
 	)
 
  #SBS non-mutations and MDB: Not unique calls, reftnc for whole genome and for chromgroup
-finalCalls.reftnc_spectra.genome_correction.SBSnonmutations <- finalCalls.reftnc_spectra.genome_correction %>%
+finalCalls.reftnc_spectra.genome_correction.SBSnonmutations <- finalCalls.reftnc_spectra %>%
+	#Exclude SBS/mismatch-ss row if it was only added to finalCalls.reftnc_spectra for downstream calculation of SBS mutation error probability.
+	semi_join(
+		call_types_toanalyze,
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
+	) %>%
 	filter((call_class == "SBS" & SBSindel_call_type != "mutation") | call_class == "MDB")
 
+#Add corrected burdens to finalCalls.burdens
 finalCalls.burdens <- finalCalls.burdens %>%
 	bind_rows(
 		bind_rows(
@@ -1308,7 +1308,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
 						bam.gr.filtertrack.reftnc_both_strands,
-						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"fraction_ratio_to_genome",FALSE)}
+						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"genome",FALSE)}
 					)
 				),
 			
@@ -1318,7 +1318,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
 						bam.gr.filtertrack.reftnc_both_strands,
-						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"fraction_ratio_to_genome_chromgroup",FALSE)}
+						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"genome_chromgroup",FALSE)}
 					)
 				)
 		) %>%
@@ -1326,7 +1326,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		unnest_wider(burden_data)
 	)
 
-rm(finalCalls.reftnc_spectra.genome_correction, finalCalls.reftnc_spectra.genome_correction.SBSmutations, finalCalls.reftnc_spectra.genome_correction.SBSnonmutations)
+rm(finalCalls.reftnc_spectra.genome_correction.SBSmutations, finalCalls.reftnc_spectra.genome_correction.SBSnonmutations)
 invisible(gc())
 
 #Calculate burdens and Poisson 95% confidence intervals for number of calls and burdens
@@ -1342,6 +1342,106 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
 	) %>%
 	select(-ci)
+
+#Create sigfit-format finalCalls spectra tables
+ #Helper function
+tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("pyr","template","indel"), value_col = NULL){
+				
+	map2(finalCalls_col, rowname_col, function(x,y){
+		if(is.null(x)){return(NULL)}
+		
+		result <- switch(
+			mode,
+			"pyr" = x %>%
+				select(channel, all_of(value_col)) %>%
+				pivot_wider(names_from = channel, values_from = all_of(value_col)),
+			
+			"template" = x %>%
+				mutate(
+					channel = if_else(
+						str_sub(channel, 2, 2) %in% c("C","T"),
+						str_c("T:", channel),
+						str_c(
+							"U:",
+							str_sub(channel, 1, 3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+							">",
+							str_sub(channel, 5, 7) %>% DNAStringSet %>% reverseComplement %>% as.character
+						)
+					) %>% factor(levels = sbs192_labels.sigfit)
+				) %>%
+				select(channel, all_of(value_col)) %>%
+				pivot_wider(names_from = channel, values_from = all_of(value_col)),
+			
+			"indel" = x %>% indelspectrum.to.sigfit
+		) %>%
+			mutate(rowname = y) %>%
+			column_to_rownames("rowname")
+
+	})
+}
+
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	mutate(
+		rowname_col = str_c(
+			yaml.config$analysis_id, sample_id_toanalyze,
+			chromgroup_toanalyze, filtergroup_toanalyze,
+			call_class, call_type, SBSindel_call_type,
+			sep="."
+		),
+		
+		#reftnc_pyr spectra for all and unique calls
+		 #Not corrected
+		across(
+			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count")},
+			.names = "{.col}.sigfit"
+		),
+		 #Genome corrected
+		across(
+			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count_corrected_to_genome")},
+			.names = "{.col}.corrected_to_genome.sigfit"
+		),
+		 #Genome chromgroup corrected
+		across(
+			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count_corrected_to_genome_chromgroup")},
+			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
+		),
+		
+		#reftnc_template_strand spectra for all calls
+		 #Not corrected
+		across(
+			finalCalls.reftnc_template_strand_spectrum,
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count")},
+			.names = "{.col}.sigfit"
+		),
+		 #Genome corrected
+		across(
+			finalCalls.reftnc_template_strand_spectrum,
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count_corrected_to_genome")},
+			.names = "{.col}.corrected_to_genome.sigfit"
+		),
+		 #Genome chromgroup corrected
+		across(
+			finalCalls.reftnc_template_strand_spectrum,
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count_corrected_to_genome_chromgroup")},
+			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
+		),
+		
+		# indel spectra (all + unique)
+		across(
+			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "indel")},
+			.names = "{.col}.sigfit"
+		)
+
+	) %>%
+	select(-rowname_col)
+
+#Remove unnecessary columns
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf, bam.gr.filtertrack.reftnc_pyr, bam.gr.filtertrack.reftnc_both_strands))
 
 cat("DONE\n")
 

@@ -982,24 +982,24 @@ cat("DONE\n")
 cat("## Applying read SBS region filter...")
 
 #Extract padding configuration
-sbs_flank <- filtergroup_toanalyze_config %>% pull(ccs_sbs_flank)
+ccs_sbs_flank <- filtergroup_toanalyze_config %>% pull(ccs_sbs_flank)
 
-if(!is.null(sbs_flank) && sbs_flank == 0){sbs_flank <- NULL}
+if(!is.na(ccs_sbs_flank) && ccs_sbs_flank == 0){ccs_sbs_flank <- NA}
 
 #Create GRanges of sbs flanks with configured padding
-if(!is.null(sbs_flank)){
+if(!is.na(ccs_sbs_flank)){
 	read_sbs_region_filter <- c(
 		#Left flank
 		calls.gr %>%
 			filter(call_class=="SBS") %>%
-			flank(width=sbs_flank, start = TRUE, ignore.strand = TRUE) %>%
+			flank(width=ccs_sbs_flank, start = TRUE, ignore.strand = TRUE) %>%
 			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 			trim,
 		
 		#Right flank
 		calls.gr %>%
 			filter(call_class=="SBS") %>%
-			flank(width=sbs_flank, start = FALSE, ignore.strand = TRUE) %>%
+			flank(width=ccs_sbs_flank, start = FALSE, ignore.strand = TRUE) %>%
 			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 			trim
 	) %>%
@@ -1046,7 +1046,7 @@ ccs_ins_pad <- filtergroup_toanalyze_config %>% pull(ccs_ins_pad)
 ccs_del_pad <- filtergroup_toanalyze_config %>% pull(ccs_del_pad)
 
 #Create GRanges of insertions with configured padding
-if(!is.null(ccs_ins_pad)){
+if(!is.na(ccs_ins_pad)){
 	ccs_ins_pad <- ccs_ins_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
@@ -1070,7 +1070,7 @@ if(!is.null(ccs_ins_pad)){
 }
 
 #Create GRanges of deletions with configured padding
-if(!is.null(ccs_del_pad)){
+if(!is.na(ccs_del_pad)){
 	ccs_del_pad <- ccs_del_pad %>%
 	  tibble(pad=.) %>%
 	  extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)

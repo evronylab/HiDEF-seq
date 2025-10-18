@@ -208,20 +208,20 @@ The pipeline produces several files per per below, and each table contains metad
 
 - **SBS** `call_class` files:
 
-  - `.finalCalls.reftnc_pyr.tsv` / `.finalCalls_unique.reftnc_pyr.tsv` (trinucelotide distributions of reference sequences at positions of all and unique calls, respectively, collapsed to central pyrimidine contexts): `reftnc_pyr`, `count`, `fraction`.
+  - `.finalCalls.reftnc_pyr.tsv` / `.finalCalls_unique.reftnc_pyr.tsv` (trinucelotide distributions of reference sequences at positions of all and unique calls, respectively, collapsed to central pyrimidine contexts): `reftnc_pyr`, `count`, `fraction`, together with ratios of the observed fractions to interrogated-base distributions (`fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup`) and genome/chromgroup-corrected counts and fractions (`count_corrected_to_genome`, `fraction_corrected_to_genome`, `count_corrected_to_genome_chromgroup`, `fraction_corrected_to_genome_chromgroup`).
 
-  - `.finalCalls.reftnc_template_strand.tsv` (trinucelotide distributions of reference sequences in the strand replicated by the sequencer polymerase, at positions of all calls, for single-strand call types): `reftnc_template_strand`, `count`, `fraction`.
+  - `.finalCalls.reftnc_template_strand.tsv` (trinucelotide distributions of reference sequences in the strand replicated by the sequencer polymerase, at positions of all calls, for single-strand call types): `reftnc_template_strand`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
 
-  - `.finalCalls.reftnc_pyr_spectrum.tsv` / `.finalCalls_unique.reftnc_pyr_spectrum.tsv` (reference>call trinucleotide spectra, collapsed to central pyrmidine contexts, of all and unique calls, respectively): `channel`, `count`, `fraction`.
+  - `.finalCalls.reftnc_pyr_spectrum.tsv` / `.finalCalls_unique.reftnc_pyr_spectrum.tsv` (reference>call trinucleotide spectra, collapsed to central pyrmidine contexts, of all and unique calls, respectively): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
 
-  - `.finalCalls.reftnc_template_strand_spectrum.tsv` (reference>call trinucleotide spectra of the strand replicated by the sequencer polymerase, of all calls, for single-strand call types): `channel`, `count`, `fraction`.
+  - `.finalCalls.reftnc_template_strand_spectrum.tsv` (reference>call trinucleotide spectra of the strand replicated by the sequencer polymerase, of all calls, for single-strand call types): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
+  
+  - Each of the above `_spectrum.tsv` files is paired with `.sigfit.pdf` spectra plots as follows: `_spectrum.sigfit.pdf` (uncorrected), `_spectrum.corrected_to_genome.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome), and `_spectrum.corrected_to_genome_chromgroup.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome chromgroup chromosomes).
 
 
 - **indel** `call_class` files:
   - `.finalCalls.refindel_spectrum.sigfit.tsv` / `.finalCalls_unique.refindel_spectrum.sigfit.tsv` (indel spectra of all and unique calls, respectively, per sigfit-style channel labels): `channel`, `count`, `fraction`.
-
-
-Each `_spectrum` file is paired with a `.pdf` spectrum plot generated via `plot_spectrum`.
+  - Each of the above `_spectrum.sigfit.tsv` files is paired with a `.sigfit.pdf` spectrum plot.
 
 ### Interrogated-base spectra
 Trinucleotide distributions of interrogated bases are output to `interrogatedBases.spectra/[chromgroup]/` and are named:
@@ -263,7 +263,7 @@ Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
 - Annotations for type of burden calculation:
   - Unique calls (boolean TRUE/FALSE for mutations, NA otherwise): `unique_calls`
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`
-  - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_chromgroup` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
+  - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_reference` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
   - Corrected for sensitivity: `sensitivity_corrected` (boolean TRUE/FALSE).
 - Sensitivity estimate and source (from the sensitivity summary table, annotated when `sensitivity_corrected` is TRUE, NA otherwise): `sensitivity`, `sensitivity_source`.
 - Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
@@ -348,7 +348,7 @@ Table containing trinucleotide distributions and spectra of final calls, split i
 | `finalCalls.reftnc_pyr_spectrum`, `finalCalls_unique.reftnc_pyr_spectrum` | Same format as `finalCalls.reftnc_pyr_spectrum.tsv` and `finalCalls_unique.reftnc_pyr_spectrum.tsv` described above. |
 | `finalCalls.reftnc_template_strand_spectrum` | Same format as `finalCalls.reftnc_template_strand_spectrum.tsv` described above. |
 | `finalCalls.refindel_spectrum`, `finalCalls_unique.refindel_spectrum` | Indel spectra, with channel labels per the [indelwald package](https://github.com/MaximilianStammnitz/Indelwald) (created with the indel.spectrum() function in the HiDEF-seq bin/sharedFunctions.R script). |
-| `finalCalls.*.sigfit` columns | Sigfit-formatted matrices generated from the corresponding spectra. |
+| `finalCalls.*.sigfit` columns | Sigfit-formatted matrices generated from the corresponding spectra. For each of `finalCalls.reftnc_pyr_spectrum`, `finalCalls_unique.reftnc_pyr_spectrum`, and `finalCalls.reftnc_template_strand_spectrum`, there are corresponding `.sigfit` matrices for uncorrected counts, genome-corrected counts, and genome chromgroup-corrected counts.  For `finalCalls.refindel_spectrum` and `finalCalls_unique.refindel_spectrum`, there are only matrices of uncorrected counts. |
 
 #### bam.gr.filtertrack.bytype.coverage_tnc
 

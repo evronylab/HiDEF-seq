@@ -1625,7 +1625,7 @@ for(i in names(germline_vcf_variants)){
 	indel_del_pad <- germline_vcf_types_config %>% filter(germline_vcf_type == vcf_type) %>% pull(indel_del_pad)
 	
 	#Create GRanges of insertions with configured padding
-	if(!is.null(indel_ins_pad)){
+	if(!is.na(indel_ins_pad)){
 		indel_ins_pad <- indel_ins_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)
@@ -1646,7 +1646,7 @@ for(i in names(germline_vcf_variants)){
 	}
 	
 	#Create GRanges of deletions with configured padding
-	if(!is.null(indel_del_pad)){
+	if(!is.na(indel_del_pad)){
 		indel_del_pad <- indel_del_pad %>%
 			tibble(pad=.) %>%
 			extract(pad, into = c("m", "b"), regex = "m(\\d+)b(\\d+)", convert = TRUE)

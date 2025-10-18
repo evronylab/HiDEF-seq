@@ -1667,7 +1667,7 @@ for(i in names(germline_vcf_variants)){
 	}
 	
 	#Combine insertion and deletion GRanges with configured padding
-	germline_vcf_indel_region_filter <- c(germline_vcf_ins_region_filter, germline_vcf_del_region_filter) %>%
+	germline_vcf_indel_region_filter <- bind_rows(germline_vcf_ins_region_filter, germline_vcf_del_region_filter) %>%
 		makeGRangesFromDataFrame(
 			seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
 		) %>%

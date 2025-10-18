@@ -1635,7 +1635,7 @@ for(i in names(germline_vcf_variants)){
 			filter(call_class=="indel", call_type == "insertion") %>%
 			mutate(
 				padding_m = indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-				padding_b = rep(indel_ins_pad$b, length(.)),
+				padding_b = indel_ins_pad$b,
 				start = start - pmax(padding_m,padding_b),
 				end = end + pmax(padding_m,padding_b)
 			)
@@ -1656,7 +1656,7 @@ for(i in names(germline_vcf_variants)){
 			filter(call_class=="indel", call_type == "deletion") %>%
 			mutate(
 				padding_m = indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer,
-				padding_b = rep(indel_del_pad$b, length(.)),
+				padding_b = indel_del_pad$b,
 				start = start - pmax(padding_m,padding_b),
 				end = end + pmax(padding_m,padding_b)
 			)

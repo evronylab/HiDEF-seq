@@ -984,7 +984,7 @@ cat("## Applying read SBS region filter...")
 #Extract padding configuration
 sbs_flank <- filtergroup_toanalyze_config %>% pull(ccs_sbs_flank)
 
-if(sbs_flank == 0){sbs_flank <- NULL}
+if(!is.null(sbs_flank) && sbs_flank == 0){sbs_flank <- NULL}
 
 #Create GRanges of sbs flanks with configured padding
 if(!is.null(sbs_flank)){
@@ -1055,7 +1055,7 @@ if(!is.null(ccs_ins_pad)){
 		filter(call_class=="indel", call_type == "insertion") %>%
 		mutate(
 			padding_m = ccs_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-			padding_b = ccs_ins_pad$b,
+			padding_b = rep(ccs_ins_pad$b, length(.)),
 			start = start - pmax(padding_m,padding_b),
 			end = end + pmax(padding_m,padding_b)
 		) %>%
@@ -1079,7 +1079,7 @@ if(!is.null(ccs_del_pad)){
 		filter(call_class=="indel", call_type == "deletion") %>%
 		mutate(
 			padding_m = ccs_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer,
-			padding_b = ccs_del_pad$b,
+			padding_b = rep(ccs_del_pad$b, length(.)),
 			start = start - pmax(padding_m,padding_b),
 			end = end + pmax(padding_m,padding_b)
 		) %>%
@@ -1635,7 +1635,7 @@ for(i in names(germline_vcf_variants)){
 			filter(call_class=="indel", call_type == "insertion") %>%
 			mutate(
 				padding_m = indel_ins_pad$m * nchar(alt_plus_strand) %>% round %>% as.integer,
-				padding_b = indel_ins_pad$b,
+				padding_b = rep(indel_ins_pad$b, length(.)),
 				start = start - pmax(padding_m,padding_b),
 				end = end + pmax(padding_m,padding_b)
 			)
@@ -1656,7 +1656,7 @@ for(i in names(germline_vcf_variants)){
 			filter(call_class=="indel", call_type == "deletion") %>%
 			mutate(
 				padding_m = indel_del_pad$m * nchar(ref_plus_strand) %>% round %>% as.integer,
-				padding_b = indel_del_pad$b,
+				padding_b = rep(indel_del_pad$b, length(.)),
 				start = start - pmax(padding_m,padding_b),
 				end = end + pmax(padding_m,padding_b)
 			)

@@ -736,6 +736,58 @@ cat("DONE\n")
 ######################
 cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
+#Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra.
+finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
+	bind_rows(
+		finalCalls.reftnc_spectra %>%
+			filter(call_class=="indel", SBSindel_call_type == "mutation") %>%
+			select(
+				analysis_id, individual_id, sample_id, chromgroup, call_class,
+				call_type,
+				SBSindel_call_type,
+				finalCalls.refindel_spectrum,
+				finalCalls_unique.refindel_spectrum,
+				finalCalls.refindel_spectrum.sigfit,
+				finalCalls_unique.refindel_spectrum.sigfit
+			) %>%
+			
+			#Sum insertion and deletion matrices (not grouping by call_type)
+			group_by(analysis_id, individual_id, sample_id, chromgroup, call_class, SBSindel_call_type) %>%
+			summarize(
+				#Spectra
+				across(
+					c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
+					function(x){
+						reduce(
+							x,
+							function(a,b){
+								map2(a, b, ~ .x + .y)
+							}
+						) %>%
+							list
+					}
+				),
+				
+				#Sigfit matrices, and rename rownames
+				across(
+					c(finalCalls.refindel_spectrum.sigfit, finalCalls_unique.refindel_spectrum.sigfit),
+					function(x){
+						result <- x %>%
+							reduce(`+`) %>%
+							list %>%
+							map(
+								function(y){
+									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
+									return(y)
+								}
+							)
+					}
+				),
+				
+				.groups = "drop"
+			)
+	)
+
 #Helper function: write TSV for a given tibble col_name
 write_col <- function(df.input, col_name.input, metadata.input, output_basename_full.input) {
 	metadata.input %>%
@@ -760,11 +812,11 @@ plot_col <- function(df.input, col_name.input, output_basename_full.input){
 	df.input %>%
 		plot_spectrum(
 			pdf_path = str_c(output_name, ".pdf"),
-			name = str_c(output_name %>% basename, "\n(", sum_counts, "calls)")
+			name = str_c(output_name %>% basename, "\n(", round(sum_counts,2), " calls)")
 			)
 }
 
-#Output spectra of finalCalls for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type
+#Output spectra of finalCalls for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type, as well as the added combined insertion+deletion mutation spectra.
 #Note: this outputs SBS/mismatch-ss trinucleotide distributions that were retained in finalCalls.reftnc_spectra from upstream calculateBurdens for every chromgroup/filtergroup, even if not configured to call SBS/mismatch-ss in a chromgroup/filtergroup. This aids assessment of mismatch patterns for every chromgroup/filtergroup for the purpose of evaluating SBS mutation error probability (which is also later calculated directly).
 finalCalls.reftnc_spectra %>%
 	pwalk(
@@ -772,13 +824,16 @@ finalCalls.reftnc_spectra %>%
 			x <- list(...)
 			
 			output_basename_full <- str_c(
-				str_c(finalCalls.spectra_dir,x$chromgroup,"/",output_basename),
-				x$chromgroup,
-				x$filtergroup,
-				x$call_class,
-				x$call_type,
-				x$SBSindel_call_type,
-				sep="."
+				c(
+					str_c(finalCalls.spectra_dir,x$chromgroup,"/",output_basename),
+					x$chromgroup %>% as.character,
+					x$filtergroup %>% as.character,
+					x$call_class %>% as.character,
+					x$call_type %>% as.character,
+					x$SBSindel_call_type %>% as.character
+				) %>%
+					discard(is.na), #Needed because filtergroup and call_type are NA for rows of combined insertion + deletion spectra
+				collapse="."
 			)
 			
 			metadata <- x %>%

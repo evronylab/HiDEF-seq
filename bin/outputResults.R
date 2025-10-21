@@ -62,6 +62,7 @@ analysis_id <- yaml.config$analysis_id
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
+	modify_tree(leaf = as.character) %>%
   bind_rows %>%
   filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)

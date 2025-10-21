@@ -161,6 +161,7 @@ run_metadata <- bamFile %>%
       map_chr(
         function(x){
           yamlruns <- yaml.config$runs %>%
+          	modify_tree(leaf = as.character) %>%
             map_df(~ tibble(run_id = .x$run_id, reads_file = .x$reads_file))
           
           yamlruns %>%

@@ -63,6 +63,7 @@ cat("#### Loading VCF variants...\n")
 
 #Load list of germline VCFs for all configured individuals
 vcf_files <- yaml.config$individuals %>%
+	modify_tree(leaf = as.character) %>%
   map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%

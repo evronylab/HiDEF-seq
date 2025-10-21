@@ -98,6 +98,7 @@ sensitivity_parameters <- yaml.config$sensitivity_parameters %>%
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
+	modify_tree(leaf = as.character) %>%
   bind_rows %>%
   filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
@@ -1467,6 +1468,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
+		modify_tree(leaf = as.character) %>%
 		map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
 		enframe(name=NULL) %>%
 		unnest_wider(value) %>%

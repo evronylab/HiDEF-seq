@@ -82,6 +82,7 @@ genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
 
  #individual_id of this sample_id
 individual_id_toanalyze <- yaml.config$samples %>%
+	modify_tree(leaf = as.character) %>%
   bind_rows %>%
   filter(sample_id == sample_id_toanalyze) %>%
   pull(individual_id)
@@ -1146,6 +1147,7 @@ passfilter_label <- "min_germlineBAM_TotalReads.passfilter"
 germline_bam_samtools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
 			pull(germline_bam_file) %>%
@@ -1264,6 +1266,7 @@ variant_regions_bcftools_mpileup <- calls %>%
 germline_bam_bcftools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
 			pull(germline_bam_file) %>%

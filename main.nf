@@ -646,7 +646,7 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j 8 --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     """
 }

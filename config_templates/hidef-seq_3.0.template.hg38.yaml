@@ -91,6 +91,8 @@ ccs_ld_preload: /hidef/bin/pbconda/lib/libpthread-setaffinity.so
 ###
 ### Pipeline parameters
 ###
+pbmm2_override_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
+
 ccs_chunks: 30 # for processReads workflow
 lima_min_score: 80
 

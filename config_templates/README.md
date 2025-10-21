@@ -79,6 +79,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
+| `pbmm2_override_settings` | string | optional | Settings to add when running pbmm2 to override the default --preset CCS settings. For example, the supplied templates define here settings that mimic pbmm2 versions < 1.13 that biased more towards indels than substitutions when both alignments are valid. This removes residual clustered SBS mismatches near homopolymers at the cost of more indels, though note that this could potentially be mitigated in the absence of these custom pbmm2 settings using the `ccs_sbs_flank` setting. |
 | `ccs_chunks` | integer | required when `reads_type: subreads` | Number of chunks in which CCS consensus sequence calling is performed for subreads data. Resulting CCS chunks are then merged. |
 | `lima_min_score` | integer | yes | Minimum Lima barcode score enforced by `limaDemux`. See [lima documentation](https://lima.how/faq/filter-input.html#--min-score) for details. |
 | `analysis_chunks` | integer | yes | Number of chunks to split processed BAM files into in the `splitBAMs` workflow for subsequent `extractCalls` and `filterCalls` workflows. Higher values increase parallelism. |

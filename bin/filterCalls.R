@@ -119,7 +119,7 @@ region_read_filters_config <- yaml.config$region_filters %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
@@ -130,7 +130,7 @@ region_genome_filters_config <- yaml.config$region_filters %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
@@ -597,7 +597,20 @@ cat("DONE\n")
 cat("## Applying germline VCF variant filters...")
 
 #Load germline VCF filter data
-germline_vcf_variants <- qs_read(str_c(cache_dir,"/",individual_id_toanalyze,".germline_vcf_variants.qs2")) %>%
+germline_vcf_variants <- qs_read(
+	str_c(
+		cache_dir,
+		individual_id_toanalyze,".",
+		yaml.config$individuals %>%
+			modify_tree(leaf = as.character) %>%
+			bind_rows %>%
+			filter(individual_id == individual_id_toanalyze) %>%
+			pull(germline_bam_file) %>%
+			unique %>%
+			basename,
+		".germline_vcf_variants.qs2"
+		)
+	) %>%
   as_tibble
   
 #Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering

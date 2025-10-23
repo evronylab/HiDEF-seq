@@ -72,7 +72,7 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
 | --- | --- |
 | `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
 | `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | `analysis_id`, `individual_id`, `sample_id` identifier columns and sequencing run and read group metadata derived from BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
-| `${analysis_id}.${individual_id}.${sample_id}.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
+| `${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
 ## Output folders
 
@@ -282,7 +282,7 @@ The pipeline produces several files per per below, and each table contains metad
 - `total.tsv` — Total SBS mutation error probability across all trinucleotide channels recorded in `error_prob`.
 
 ### Serialized object (.qs2)
-For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
+For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
 Top-level configuration loaded from the analysis YAML, stored as nested lists per the structure and parameters documented in [`config_templates/`](../config_templates).

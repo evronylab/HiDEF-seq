@@ -57,16 +57,17 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 			write_tsv(tmpregions, col_names=FALSE)
 	}
 	
-	#Filter for records containing ALT alleles, and atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref])
+	#Atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref]), and filter for records containing ALT alleles.
   tmpvcf <- tempfile(tmpdir=getwd(),pattern=".")
   
   system(paste("/bin/bash -c",shQuote(paste(
     bcftools_bin,"view",
-    if(GT_exists){"-i 'GT=\"alt\"'"},
     if(!is.null(regions)){paste("-R",tmpregions)},
     vcf_file,"|",
     bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
-    bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null >",
+    bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
+    if(GT_exists){"|",bcftools_bin,"view -i 'GT=\"alt\"'"},
+    ">",
     tmpvcf
     )
    )))

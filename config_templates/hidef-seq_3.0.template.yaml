@@ -266,7 +266,7 @@ filtergroups:
     min_qual: 93
     min_qual_method: all
     read_trim_bp: 40
-    ccs_sbs_flank:
+    ccs_sbs_flank: 2
     ccs_ins_pad: m2b15
     ccs_del_pad: m2b15
     min_germlineBAM_TotalReads: 15

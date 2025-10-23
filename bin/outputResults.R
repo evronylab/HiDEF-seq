@@ -1171,7 +1171,7 @@ qs_save(
 		finalCalls.burdens,
 		estimatedSBSMutationErrorProbability
 	),
-	str_c(output_basename,".qs2")
+	str_c(output_basename,".outputResults.qs2")
 )
 
 cat("DONE\n")

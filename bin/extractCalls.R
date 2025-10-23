@@ -109,11 +109,11 @@ calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_
 						group_by(run_id) %>%
 						summarize(
 							num_molecules = n_distinct(zm),
-							num_refpacebases = sum(end - start),
+							num_refspacebases = sum(end - start),
 							.groups = "drop"
 						) %>%
 					complete(run_id,fill = list(
-						num_molecules=0, num_refpacebases=0
+						num_molecules=0, num_refspacebases=0
 						)
 					)
 				})

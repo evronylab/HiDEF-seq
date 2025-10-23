@@ -35,18 +35,22 @@ option_list = list(
   make_option(c("-c", "--config"), type = "character", default=NULL,
               help="path to YAML configuration file"),
   make_option(c("-i", "--individual_id"), type = "character", default=NULL,
-              help="individual_id to process")
+              help="individual_id to process"),
+  make_option(c("-o", "--output"), type = "character", default=NULL,
+  						help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config)){
+if(is.null(opt$config) | is.null(opt$individual_id) | is.null(opt$output)){
   stop("Missing input parameter(s)!")
 }
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 
 individual_id_toprocess <- opt$individual_id
+outputFile <- opt$output
+
 cache_dir <- yaml.config$cache_dir
 
 #Load the BSgenome reference
@@ -64,11 +68,8 @@ cat("#### Loading VCF variants...\n")
 #Load list of germline VCFs for all configured individuals
 vcf_files <- yaml.config$individuals %>%
 	modify_tree(leaf = as.character) %>%
-  map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
-  unnest_longer(germline_vcf_files) %>%
-  unnest_wider(germline_vcf_files)
+	bind_rows %>%
+	unnest_wider(germline_vcf_files)
 
 #Load VCF files
 cat("> Processing individual:",individual_id_toprocess,"\n")
@@ -101,7 +102,7 @@ for(i in 1:nrow(vcf_files_individual)){
 #Save variants to file
 qs_save(
 	germline_vcf_variants %>% GRangesList %>% unlist,
-  str_c(individual_id_toprocess,".germline_vcf_variants.qs2")
+	outputFile
   )
 
 cat("DONE\n")

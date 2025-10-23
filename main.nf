@@ -293,10 +293,11 @@ workflow {
   // Create input channel
   processGermlineVCFs_input_ch = Channel
     .from(params.individuals)
-    .map { individual -> individual.individual_id }
+    .map { individual -> tuple(individual.individual_id, file(individual.germline_bam_file)) }
     .combine(installBSgenome.out)
-    .map { individual_id, bsgenome_done -> individual_id }
-    .map { tuple(it, config_signatures.processGermlineVCFs) }
+    .map { individual_id, germline_bam_file, bsgenome_done -> 
+      tuple(individual_id, germline_bam_file, config_signatures.processGermlineVCFs)
+    }
 
   // Run process
   processGermlineVCFs(processGermlineVCFs_input_ch)
@@ -854,10 +855,10 @@ process processGermlineVCFs {
     container "${params.hidefseq_container}"
       
     input:
-      tuple val(individual_id), val(config_sig)
+      tuple val(individual_id), path(germline_bam_file), val(config_sig)
 
     output:
-      path "${individual_id}.germline_vcf_variants.qs2"
+      path "${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"
 
     storeDir "${params.cache_dir}"
 
@@ -870,7 +871,7 @@ process processGermlineVCFs {
 
     script:
     """
-    processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id}
+    processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
     """
 }
 

@@ -42,13 +42,13 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-		make_option(c("-o", "--output"), type = "character", default=NULL,
+	make_option(c("-o", "--output"), type = "character", default=NULL,
 							help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output) ){
+if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$chromgroup_toanalyze) | is.null(opt$filtergroup_toanalyze) | is.null(opt$files) | is.null(opt$output)){
 	stop("Missing input parameter(s)!")
 }
 
@@ -1487,7 +1487,20 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		as_tibble
 	
 	#Load germline VCF variants and filter to retain high-confidence variants
-	high_confidence_germline_vcf_variants <- qs_read(str_c(yaml.config$cache_dir,"/",individual_id,".germline_vcf_variants.qs2")) %>%
+	high_confidence_germline_vcf_variants <- qs_read(
+		str_c(
+			yaml.config$cache_dir,"/",
+			individual_id,".",
+			yaml.config$individuals %>%
+				modify_tree(leaf = as.character) %>%
+				bind_rows %>%
+				filter(individual_id == !!individual_id) %>%
+				pull(germline_bam_file) %>%
+				unique %>%
+				basename,
+			".germline_vcf_variants.qs2"
+		)
+	) %>%
 		as_tibble %>%
 		
 		#Separate genotypes of each allele

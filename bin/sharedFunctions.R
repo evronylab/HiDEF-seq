@@ -66,7 +66,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
     vcf_file,"|",
     bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
     bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
-    if(GT_exists){"|",bcftools_bin,"view -i 'GT=\"alt\"'"},
+    if(GT_exists){paste("|",bcftools_bin,"view -i 'GT=\"alt\"'")},
     ">",
     tmpvcf
     )

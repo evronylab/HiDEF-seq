@@ -1128,7 +1128,7 @@ process outputResultsSample {
     
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
-      path("${params.analysis_id}.${individual_id}.${sample_id}.qs2")
+      path("${params.analysis_id}.${individual_id}.${sample_id}.outputResults.qs2")
       path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")

@@ -133,7 +133,7 @@ Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh [input_bam] [output_basename] [re
 
 ### Requirements
 - HiDEF-seq docker image (either accessible via docker or downloaded as a singularity .sif image file)
-- <a href="https://www.nextflow.io/" target="_blank" rel="noopener noreferrer">Nextflow</a> v25.04.3 or newer
+- <a href="https://www.nextflow.io/" target="_blank" rel="noopener noreferrer">Nextflow</a> v25.10.0 or newer
 - Nextflow configuration file ([described above](#create-a-nextflow-configuration-file))
 - YAML parameters file (see below)
 

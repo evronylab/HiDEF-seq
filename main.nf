@@ -10,7 +10,7 @@ import java.security.MessageDigest
 //Define output directories and related helper functions
 sharedLogsDir = "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
 
-sampleBaseDir = { individual_id, sample_id -> "${params.analysis_output_dir}/${params.analysis_id}.${individual_id}.${sample_id}" }
+sampleBaseDir = { individual_id, sample_id -> "${params.analysis_id}.${individual_id}.${sample_id}" }
 dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
 dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processedReads" }
 dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
@@ -638,7 +638,7 @@ process pbmm2Align {
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
@@ -671,11 +671,13 @@ process mergeAlignedSampleBAMs {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.pbi"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.bam.bai")
 
-    publishDir { dirProcessReads(individual_id, sample_id) }, mode: 'link'
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      saveAs: { filename -> "${dirProcessReads(individual_id, sample_id)}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
@@ -711,7 +713,7 @@ process countZMWs {
       tuple path(bamFile), path(pbiFile), val(outFileSuffix)
     
     output:
-      path "*"
+      path "*.${outFileSuffix}"
     
     publishDir "${sharedLogsDir}", mode: "copy"
     
@@ -743,11 +745,14 @@ process splitBAM {
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
       val(chunkID)
 
-    publishDir { dirSplitBAMs(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirSplitBAMs(individual_id, sample_id)}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
       )
     }
@@ -1011,11 +1016,14 @@ process extractCallsChunk {
     output:
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
-    publishDir { dirExtractCalls(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirExtractCalls(individual_id, sample_id)}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
       )
     }
@@ -1049,11 +1057,14 @@ process filterCallsChunkChromgroupFiltergroup {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
-    publishDir { dirFilterCalls(individual_id, sample_id) }, mode: 'link', enabled: params.output_intermediate_files
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirFilterCalls(individual_id, sample_id)}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.chunk${chunkID}.command.log"
       )
     }
@@ -1088,20 +1099,26 @@ process calculateBurdensChromgroupFiltergroup {
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.bed.gz"), path("*.bed.gz.tbi"), emit: coverage_reftnc
 
-    publishDir { dirCalculateBurdens(individual_id, sample_id) }, mode: 'link', pattern: "*.calculateBurdens.qs2", enabled: params.output_intermediate_files
-    publishDir { "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}" }, mode: 'move', pattern: "*.bed.gz*"
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      pattern: "*.calculateBurdens.qs2",
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirCalculateBurdens(individual_id, sample_id)}/${filename}" }
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'move',
+      pattern: "*.bed.gz*",
+      saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.command.log"
       )
     }
 
     script:
     """
-    set -euo pipefail
-
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
@@ -1133,11 +1150,13 @@ process outputResultsSample {
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
         
-    publishDir { sampleBaseDir(individual_id, sample_id) }, mode: 'move'
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'move',
+      saveAs: { filename -> "${sampleBaseDir(individual_id, sample_id)}/${filename}" }
 
     afterScript{
       generateAfterScript(
-        dirSampleLogs(individual_id, sample_id),
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
         "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }

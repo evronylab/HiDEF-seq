@@ -279,7 +279,7 @@ Estimated SBS mutation error probabilities are output to `estimatedSBSMutationEr
 The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`) and additional fields:
 
 - `by_channel_pyr.tsv` — `channel_pyr` (reference>call central pyrimidine trinucleotide channel) and `error_prob` (error probability).
-- `total.tsv` — Total SBS mutation error probability across all trinucleotide channels recorded in `error_prob`.
+- `total.tsv` — Total SBS mutation error probability across all trinucleotide channels recorded in `error_prob` (relative to interrogated bases), `error_prob_corrected_to_genome` (corrected to whole genome trinucleotide distribution), and `error_prob_corrected_to_genome_chromgroup` (corrected to genome's chromgroup chromosomes).
 
 ### Serialized object (.qs2)
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
@@ -385,7 +385,7 @@ Columns as per `.finalCalls.burdens.tsv` described above, in one table for all c
 
 Table containing estimated SBS mutation error probabilities, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables:
 
-| Column           | Description                                                  |
-| ---------------- | ------------------------------------------------------------ |
-| `by_channel_pyr` | Same format as `estimatedSBSMutationErrorProbability.*.channel_pyr.tsv` described above. |
-| `total`          | Same format as `.estimatedSBSMutationErrorProbability.*.total.tsv` described above. |
+| Column                                                       | Description                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `by_channel_pyr`                                             | Same format as `estimatedSBSMutationErrorProbability.*.channel_pyr.tsv` described above. |
+| `total`, `total_corrected_to_genome`, `total_corrected_to_genome_chromgroup` | Total error probabilities; same format as `.estimatedSBSMutationErrorProbability.*.total.tsv` described above. |

@@ -1681,7 +1681,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 ### Calculate estimated SBS mutation error rates per trinucleotide call channel and total error rate
 ######################
 cat("## Calculating estimated SBS mutation error probability per trinucleotide call channel and total error probability...")
-#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
+#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. The error rate is calculated both using raw burdens and with burdens corrected for the whole genome and for the genome chromgroup. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
 estimatedSBSMutationErrorProbability <- list()
 
 #Calculate burden of each trinucleotide call channel
@@ -1702,9 +1702,11 @@ estimatedSBSMutationErrorProbability_by_channel <- left_join(
 	suffix = c(".calls",".interrogated_bases")
 ) %>%
 	mutate(
-		burden = count.calls / count.interrogated_bases
+		burden = count.calls / count.interrogated_bases,
+		burden_corrected_to_genome = count_corrected_to_genome / count.interrogated_bases,
+		burden_corrected_to_genome_chromgroup = count_corrected_to_genome_chromgroup / count.interrogated_bases
 	) %>%
-	select(channel, burden)
+	select(channel, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup)
 
 #Remove SBS/mismatch-ss from bam.gr.filtertrack.bytype if it is not part of call_types_toanalyze, since it was only retained until here in order to calculate SBS mutation error probability.
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
@@ -1724,22 +1726,36 @@ estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationError
 			factor(levels = sbs192_labels)
 	) %>%
 	left_join(
-		x = select(., channel, channel_rc, burden),
-		y = select(., channel_rc, burden),
+		x = select(., channel, channel_rc, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup),
+		y = select(., channel_rc, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup),
 		by = join_by(channel == channel_rc),
 		suffix = c("",".rc")
 	) %>%
 	mutate(
 		error_prob = burden * burden.rc,
+		error_prob_corrected_to_genome = burden_corrected_to_genome * burden_corrected_to_genome.rc,
+		error_prob_corrected_to_genome_chromgroup = burden_corrected_to_genome_chromgroup * burden_corrected_to_genome_chromgroup.rc,
 		channel_pyr = if_else(channel %>% str_sub(2,2) %in% c("C","T"), channel, channel_rc) %>%
 			factor(levels = sbs96_labels.sigfit)
 	) %>%
 	group_by(channel_pyr) %>%
-	summarize(error_prob = sum(error_prob, na.rm = TRUE)) %>%
+	summarize(
+		error_prob = sum(error_prob, na.rm = TRUE),
+		error_prob_corrected_to_genome = sum(error_prob_corrected_to_genome, na.rm = TRUE),
+		error_prob_corrected_to_genome_chromgroup = sum(error_prob_corrected_to_genome_chromgroup, na.rm = TRUE)
+		) %>%
 	arrange(channel_pyr)
 
 estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
 	pull(error_prob) %>% 
+	sum
+
+estimatedSBSMutationErrorProbability$total_corrected_to_genome <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
+	pull(error_prob_corrected_to_genome) %>% 
+	sum
+
+estimatedSBSMutationErrorProbability$total_corrected_to_genome_chromgroup <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
+	pull(error_prob_corrected_to_genome_chromgroup) %>% 
 	sum
 
 rm(estimatedSBSMutationErrorProbability_by_channel)

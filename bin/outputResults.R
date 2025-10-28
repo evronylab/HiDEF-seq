@@ -1138,8 +1138,12 @@ estimatedSBSMutationErrorProbability %>%
 			
 			#total error probability tsv
 			metadata %>%
-				mutate(error_prob = list(x$total)) %>%
-				unnest(error_prob) %>%
+				mutate(
+					error_prob = list(x$total),
+					error_prob_corrected_to_genome = list(x$total_corrected_to_genome),
+					error_prob_corrected_to_genome_chromgroup = list(x$total_corrected_to_genome_chromgroup)
+					) %>%
+				unnest(c(error_prob, error_prob_corrected_to_genome, error_prob_corrected_to_genome_chromgroup)) %>%
 				write_tsv(str_c(output_basename_full, ".estimatedSBSMutationErrorProbability.total.tsv"))
 		}
 	)

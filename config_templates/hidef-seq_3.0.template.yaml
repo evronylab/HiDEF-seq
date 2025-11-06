@@ -167,24 +167,24 @@ call_types:
         filtergroup: strict
       - SBSindel_call_type: mismatch-ds
         filtergroup: strict
-  - call_type: 
-    call_class: MDB
-    analyzein_chromgroups:
-    MDB_bamtag: # only for MDB
-    MDB_min_score: # only for MDB
-    MDB_sensitivity: # only for MDB; sensitivity to detect MDB for sensitivity correction
-    MDB_base_opposite_strand:  # only for MDB; filter to require specific base on opposite strand or null if no filter
-    SBSindel_call_types:
-      - SBSindel_call_type: mutation
-        filtergroup: 
-      - SBSindel_call_type: mismatch-ss
-        filtergroup: 
-      - SBSindel_call_type: mismatch-ds
-        filtergroup: 
-      - SBSindel_call_type: mismatch-os
-        filtergroup: 
-      - SBSindel_call_type: match
-        filtergroup: 
+# - call_type: 
+#   call_class: MDB
+#   analyzein_chromgroups:
+#   MDB_bamtag: # only for MDB
+#   MDB_min_score: # only for MDB
+#   MDB_sensitivity: # only for MDB; sensitivity to detect MDB for sensitivity correction
+#   MDB_base_opposite_strand:  # only for MDB; filter to require specific base on opposite strand or null if no filter
+#   SBSindel_call_types:
+#     - SBSindel_call_type: mutation
+#       filtergroup: 
+#     - SBSindel_call_type: mismatch-ss
+#       filtergroup: 
+#     - SBSindel_call_type: mismatch-ds
+#       filtergroup: 
+#     - SBSindel_call_type: mismatch-os
+#       filtergroup: 
+#     - SBSindel_call_type: match
+#       filtergroup: 
 
 ###
 ### Germline VCF filters

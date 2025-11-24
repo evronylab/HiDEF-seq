@@ -13,6 +13,7 @@ sharedLogsDir = "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
 sampleBaseDir = { individual_id, sample_id -> "${params.analysis_id}.${individual_id}.${sample_id}" }
 dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
 dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processedReads" }
+dirVerifyBAMID = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/verifyBAMID" }
 dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
 dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
 dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
@@ -233,6 +234,20 @@ workflow {
 
   // Run process
   pbmm2Align(pbmm2Align_input_ch)
+
+  //******************
+  // verifyBAMID
+  //******************
+
+  if (params.verifybamid_bin && params.verifybamid_resource_UD && params.verifybamid_resource_Bed && params.verifybamid_resource_Mean) {
+    // Create input channel
+    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+      tuple(run_id, individual_id, sample_id, bamFile)
+    }
+
+    // Run process
+    verifyBAMID(verifyBAMID_input_ch)
+  }
 
   //******************
   // countZMWs
@@ -649,6 +664,39 @@ process pbmm2Align {
     conda activate ${params.conda_pbbioconda_env}
     pbmm2 align -j 8 --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    """
+}
+
+/*
+  verifyBAMID: Runs VerifyBamID2 on aligned BAMs output by pbmm2Align.
+*/
+process verifyBAMID {
+    cpus 1
+    memory '16 GB'
+    time '2h'
+    tag { "verifyBAMID: ${sample_id} (${run_id})" }
+    container "${params.hidefseq_container}"
+
+    input:
+      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
+
+    output:
+      tuple val(run_id), val(individual_id), val(sample_id), path("${bamFile}.verifyBAMID.selfSM"), path("${bamFile}.verifyBAMID.Ancestry")
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'copy',
+      saveAs: { filename -> "${dirVerifyBAMID(individual_id, sample_id)}/${filename}" }
+
+    afterScript{
+      generateAfterScript(
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${run_id}.command.log"
+      )
+    }
+
+    script:
+    """
+    ${params.verifybamid_bin} --UDPath ${params.verifybamid_resource_UD} --BedPath ${params.verifybamid_resource_Bed} --MeanPath ${params.verifybamid_resource_Mean} --Reference ${params.genome_fasta} --BamFile ${bamFile} --Output ${bamFile}.verifyBAMID
     """
 }
 

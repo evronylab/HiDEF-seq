@@ -76,6 +76,11 @@ hidefseq_container: # HiDEF-seq v3 docker path or singularity sif file
 conda_base_script: /hidef/miniconda3/etc/profile.d/conda.sh
 conda_pbbioconda_env: /hidef/bin/pbconda
 samtools_bin: samtools
+# the verifyBAMID task will be skipped if any of the verifybamid parameters are blank
+verifybamid_bin: /hidef/bin/VerifyBamID
+verifybamid_resource_UD:
+verifybamid_resource_Bed:
+verifybamid_resource_Mean:
 bcftools_bin: bcftools
 bedGraphToBigWig_bin: /hidef/bin/bedGraphToBigWig
 wiggletools_bin: /hidef/bin/WiggleTools/bin/wiggletools

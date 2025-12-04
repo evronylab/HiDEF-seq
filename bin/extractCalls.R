@@ -403,7 +403,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   
   #Check if no calls
   if(cigar.queryspace.var %>% as.data.frame %>% nrow == 0){
-    cat("  No calls extracted of type",vartype_label,"!\n")
+    cat("  No calls extracted of type", call_class.input, " / ", call_type.input, "!\n")
     return(calls.out)
   }
   

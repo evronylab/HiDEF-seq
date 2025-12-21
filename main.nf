@@ -241,8 +241,8 @@ workflow {
 
   if (params.verifybamid_bin && params.verifybamid_resource_UD && params.verifybamid_resource_Bed && params.verifybamid_resource_Mean) {
     // Create input channel
-    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile, baiFile ->
-      tuple(run_id, individual_id, sample_id, bamFile, baiFile)
+    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+      tuple(run_id, individual_id, sample_id, bamFile)
     }
 
     // Run process
@@ -269,7 +269,7 @@ workflow {
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
-    .map { run_id, individual_id, sample_id, bamFile, pbiFile, baiFile ->
+    .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
         tuple(individual_id, sample_id, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
@@ -521,7 +521,7 @@ process ccsChunk {
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
     ${ld_preload_cmd}
-    ccs -j 8 --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
+    ccs -j ${task.cpus} --log-level INFO --by-strand --hifi-kinetics --instrument-files-layout --min-rq -1 --top-passes 255 \\
         --pbdc --pbdc-skip-min-qv 0 --subread-pileup-summary-tags --binned-qvs=False \\
         --chunk ${chunkID}/${params.ccs_chunks} \\
         --movie-name ${run_id}.chunk${chunkID} \\
@@ -587,7 +587,7 @@ process filterAdapter {
     
     script:
     """
-    ${params.samtools_bin} view -b -@8 -e "[ma]==0" ${bamFile} > ${run_id}.ccs.filtered.bam
+    ${params.samtools_bin} view -b -@ ${task.cpus} -e "[ma]==0" ${bamFile} > ${run_id}.ccs.filtered.bam
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
     pbindex ${run_id}.ccs.filtered.bam
@@ -649,7 +649,7 @@ process pbmm2Align {
       tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
     
     output:
-      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.bai")
+      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
 
     afterScript{
       generateAfterScript(
@@ -662,10 +662,8 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j 8 --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
-    ${params.samtools_bin} index -@8 ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
-    conda deactivate ${params.conda_pbbioconda_env}
     """
 }
 
@@ -673,14 +671,14 @@ process pbmm2Align {
   verifyBAMID: Runs VerifyBamID2 on aligned BAMs output by pbmm2Align.
 */
 process verifyBAMID {
-    cpus 1
-    memory '16 GB'
-    time '2h'
+    cpus 4
+    memory '32 GB'
+    time '8h'
     tag { "verifyBAMID: ${sample_id} (${run_id})" }
     container "${params.hidefseq_container}"
 
     input:
-      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile), path(baiFile)
+      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
 
     output:
       tuple val(run_id), val(individual_id), val(sample_id), path("${bamFile}.verifyBAMID.selfSM"), path("${bamFile}.verifyBAMID.Ancestry")
@@ -698,7 +696,8 @@ process verifyBAMID {
 
     script:
     """
-    ${params.verifybamid_bin} --UDPath ${params.verifybamid_resource_UD} --BedPath ${params.verifybamid_resource_Bed} --MeanPath ${params.verifybamid_resource_Mean} --Reference ${params.genome_fasta} --BamFile ${bamFile} --Output ${bamFile}.verifyBAMID
+    ${params.samtools_bin} sort -@ ${task.cpus} --write-index -o ${bamFile}.sorted.bam ${bamFile}
+    ${params.verifybamid_bin} --UDPath ${params.verifybamid_resource_UD} --BedPath ${params.verifybamid_resource_Bed} --MeanPath ${params.verifybamid_resource_Mean} --Reference ${params.genome_fasta} --BamFile ${bamFile}.sorted.bam --Output ${bamFile}.verifyBAMID
     """
 }
 
@@ -741,8 +740,8 @@ process mergeAlignedSampleBAMs {
     pbmerge -o \${sample_basename}.unsorted.bam ${bamFiles.join(' ')}
     conda deactivate
     
-    ${params.samtools_bin} sort -@4 -m 4G \${sample_basename}.unsorted.bam > \${sample_basename}.sorted.bam
-    ${params.samtools_bin} index -@4 \${sample_basename}.sorted.bam
+    ${params.samtools_bin} sort -@ ${task.cpus} -m 4G \${sample_basename}.unsorted.bam > \${sample_basename}.sorted.bam
+    ${params.samtools_bin} index -@ ${task.cpus} \${sample_basename}.sorted.bam
 
     conda activate ${params.conda_pbbioconda_env}
     pbindex \${sample_basename}.sorted.bam
@@ -827,7 +826,7 @@ process splitBAM {
 
     conda deactivate
 
-    ${params.samtools_bin} index -@2 \$chunk_bam
+    ${params.samtools_bin} index -@ ${task.cpus} \$chunk_bam
     """
 }
 
@@ -895,7 +894,7 @@ process extractGenomeTrinucleotides {
       awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
       ${params.bgzip_bin} -c > ${params.BSgenome.BSgenome_name}.bed.gz
 
-    ${params.tabix_bin} -@ 2 -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
+    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
     """
 }
 

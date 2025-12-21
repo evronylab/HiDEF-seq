@@ -241,8 +241,8 @@ workflow {
 
   if (params.verifybamid_bin && params.verifybamid_resource_UD && params.verifybamid_resource_Bed && params.verifybamid_resource_Mean) {
     // Create input channel
-    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile ->
-      tuple(run_id, individual_id, sample_id, bamFile)
+    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile, baiFile ->
+      tuple(run_id, individual_id, sample_id, bamFile, baiFile)
     }
 
     // Run process
@@ -269,7 +269,7 @@ workflow {
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
-    .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+    .map { run_id, individual_id, sample_id, bamFile, pbiFile, baiFile ->
         tuple(individual_id, sample_id, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
@@ -649,7 +649,7 @@ process pbmm2Align {
       tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
     
     output:
-      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
+      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.bai")
 
     afterScript{
       generateAfterScript(
@@ -664,6 +664,8 @@ process pbmm2Align {
     conda activate ${params.conda_pbbioconda_env}
     pbmm2 align -j 8 --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
     pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    ${params.samtools_bin} index -@8 ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    conda deactivate ${params.conda_pbbioconda_env}
     """
 }
 
@@ -678,7 +680,7 @@ process verifyBAMID {
     container "${params.hidefseq_container}"
 
     input:
-      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
+      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile), path(baiFile)
 
     output:
       tuple val(run_id), val(individual_id), val(sample_id), path("${bamFile}.verifyBAMID.selfSM"), path("${bamFile}.verifyBAMID.Ancestry")

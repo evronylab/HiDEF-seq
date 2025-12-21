@@ -697,7 +697,7 @@ process verifyBAMID {
     script:
     """
     ${params.samtools_bin} sort -@ ${task.cpus} --write-index -o ${bamFile}.sorted.bam ${bamFile}
-    ${params.verifybamid_bin} --UDPath ${params.verifybamid_resource_UD} --BedPath ${params.verifybamid_resource_Bed} --MeanPath ${params.verifybamid_resource_Mean} --Reference ${params.genome_fasta} --BamFile ${bamFile}.sorted.bam --Output ${bamFile}.verifyBAMID
+    ${params.verifybamid_bin} --DisableSanityCheck --UDPath ${params.verifybamid_resource_UD} --BedPath ${params.verifybamid_resource_Bed} --MeanPath ${params.verifybamid_resource_Mean} --Reference ${params.genome_fasta} --BamFile ${bamFile}.sorted.bam --Output ${bamFile}.verifyBAMID
     """
 }
 

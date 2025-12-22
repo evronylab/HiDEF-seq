@@ -812,16 +812,35 @@ process splitBAM {
     conda activate ${params.conda_pbbioconda_env}
 
     sample_basename=\$(basename ${bamFile} .bam)
-    
-    zmwfilter --show-all ${bamFile} > \${sample_basename}.zmwIDs.txt
-    total_zmws=\$(wc -l < \${sample_basename}.zmwIDs.txt)
-    zmws_per_chunk=\$(( (total_zmws + ${params.analysis_chunks} - 1) / ${params.analysis_chunks} ))
-    split -a 4 --numeric-suffixes=1 -l \$zmws_per_chunk \${sample_basename}.zmwIDs.txt \${sample_basename}.zmwIDs.chunk.
 
-    chunk_file=\$(ls \${sample_basename}.zmwIDs.chunk.* | sort | sed -n "${chunkID}p")
+    ids_file=\${sample_basename}.zmwIDs.txt
+    chunk_ids=\${sample_basename}.chunk${chunkID}.zmwIDs.txt
     chunk_bam=\${sample_basename}.chunk${chunkID}.bam
+    
+    zmwfilter --show-all ${bamFile} > \$ids_file
 
-    zmwfilter --include \$chunk_file ${bamFile} \$chunk_bam
+    total_zmws=\$(wc -l < \$ids_file)
+
+    awk -v T=\$total_zmws -v N=${params.analysis_chunks} -v K=${chunkID} '
+      BEGIN{
+        base=int(T/N); rem=T%N
+      }
+
+      {
+        if(NR == 1){chunk=1; left = base + (chunk <= rem)}
+        if(chunk == K){print}
+        left--
+        if(left==0){chunk++; left=base+(chunk<=rem); if(chunk>K){exit} }
+      }
+    ' \$ids_file > \$chunk_ids
+
+    # Fail if chunk_ids is empty (can happen when total_zmws < N and K > total_zmws)
+    if [ ! -s \$chunk_ids ]; then
+      echo "ERROR: chunkID=${chunkID} produced no ZMW IDs" >&2
+      exit 1
+    fi
+
+    zmwfilter --include \$chunk_ids ${bamFile} \$chunk_bam
     pbindex \$chunk_bam
 
     conda deactivate

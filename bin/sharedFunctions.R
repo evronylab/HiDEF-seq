@@ -187,16 +187,36 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
     as.list %>%
     interaction(drop = TRUE)
   
-  #Find all overlaps, then pick only those where the metadata‐keys match
-  hits <- findOverlaps(x, y, ignore.strand = ignore.strand)
-  qh <- queryHits(hits)
-  sh <- subjectHits(hits)
-  sameKey <- as.character(key_x[qh]) == as.character(key_y[sh])
-  if (!any(sameKey)) return(x)
+  keys_all <- factor(c(key_x,key_y))
+  id_x <- as.integer(keys_all)[seq_along(x)]
+  id_y <- as.integer(keys_all)[length(x) + seq_along(y)]
+  
+  #Change seqnames to contain key
+  x2 <- GRanges(
+  	seqnames = str_c(as.character(seqnames(x)), "|", id_x),
+  	ranges = ranges(x),
+  	strand = strand(x),
+  	mcols = mcols(x)
+  )
+  
+  y2 <- GRanges(
+  	seqnames = str_c(as.character(seqnames(y)), "|", id_y),
+  	ranges = ranges(y),
+  	strand = strand(y),
+  	mcols = mcols(y)
+  ) %>%
+  	GNCList
+  
+  #Find all overlaps
+  hits <- findOverlaps(x2, y2, ignore.strand = ignore.strand) %>%
+  	suppressWarnings #Hide warning about unshared seqlevels between x2 and y2
+  
+  if(length(hits) == 0){return(x)}
   
   #Obtain intersecting segments for matched hits
-  qh <- qh[sameKey]
-  sh <- sh[sameKey]
+  qh <- queryHits(hits)
+  sh <- subjectHits(hits)
+  
   segs_to_remove <- pintersect(x[qh], y[sh], ignore.strand = ignore.strand)
   
   #Split x and segs_to_remove by the index of x,

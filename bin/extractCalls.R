@@ -1145,7 +1145,6 @@ calls.gr <- calls %>%
   mutate(
     start = if_else(call_type=="insertion",end_refspace,start_refspace),
     end = if_else(call_type=="insertion",start_refspace,end_refspace),
-    strand_copy = strand
     ) %>%
   makeGRangesFromDataFrame(
     seqnames.field="seqnames",
@@ -1156,59 +1155,105 @@ calls.gr <- calls %>%
     seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
   )
 
- #Annotate calls GRanges with opposite strand calls
-calls.gr <- calls.gr %>%
-  join_overlap_left(
-    calls.gr %>% filter(call_class %in% c("SBS","indel")),
-    suffix = c("",".opposite_strand")
-  ) %>%
-  filter(
-    run_id == run_id.opposite_strand,
-    zm == zm.opposite_strand,
-    strand_copy != strand_copy.opposite_strand,
-    (
-      call_class %in% c("SBS","MDB") & call_type.opposite_strand == "SBS" &
-      start_refspace == start_refspace.opposite_strand &
-      end_refspace == end_refspace.opposite_strand
-    ) |
-    (
-      call_class %in% c("SBS","MDB") & call_type.opposite_strand == "deletion" &
-        start_refspace >= start_refspace.opposite_strand &
-        end_refspace <= end_refspace.opposite_strand
-    ) |
-    (
-      call_type == "insertion" & call_type.opposite_strand == "insertion" &
-        start_refspace == start_refspace.opposite_strand &
-        end_refspace == end_refspace.opposite_strand
-    ) |
-    (
-      call_type == "insertion" & call_type.opposite_strand == "deletion" &
-        start_refspace >= start_refspace.opposite_strand &
-        end_refspace <= end_refspace.opposite_strand
-    ) |
-    (
-      call_type == "deletion" & call_type.opposite_strand == "SBS" &
-      start_refspace <= start_refspace.opposite_strand &
-      end_refspace >= end_refspace.opposite_strand
-    ) |
-    (
-      call_type == "deletion" & call_type.opposite_strand == "insertion" &
-        start_refspace <= start_refspace.opposite_strand &
-        end_refspace >= end_refspace.opposite_strand
-    ) |
-    (
-      call_type == "deletion" & call_type.opposite_strand == "deletion" &
-        start_refspace <= end_refspace.opposite_strand &
-        end_refspace >= start_refspace.opposite_strand
-    )
-  ) %>%
-  mutate(
-    deletion.bothstrands.startendmatch = case_when(
-      call_type != "deletion" | call_type.opposite_strand != "deletion" ~ NA,
-    	start_refspace == start_refspace.opposite_strand & end_refspace == end_refspace.opposite_strand ~ TRUE,
-      start_refspace != start_refspace.opposite_strand | end_refspace != end_refspace.opposite_strand ~ FALSE
-    )
-  )
+ #Initialize new opposite strand columns
+calls.gr$call_class.opposite_strand <- factor(NA, levels = levels(calls.gr$call_class))
+calls.gr$call_type.opposite_strand  <- factor(NA, levels = levels(calls.gr$call_type))
+calls.gr$alt_plus_strand.opposite_strand <- NA_character_
+calls.gr$deletion.bothstrands.startendmatch <- NA
+
+ #Create GRanges (current and opposite strand) with new seqnames keys so overlaps only occur within same chromosome, run_id, zm, opposite strand. For opposite strand GRanges, keep only SBS and indel calls.
+calls.gr.keyed <- GRanges(
+	seqnames = calls.gr %>%
+		as_tibble %>%
+		select(seqnames, run_id, zm, strand) %>%
+		as.list %>%
+		interaction(drop = TRUE),
+	ranges = ranges(calls.gr),
+	strand = "*"
+)
+
+calls.gr.keyed.opposite <- GRanges(
+	seqnames = calls.gr %>%
+		as_tibble %>%
+		select(seqnames, run_id, zm, strand) %>%
+		mutate(strand = strand %>% case_match("+" ~ "-", "-" ~ "+", "*" ~ "*")) %>%
+		as.list %>%
+		interaction(drop = TRUE),
+	ranges = ranges(calls.gr),
+	strand = "*"
+)
+mcols(calls.gr.keyed.opposite) = mcols(calls.gr)[,c("call_class","call_type","alt_plus_strand","start_refspace","end_refspace")]
+
+calls.gr.keyed.opposite <- calls.gr.keyed.opposite %>%
+	filter(call_class %in% c("SBS","indel"))
+
+#Find overlaps
+calls.gr.hits <- findOverlaps(calls.gr.keyed, calls.gr.keyed.opposite, ignore.strand = TRUE) %>%
+	suppressWarnings #Hide warning about unshared seqlevels between calls.gr.keyed and calls.gr.keyed.opposite
+
+qh <- queryHits(calls.gr.hits)
+sh <- subjectHits(calls.gr.hits)
+
+q_call_class <- calls.gr$call_class[qh]
+q_call_type <- calls.gr$call_type[qh]
+q_start_refspace <- calls.gr$start_refspace[qh]
+q_end_refspace <- calls.gr$end_refspace[qh]
+
+s_call_type <- calls.gr.keyed.opposite$call_type[sh]
+s_start_refspace <- calls.gr.keyed.opposite$start_refspace[sh]
+s_end_refspace <- calls.gr.keyed.opposite$end_refspace[sh]
+
+calls.gr.hits.keep <- 
+	(
+		q_call_class %in% c("SBS","MDB") & s_call_type == "SBS" &
+			q_start_refspace == s_start_refspace & q_end_refspace == s_end_refspace
+	) |
+	(
+		q_call_class %in% c("SBS","MDB") & s_call_type == "deletion" &
+			q_start_refspace >= s_start_refspace & q_end_refspace <= s_end_refspace
+	) |
+	(
+		q_call_type == "insertion" & s_call_type == "insertion" &
+			q_start_refspace == s_start_refspace & q_end_refspace == s_end_refspace
+	) |
+	(
+		q_call_type == "insertion" & s_call_type == "deletion" &
+			q_start_refspace >= s_start_refspace & q_end_refspace <= s_end_refspace
+	) |
+	(
+		q_call_type == "deletion" & s_call_type == "SBS" &
+			q_start_refspace <= s_start_refspace & q_end_refspace >= s_end_refspace
+	) |
+	(
+		q_call_type == "deletion" & s_call_type == "insertion" &
+			q_start_refspace <= s_start_refspace & q_end_refspace >= s_end_refspace
+	) |
+	(
+		q_call_type == "deletion" & s_call_type == "deletion" &
+			q_start_refspace <= s_end_refspace & q_end_refspace >= s_start_refspace
+	)
+
+calls.gr <- calls.gr[qh[calls.gr.hits.keep]]
+calls.gr.keyed.opposite <- calls.gr.keyed.opposite[sh[calls.gr.hits.keep]]
+
+#Copy opposite-strand annotations for each overlap-pair row
+calls.gr$call_class.opposite_strand <- calls.gr.keyed.opposite$call_class
+calls.gr$call_type.opposite_strand  <- calls.gr.keyed.opposite$call_type
+calls.gr$alt_plus_strand.opposite_strand <- calls.gr.keyed.opposite$alt_plus_strand
+calls.gr$start_refspace.opposite_strand <- calls.gr.keyed.opposite$start_refspace
+calls.gr$end_refspace.opposite_strand <- calls.gr.keyed.opposite$end_refspace
+
+calls.gr <- calls.gr %>% 
+	mutate(
+		deletion.bothstrands.startendmatch = case_when(
+			call_type != "deletion" | call_type.opposite_strand != "deletion" ~ NA,
+			start_refspace == start_refspace.opposite_strand & end_refspace == end_refspace.opposite_strand ~ TRUE,
+			start_refspace != start_refspace.opposite_strand | end_refspace != end_refspace.opposite_strand ~ FALSE
+		)
+	) %>%
+	select(-start_refspace.opposite_strand, -end_refspace.opposite_strand)
+
+rm(calls.gr.keyed, calls.gr.keyed.opposite, calls.gr.hits, qh, sh, q_call_class, q_call_type, q_start_refspace, q_end_refspace, s_call_type, s_start_refspace, s_end_refspace, calls.gr.hits.keep)
 
  #Join to calls with opposite strand information.
  # Note that for deletions with one partially overlapping deletion on the opposite strand, alt_plus_strand.opposite_strand will still equal "" even though part of the analyzed deletion's sequence is still present in the opposite strand. Likewise for deletions with > 1 overlapping SBS, insertion, or deletion on the opposite strand, alt_plus_strand.opposite_strand will contain the sequence of one random one of these. These two issues would be difficult to fix, and are not critical for downstream analysis.

@@ -195,15 +195,13 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
   x2 <- GRanges(
   	seqnames = str_c(as.character(seqnames(x)), "|", id_x),
   	ranges = ranges(x),
-  	strand = strand(x),
-  	mcols = mcols(x)
+  	strand = strand(x)
   )
   
   y2 <- GRanges(
   	seqnames = str_c(as.character(seqnames(y)), "|", id_y),
   	ranges = ranges(y),
-  	strand = strand(y),
-  	mcols = mcols(y)
+  	strand = strand(y)
   ) %>%
   	GNCList
   

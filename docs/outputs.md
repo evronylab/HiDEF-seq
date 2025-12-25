@@ -60,11 +60,12 @@ Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].s
 - Any additional helper tables emitted globally, including cached configuration manifests and chunk-level tracking TSVs.
 
 ### Per-sample logs
-Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `verifyBAMID`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.).  Logs are renamed to start with the process name followed by the sample identifiers and any additional context keys needed by that process:
+Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `verifyBAMID`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.). Logs are renamed to start with the process name followed by the sample identifiers and any additional context keys needed by that process:
 
 - Core sample scope: `processName.${analysis_id}.${individual_id}.${sample_id}.command.log` (for example `mergeAlignedSampleBAMs.A123.I456.S789.command.log`).
 - Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
 - Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
+- Per-barcode alignments append the run and barcode identifiers (for example `pbmm2Align.A123.Run123.I456.S789.bc2009.command.log` and `verifyBAMID.A123.Run123.I456.S789.bc2009.command.log`).
 
 ## Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
@@ -136,12 +137,12 @@ During `processReads`, the pipeline adds to the sharedLogs directory:
 
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/verifyBAMID/` (written when all `verifybamid_*` parameters are set)
 
-One VerifyBamID2 run is emitted per `run_id`/`sample_id` pair aligned by `pbmm2Align`. Two outputs are produced for each run, with the input BAM file name from `pbmm2Align` as the prefix:
+One VerifyBamID2 run is emitted per `run_id`/`sample_id`/`barcode_id` alignment produced by `pbmm2Align`. Two outputs are produced for each run, with the input BAM file name from `pbmm2Align` as the prefix:
 
 | File | Description |
 | --- | --- |
-| `${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.verifyBAMID.selfSM` | Contamination metrics in the VerifyBamID format; the `FREEMIX` column reports the estimated contamination level. |
-| `${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.verifyBAMID.Ancestry` | Principal components describing the intended and contaminating samples. |
+| `${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.verifyBAMID.selfSM` | Contamination metrics in the VerifyBamID format; the `FREEMIX` column reports the estimated contamination level. |
+| `${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.verifyBAMID.Ancestry` | Principal components describing the intended and contaminating samples. |
 
 If any of the `verifybamid_*` configuration parameters are left blank in the configuration templates, the `verifyBAMID` task is skipped and this directory is not created.
 

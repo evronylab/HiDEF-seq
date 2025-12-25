@@ -229,7 +229,7 @@ workflow {
           barcode_id == demux_barcode_id
       }
       .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-          tuple(run_id, sample_to_individual[sample_id], sample_id, demux_bam)
+          tuple(run_id, sample_to_individual[sample_id], sample_id, barcode_id, demux_bam)
       }
 
   // Run process
@@ -241,8 +241,8 @@ workflow {
 
   if (params.verifybamid_bin && params.verifybamid_resource_UD && params.verifybamid_resource_Bed && params.verifybamid_resource_Mean) {
     // Create input channel
-    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, bamFile, pbiFile ->
-      tuple(run_id, individual_id, sample_id, bamFile)
+    verifyBAMID_input_ch = pbmm2Align.out.map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile ->
+      tuple(run_id, individual_id, sample_id, barcode_id, bamFile)
     }
 
     // Run process
@@ -256,8 +256,8 @@ workflow {
   // Create input channel
   countZMWs_input_ch = countZMWs_initial_ch.mix(
       filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
-      pbmm2Align_input_ch.map { run_id, individual_id, sample_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
-      pbmm2Align.out.map { f -> tuple(f[3], f[4], "zmwcount.txt") }
+      pbmm2Align_input_ch.map { run_id, individual_id, sample_id, barcode_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
+      pbmm2Align.out.map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile -> tuple(bamFile, pbiFile, "zmwcount.txt") }
     )
 
   // Run process
@@ -269,7 +269,7 @@ workflow {
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
-    .map { run_id, individual_id, sample_id, bamFile, pbiFile ->
+    .map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile ->
         tuple(individual_id, sample_id, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
@@ -642,19 +642,19 @@ process pbmm2Align {
     cpus 8
     memory '64 GB'
     time '12h'
-    tag { "pbmm2Align: ${sample_id}" }
+    tag { "pbmm2Align: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
     
     input:
-      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path(bamFile)
     
     output:
-      tuple val(run_id), val(individual_id), val(sample_id), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam.pbi")
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.pbi")
 
     afterScript{
       generateAfterScript(
         "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
-        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.${individual_id}.${sample_id}.${barcode_id}.command.log"
       )
     }
 
@@ -662,8 +662,8 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
-    pbindex ${run_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
+    pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
     """
 }
 
@@ -674,14 +674,14 @@ process verifyBAMID {
     cpus 4
     memory '32 GB'
     time '8h'
-    tag { "verifyBAMID: ${sample_id} (${run_id})" }
+    tag { "verifyBAMID: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
 
     input:
-      tuple val(run_id), val(individual_id), val(sample_id), path(bamFile)
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path(bamFile)
 
     output:
-      tuple val(run_id), val(individual_id), val(sample_id), path("${bamFile}.verifyBAMID.selfSM"), path("${bamFile}.verifyBAMID.Ancestry")
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path("${bamFile}.verifyBAMID.selfSM"), path("${bamFile}.verifyBAMID.Ancestry")
 
     publishDir path: "${params.analysis_output_dir}",
       mode: 'copy',
@@ -690,7 +690,7 @@ process verifyBAMID {
     afterScript{
       generateAfterScript(
         "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
-        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${run_id}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.${individual_id}.${sample_id}.${barcode_id}.command.log"
       )
     }
 

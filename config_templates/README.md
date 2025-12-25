@@ -34,7 +34,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `reads_type` | string (`subreads` or `ccs`) | yes | Type of reads: `subreads` data are split into `ccs_chunks` for CCS consensus calling, while `ccs` data skip CCS consensus calling. All `runs[].reads_file` entries must have the same `reads_type`. |
 | `runs[].run_id` | string | yes | Run identifier propagated to data outputs. |
 | `runs[].reads_file` | path | yes | Absolute path to the CCS or subread BAM. A companion BAM index file with suffix `.pbi` is expected. |
-| `runs[].samples[]` | list | yes | Barcode definitions for each sample present in the run. |
+| `runs[].samples[]` | list | yes | Barcode definitions for each sample present in the run. A single sample may have multiple different barcode definitions (for example, a sample prepared with multiple barcodes and sequenced together in the same run). |
 | `runs[].samples[].sample_id` | string | yes | Sample identifier. Must match an entry in samples[].sample_id`. |
 | `runs[].samples[].barcode_id` | string | yes | Barcode label used during BAM demultiplexing. |
 | `runs[].samples[].barcode` | DNA sequence | yes | Barcode sequence. |

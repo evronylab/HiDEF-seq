@@ -106,7 +106,7 @@ call_types_toanalyze <- yaml.config$call_types %>%
 		filtergroup == filtergroup_toanalyze
 		) %>%
 	mutate(filtergroup = filtergroup %>% factor)
-  
+
  #filter group parameters (restrict to selected filtergroup_toanalyze)
 filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
   enframe(name=NULL) %>%
@@ -239,54 +239,87 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 	stopifnot(inherits(query, "GenomicRanges"), inherits(subject, "GenomicRanges"))
 	
 	nq <- length(query)
+	ns <- length(subject)
 	
 	if(nq == 0){return(logical())} #Empty query
-	if(length(subject) == 0){return(rep(FALSE, nq))} #Empty subject
+	if(ns == 0){return(rep(FALSE, nq))} #Empty subject
 	
-	hits <- findOverlaps(query, subject, ignore.strand = ignore.strand)
+	if(length(join_mcols) > 0){
+		q_mcols <- mcols(query)
+		s_mcols <- mcols(subject)
+		
+		if(!all(join_mcols %in% colnames(q_mcols)) || !all(join_mcols %in% colnames(s_mcols))){
+			stop("All `join_mcols` must exist as metadata columns in both query and subject.")
+		}
+		
+		key_q <- query %>%
+			as_tibble %>%
+			select(all_of(join_mcols)) %>%
+			as.list %>%
+			interaction(drop = TRUE)
+		
+		key_s <- subject %>%
+			as_tibble %>%
+			select(all_of(join_mcols)) %>%
+			as.list %>%
+			interaction(drop = TRUE)
+		
+		keys_all <- factor(c(key_q,key_s))
+		id_q <- as.integer(keys_all)[seq_len(nq)]
+		id_s <- as.integer(keys_all)[nq + seq_len(ns)]
+		
+		# Make NA ids unique and disjoint between query and subject so they never overlap.
+		if(anyNA(id_q)){
+			idx <- id_q %>% is.na %>% which
+			id_q[idx] <- -idx
+		}
+		if(anyNA(id_s)){
+			idx <- id_s %>% is.na %>% which
+			id_s[idx] <- -(nq + idx)
+		}
+		
+	}else{
+		#No join keys: everyone shares the same id => equivalent to no join constraint.
+		id_q <- rep.int(1L, nq)
+		id_s <- rep.int(1L, ns)
+	}
+	
+	#Change seqnames to contain key
+	q2 <- GRanges(
+		seqnames = str_c(as.character(seqnames(query)), "|", id_q),
+		ranges = ranges(query),
+		strand = strand(query)
+	)
+	
+	s2 <- GRanges(
+		seqnames = str_c(as.character(seqnames(subject)), "|", id_s),
+		ranges = ranges(subject),
+		strand = strand(subject)
+	) %>%
+		GNCList
+	
+	hits <- findOverlaps(q2, s2, ignore.strand = ignore.strand) %>%
+		suppressWarnings #Hide warning about unshared seqlevels between q2 and s2
 	
 	if(overlap_adjacent_query_insertion == TRUE){
-		hits_adjacent_query_insertion <- findOverlaps(query, subject, ignore.strand = ignore.strand, maxgap = 0)
+		hits_adj <- findOverlaps(q2, s2, ignore.strand = ignore.strand, maxgap = 0) %>%
+			suppressWarnings
 		
-		q_hits_adjacent_query_insertion <- queryHits(hits_adjacent_query_insertion)
-		s_hits_adjacent_query_insertion <- subjectHits(hits_adjacent_query_insertion)
+		qh_adj <- queryHits(hits_adj)
+		sh_adj <- subjectHits(hits_adj)
 		
-		hits_adjacent_query_insertion <- hits_adjacent_query_insertion[
-			query[q_hits_adjacent_query_insertion] %>% width == 0 &
-				subject[s_hits_adjacent_query_insertion] %>% width != 0
+		hits_adj <- hits_adj[
+			(query[qh_adj] %>% width == 0) & (subject[sh_adj] %>% width != 0)
 			]
 		
-		hits <- GenomicRanges::union(hits, hits_adjacent_query_insertion)
-		rm(hits_adjacent_query_insertion)
+		hits <- GenomicRanges::union(hits, hits_adj)
+		rm(hits_adj)
 	}
 	
-	if (length(hits) == 0) return(rep(FALSE, nq)) #No overlap
-	
-	qh <- queryHits(hits)
-	sh <- subjectHits(hits)
-	
-	#Check join_mcols equality
-	if (length(join_mcols) == 0) {
-	  return(tabulate(qh, nbins = nq) > 0L) #No keys, so every hit valid
-	}
-	
-	q_mcols <- mcols(query)
-	s_mcols <- mcols(subject)
-	
-	if (!all(join_mcols %in% colnames(q_mcols)) || !all(join_mcols %in% colnames(s_mcols))){
-		stop("All `join_mcols` must exist as metadata columns in both query and subject.")
-	}
-	
-	#Find shared join_mcols; note: any NA in any join_mcols column ⇒ non-match
-	same_join_mcols <- vctrs::vec_equal(
-	  as.data.frame(q_mcols[qh, join_mcols, drop = FALSE]),
-	  as.data.frame(s_mcols[sh, join_mcols, drop = FALSE]),
-	  na_equal = FALSE
-	  )
-	same_join_mcols[is.na(same_join_mcols)] <- FALSE
+	if(length(hits) == 0){return(rep(FALSE, nq))} #No overlap
 
 	#Output result
-	tabulate(qh[same_join_mcols], nbins = nq) > 0L
+	tabulate(queryHits(hits), nbins = nq) > 0L
 }
 
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info

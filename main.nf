@@ -473,9 +473,9 @@ process makeBarcodesFasta {
     }
     
     script:
-      """
-      echo -e "${content}" > barcodes.fasta
-      """
+    """
+    echo -e "${content}" > barcodes.fasta
+    """
 }
 
 /*

@@ -293,7 +293,7 @@ region_filters:
       threshold: gte0.1 # lt (<), lte (<=), gt (>), gte (>=) followed by a number (no space between)
       padding: 0
       read_threshold: gte0.00001
-      applyto_chromgroups: all # comma-separated list, or 'all'
+      applyto_chromgroups: 1-22X # comma-separated list, or 'all'
       applyto_filtergroups: all # comma-separated list, or 'all'
       is_germline_filter: false # true/false if this filter specifically removes germline variants, such as a gnomAD variant filter. This prevents this filter from being applied in sensitivity calculations that analyze germline variants.
     - region_filter_file: hg38.telomeres.bw

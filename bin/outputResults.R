@@ -494,7 +494,7 @@ for(i in chromgroups){
 		molecule_stats.by_run_id %>%
 			filter(
 				chromgroup %in% c("all_chroms", "all_chromgroups") |
-					(chromgroup == i & filtergroup == j)
+					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
 				) %>%
 			write_tsv(str_c(output_basename_full,".molecule_stats.by_run_id.tsv"))
 		
@@ -502,7 +502,7 @@ for(i in chromgroups){
 		molecule_stats.by_analysis_id %>%
 			filter(
 				chromgroup %in% c("all_chroms", "all_chromgroups") |
-					(chromgroup == i & filtergroup == j)
+					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
 			) %>%
 			write_tsv(str_c(output_basename_full,".molecule_stats.by_analysis_id.tsv"))
 		

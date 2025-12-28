@@ -188,24 +188,60 @@ sum_RleList <- function(a, b) {
 			RleList(compress=FALSE)
 }
 
-#Function to calculate duplex genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates duplex genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary.
+#Function to calculate duplex genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates duplex genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary. Function checks that bam.gr.filtertrack1 and bam.gr.filtertrack2 (if present) each have identical ranges for '+' and '-' strand reads, which they should from upstream filters.
 sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
 
+	#Helper function to confirm identical ranges and metadata in '+' and '-' strand reads.
+	is_plus_minus_identical <- function(gr){
+		gr %>%
+			mutate(
+				plus_minus_identical = bam.gr.filtertrack %>%
+					map_lgl(function(x){
+						x_plus <- x %>% filter(strand == "+")
+						x_minus <- x %>% filter(strand == "-")
+						
+						return(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))
+					})
+			) %>%
+			pull(plus_minus_identical) %>%
+			all
+	}
+	
+	#Helper function to calculate coverage from both strands and then divide by two to get duplex coverage
+	calc_duplex_coverage <- function(gr){
+		cov <- gr %>% coverage
+		
+		#Confirm all values are even integers
+		if((cov %% 2L != 0L) %>% any %>% any){
+			stop("Non-even strand coverage in bam.gr.filtertrack!")
+		}
+		
+		return(cov %/% 2L)
+	}
+	
 	if(is.null(bam.gr.filtertrack2)){
+		if(! bam.gr.filtertrack1 %>% is_plus_minus_identical){
+			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
+		}
+		
 		bam.gr.filtertrack1 %>%
 			mutate(
 				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
-					map(function(x){GenomicRanges::reduce(x,ignore.strand=TRUE) %>% coverage}) #Collapse separate + and - reads
+					map(function(x){x %>% calc_duplex_coverage})
 			) %>%
 			select(-bam.gr.filtertrack)
 		
 	}else{
+		if(! bam.gr.filtertrack2 %>% is_plus_minus_identical){
+			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
+		}
+		
 		bam.gr.filtertrack1 %>%
 			left_join(
 				bam.gr.filtertrack2 %>%
 					mutate(
 						bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
-							map(function(x){GenomicRanges::reduce(x,ignore.strand=TRUE) %>% coverage}) #Collapse separate + and - reads
+							map(function(x){x %>% calc_duplex_coverage})
 					) %>%
 					select(-bam.gr.filtertrack),
 				by = names(.) %>% setdiff("bam.gr.filtertrack.coverage"),

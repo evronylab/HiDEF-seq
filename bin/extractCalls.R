@@ -99,7 +99,7 @@ source(Sys.which("sharedFunctions.R"))
 ### Define custom functions
 ######################
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
-calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix) {
+calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix){
 	chroms_toanalyze.input %>%
 		mutate(
 			stats = map(chroms, ~{

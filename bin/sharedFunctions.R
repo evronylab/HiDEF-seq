@@ -173,7 +173,7 @@ GRanges_subtract <- function(x, y, ignore.strand=FALSE){
 }
 	
 # Function to subtract two granges (x and y) from each other, if they match on join_mcols (character vector of all columns to match), without reducing overlaps in the final output.
-GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
+GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE){
   #Encode join keys as a factor
   key_x <- x %>%
     as_tibble %>%
@@ -217,12 +217,11 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
   
   segs_to_remove <- pintersect(x[qh], y[sh], ignore.strand = ignore.strand)
   
-  #Split x and segs_to_remove by the index of x,
-  x_list  <- split(x, factor(seq_along(x), levels = seq_along(x)), drop = FALSE)
+  #Split segs_to_remove by the index of x
   rem_list <- split(segs_to_remove, factor(qh, levels = seq_along(x)), drop = FALSE)
   
   #Subtract for each range in x (x_list) the ranges in y (rem_list) that intersect it
-  out_list <- GenomicRanges::setdiff(x_list, rem_list, ignore.strand = ignore.strand)
+  out_list <- psetdiff(x, rem_list, ignore.strand = ignore.strand)
   
   #Flatten result and restore all metadata from the original x
    #How many fragments came from each original x[i]
@@ -231,8 +230,7 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE) {
   out <- unlist(out_list, use.names = FALSE)
    #Build an index mapping each fragment back to its source x[i]
   src_idx  <- rep(seq_along(nfrags), times = nfrags)
-   #Re‐attach starnd and metadata columns from x[src_idx, ]
-  strand(out) <- strand(x)[src_idx]
+   #Re‐attach metadata columns
   mcols(out) <- mcols(x)[src_idx, , drop = FALSE]
   
   return(out)

@@ -1056,7 +1056,7 @@ if(!is.na(ccs_sbs_flank)){
 		select(run_id, zm) %>%
 		slice(0)
 }
-	
+
 #Annotate calls filtered by read_sbs_region_filter without taking strand into account, so that if a call on either strand fails the filter, calls on both strands fail the filter. Applied to both indels and SBS calls. Insertions immediately adjacent to an SBS will be filtered using the overlap_adjacent_query_insertion = TRUE option.
 calls[["read_sbs_region_filter.passfilter"]] <- ! overlapsAny_bymcols(
 	calls.gr, read_sbs_region_filter,

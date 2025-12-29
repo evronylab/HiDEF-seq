@@ -96,13 +96,18 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
+  sharedFunctionsHash = MessageDigest.getInstance('SHA-256')
+    .digest(file("${workflow.projectDir}/bin/sharedFunctions.R").bytes)
+    .encodeHex()
+    .toString()
+  paramsWithSharedFunctionsHash = params + [sharedFunctionsHash: sharedFunctionsHash]
   config_signatures = [
     installBSgenome: configHash(params, ['cache_dir', 'BSgenome']),
-    processGermlineVCFs: configHash(params, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin']),
-    extractCallsChunk: configHash(params, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap']),
-    filterCallsChunkChromgroupFiltergroup: configHash(params, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin']),
-    calculateBurdensChromgroupFiltergroup: configHash(params, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin']),
-    outputResultsSample: configHash(params, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples'])
+    processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin', 'sharedFunctionsHash']),
+    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap', 'sharedFunctionsHash']),
+    filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
+    outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples', 'sharedFunctionsHash'])
   ]
 
   // Create a channel of runs

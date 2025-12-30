@@ -161,6 +161,7 @@ nextflow -config $NEXTFLOW_CONFIG \
   -params-file $YAML \
   -resume \ #optional if resuming prior runs
   -work-dir "$WORK_DIR"
+  -with-report #optional to produce report of resource usage
 ```
 
 Refer to the <a href="https://www.nextflow.io/docs/latest/cli.html#run" target="_blank" rel="noopener noreferrer">Nextflow CLI documentation</a> for additional Nextflow runtime options.

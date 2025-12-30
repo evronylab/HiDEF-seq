@@ -102,11 +102,11 @@ pbmm2_override_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
 
 analysis_chunks: 60 # for splitBAMs, extractCalls, and filterCalls
 
-mem_extractCallsChunk: 64GB # each retry will increase by half of this amount
-time_extractCallsChunk: 4h # each retry will increase by this same amount
+mem_extractCallsChunk: 32GB # each retry will increase by half of this amount
+time_extractCallsChunk: 1h # each retry will increase by this same amount
 maxRetries_extractCallsChunk: 3
-mem_filterCallsChunkChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
-time_filterCallsChunkChromgroupFiltergroup: 8h # each retry will increase by this same amount
+mem_filterCallsChunkChromgroupFiltergroup: 48GB # each retry will increase by half of this amount
+time_filterCallsChunkChromgroupFiltergroup: 2h # each retry will increase by this same amount
 maxRetries_filterCallsChunkChromgroupFiltergroup: 3
 mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount

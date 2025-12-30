@@ -572,8 +572,8 @@ process mergeCCSchunks {
 */
 process filterAdapter {
     cpus 8
-    memory '16 GB'
-    time '10h'
+    memory '4 GB'
+    time '4h'
     tag "filterAdapter"
     container "${params.hidefseq_container}"
     
@@ -604,8 +604,8 @@ process filterAdapter {
 */
 process limaDemux {
     cpus 8
-    memory '64 GB'
-    time '12h'
+    memory '8 GB'
+    time '4h'
     tag "limaDemux"
     container "${params.hidefseq_container}"
     
@@ -645,8 +645,8 @@ process limaDemux {
 */
 process pbmm2Align {
     cpus 8
-    memory '64 GB'
-    time '12h'
+    memory '32 GB'
+    time '6h'
     tag { "pbmm2Align: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
     
@@ -676,7 +676,7 @@ process pbmm2Align {
   verifyBAMID: Runs VerifyBamID2 on aligned BAMs output by pbmm2Align.
 */
 process verifyBAMID {
-    cpus 4
+    cpus 2
     memory '32 GB'
     time '8h'
     tag { "verifyBAMID: ${run_id} ${sample_id} ${barcode_id}" }
@@ -711,8 +711,8 @@ process verifyBAMID {
 */
 process mergeAlignedSampleBAMs {
     cpus 4
-    memory '64 GB'
-    time '6h'
+    memory '32 GB'
+    time '4h'
     tag { "mergeAlignedSampleBAMs: ${sample_id}" }
     container "${params.hidefseq_container}"
     
@@ -758,8 +758,8 @@ process mergeAlignedSampleBAMs {
 */
 process countZMWs {
     cpus 1
-    memory '8 GB'
-    time '1h'
+    memory '4 GB'
+    time '10m'
     tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
     
@@ -784,8 +784,8 @@ process countZMWs {
 */
 process splitBAM {
     cpus 2
-    memory '32 GB'
-    time '4h'
+    memory '8 GB'
+    time '1h'
     tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
     
@@ -859,8 +859,8 @@ process splitBAM {
 */
 process installBSgenome {
     cpus 1
-    memory '16 GB'
-    time '8h'
+    memory '4 GB'
+    time '2h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.

@@ -325,7 +325,7 @@ region_filters:
       threshold: lt0.4
       padding: 0
       read_threshold: gte0.3
-      applyto_chromgroups: 1-22X
+      applyto_chromgroups: all
       applyto_filtergroups: all
       is_germline_filter: false
     - region_filter_file: [blacklist regions such as the ENCODE blacklist]
@@ -341,7 +341,7 @@ region_filters:
       binsize: 1
       threshold: lt0.95
       padding: 0
-      applyto_chromgroups: 1-22X
+      applyto_chromgroups: all
       applyto_filtergroups: all
       is_germline_filter: false
     - region_filter_file: [blacklist regions such as the ENCODE blacklist]

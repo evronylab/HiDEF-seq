@@ -140,7 +140,7 @@ workflow {
   makeBarcodesFasta(makeBarcodesFasta_input_ch)
 
   //******************
-  // makeBarcodesFasta
+  // ccs
   //******************
 
   // Run ccs if read_type is subreads, and create channels for subsequent processes

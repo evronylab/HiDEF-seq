@@ -758,7 +758,7 @@ process mergeAlignedSampleBAMs {
 */
 process countZMWs {
     cpus 1
-    memory '4 GB'
+    memory '8 GB'
     time '10m'
     tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
@@ -773,6 +773,8 @@ process countZMWs {
     
     script:
     """
+    set -euo pipefail
+
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
     zmwfilter --show-all ${bamFile} | wc -l > \$(basename ${bamFile} .bam).${outFileSuffix}

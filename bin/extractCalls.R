@@ -324,7 +324,7 @@ zmwstokeep <- bam.gr.onlyranges.overlap %>%
 	select(run_id,zm,plus_overlap_frac,minus_overlap_frac) %>%
 	filter(
 		plus_overlap_frac >= yaml.config$min_strand_overlap,
-		minus_overlap_frac >= plus_overlap_frac
+		minus_overlap_frac >= yaml.config$min_strand_overlap
 	) %>%
 	distinct(run_id,zm)
 

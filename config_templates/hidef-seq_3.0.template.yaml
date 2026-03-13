@@ -13,30 +13,30 @@ analysis_id:
 ###
 reads_type:  # subreads or ccs; must be the same type for all reads_files
 
+barcodes:
+  - barcode_id:
+    barcode:
+  - barcode_id:
+    barcode:
+
 runs: # can specify multiple run_id entries
   - run_id: 
     reads_file: 
     samples:
       - sample_id: 
-        barcode_id: 
-        barcode: 
+        barcode_ids: 
+        barcode_ids_round2: # optional second demultiplexing round
       - sample_id: 
-        barcode_id: 
-        barcode: 
-      - sample_id: 
-        barcode_id: 
-        barcode: 
+        barcode_ids: 
+        barcode_ids_round2: # optional second demultiplexing round
 
 samples:
-  - sample_id: 
-    individual_id: 
-    tissue: 
-  - sample_id: 
-    individual_id: 
-    tissue: 
-  - sample_id: 
-    individual_id: 
-    tissue: 
+  - sample_id:
+    individual_id:
+    tissue:
+  - sample_id:
+    individual_id:
+    tissue:
 
 ###
 ### Individuals
@@ -97,8 +97,9 @@ ccs_ld_preload: /hidef/bin/pbconda/lib/libpthread-setaffinity.so
 ### Pipeline parameters
 ###
 ccs_chunks: 30 # for processReads workflow
-lima_min_score: 80
-pbmm2_override_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
+lima_supplemental_settings: --min-score 80 --min-ref-span 0.9 --min-scoring-regions 2
+lima_round2_supplemental_settings: --min-score 80 --min-ref-span 0.9 --min-scoring-regions 2
+pbmm2_supplemental_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
 
 analysis_chunks: 60 # for splitBAMs, extractCalls, and filterCalls
 

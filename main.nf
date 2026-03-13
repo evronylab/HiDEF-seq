@@ -301,7 +301,7 @@ workflow {
       // Run CCS in chunks.
       ccsChunk(
         reads_ch
-          .combine(Channel.from(1..params.ccs_chunks))
+          .combine(channel.of(1..params.ccs_chunks).flatten())
           .map { tuple(it[0], it[1], it[2], it[3]) }
       )
 
@@ -489,7 +489,7 @@ workflow {
 
   // Create input channel
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
-      .combine(Channel.from(1..params.analysis_chunks))
+      .combine(channel.of(1..params.analysis_chunks).flatten())
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
       }
@@ -842,6 +842,10 @@ process limaDemux {
     """
 }
 
+
+/*
+  mergeDemuxBams: Merges one or more demultiplexed BAMs for a sample into a single BAM.
+*/
 process mergeDemuxBams {
     cpus 2
     memory '8 GB'

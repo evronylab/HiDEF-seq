@@ -301,7 +301,7 @@ workflow {
       // Run CCS in chunks.
       ccsChunk(
         reads_ch
-          .combine(channel.of(1..params.ccs_chunks).flatten())
+          .combine(Channel.from(1..params.ccs_chunks))
           .map { tuple(it[0], it[1], it[2], it[3]) }
       )
 
@@ -489,7 +489,7 @@ workflow {
 
   // Create input channel
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
-      .combine(channel.of(1..params.analysis_chunks).flatten())
+      .combine(Channel.from(1..params.analysis_chunks))
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
       }

@@ -55,6 +55,34 @@ def configHash(params_input, keys) {
   digest.digest().encodeHex().toString()
 }
 
+def parseBarcodeIds(rawBarcodeIds, fieldName, contextLabel) {
+  if (!rawBarcodeIds) {
+    error "${contextLabel}: ${fieldName} must be defined."
+  }
+
+  def barcodeIds = rawBarcodeIds.split('-') as List
+  if (barcodeIds.size() > 2) {
+    error "${contextLabel}: ${fieldName}='${rawBarcodeIds}' must contain either one barcode_id or two barcode_ids separated by '-'."
+  }
+
+  barcodeIds.each { barcodeId ->
+    if (!(barcodeId ==~ /[A-Za-z0-9_]+/)) {
+      error "${contextLabel}: barcode_id '${barcodeId}' contains invalid characters. Allowed pattern: [A-Za-z0-9_]+"
+    }
+  }
+
+  if (barcodeIds.size() == 2 && barcodeIds[0] == barcodeIds[1]) {
+    error "${contextLabel}: ${fieldName}='${rawBarcodeIds}' must contain two different barcode_ids when two are provided."
+  }
+
+  return [
+    raw: rawBarcodeIds,
+    ids: barcodeIds,
+    mode: barcodeIds.size() == 1 ? 'same' : 'different',
+    canonical: barcodeIds.size() == 1 ? barcodeIds[0] : barcodeIds.toSorted().join('-')
+  ]
+}
+
 /*****************************************************************
  * Main Workflow
  *****************************************************************/
@@ -110,6 +138,100 @@ workflow {
     outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples', 'sharedFunctionsHash'])
   ]
 
+  // Validate barcodes section and build barcode map
+  if (!params.barcodes || params.barcodes.isEmpty()) {
+    error "'barcodes' section must be defined and contain at least one barcode entry."
+  }
+
+  barcode_seq_by_id = [:]
+  barcode_id_by_seq = [:]
+  params.barcodes.eachWithIndex { barcodeEntry, idx ->
+    if (!(barcodeEntry.barcode_id ==~ /[A-Za-z0-9_]+/)) {
+      error "barcodes[${idx}]: barcode_id '${barcodeEntry.barcode_id}' contains invalid characters. Allowed pattern: [A-Za-z0-9_]+"
+    }
+    if (barcode_seq_by_id.containsKey(barcodeEntry.barcode_id) && barcode_seq_by_id[barcodeEntry.barcode_id] != barcodeEntry.barcode) {
+      error "Duplicate barcode_id '${barcodeEntry.barcode_id}' with conflicting barcode sequences in barcodes section."
+    }
+    if (barcode_id_by_seq.containsKey(barcodeEntry.barcode) && barcode_id_by_seq[barcodeEntry.barcode] != barcodeEntry.barcode_id) {
+      error "Barcode sequence '${barcodeEntry.barcode}' is assigned to multiple barcode_id values ('${barcode_id_by_seq[barcodeEntry.barcode]}' and '${barcodeEntry.barcode_id}')."
+    }
+    barcode_seq_by_id[barcodeEntry.barcode_id] = barcodeEntry.barcode
+    barcode_id_by_seq[barcodeEntry.barcode] = barcodeEntry.barcode_id
+  }
+
+  sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
+
+  run_sample_configs = params.runs.collectMany { run ->
+    def hasAnyRound2 = run.samples.any { sample -> sample.barcode_ids_round2 }
+    def hasAllRound2 = run.samples.every { sample -> sample.barcode_ids_round2 }
+    if (hasAnyRound2 && !hasAllRound2) {
+      error "run '${run.run_id}' has barcode_ids_round2 configured for only a subset of samples. Define barcode_ids_round2 for all samples in a run or for none."
+    }
+
+    def runConfigs = run.samples.collect { sample ->
+      def sampleContext = "run '${run.run_id}', sample '${sample.sample_id}'"
+      def round1 = parseBarcodeIds(sample.barcode_ids, 'barcode_ids', sampleContext)
+      round1.ids.each { barcodeId ->
+        if (!barcode_seq_by_id.containsKey(barcodeId)) {
+          error "${sampleContext}: barcode_id '${barcodeId}' from barcode_ids is not defined in top-level barcodes section."
+        }
+      }
+
+      def round2 = null
+      if (hasAllRound2) {
+        round2 = parseBarcodeIds(sample.barcode_ids_round2, 'barcode_ids_round2', sampleContext)
+        round2.ids.each { barcodeId ->
+          if (!barcode_seq_by_id.containsKey(barcodeId)) {
+            error "${sampleContext}: barcode_id '${barcodeId}' from barcode_ids_round2 is not defined in top-level barcodes section."
+          }
+        }
+      }
+
+      [
+        run_id: run.run_id,
+        sample_id: sample.sample_id,
+        individual_id: sample_to_individual[sample.sample_id],
+        barcode_ids: round1.raw,
+        barcode_ids_parsed: round1,
+        barcode_ids_round2: round2?.raw,
+        barcode_ids_round2_parsed: round2,
+        round2_enabled: hasAllRound2
+      ]
+    }
+
+    runConfigs.groupBy { cfg ->
+      cfg.barcode_ids_parsed.canonical
+    }.each { key, cfgs ->
+      if (cfgs.size() > 1) {
+        error "run '${run.run_id}' has duplicate barcode_ids configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
+      }
+    }
+
+    if (hasAllRound2) {
+      runConfigs.groupBy { cfg ->
+        cfg.barcode_ids_round2_parsed.canonical
+      }.each { key, cfgs ->
+        if (cfgs.size() > 1) {
+          error "run '${run.run_id}' has duplicate barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
+        }
+      }
+    }
+
+    def round1Modes = runConfigs.collect { it.barcode_ids_parsed.mode }.unique()
+    if (round1Modes.size() > 1) {
+      error "run '${run.run_id}' mixes barcode_ids demultiplexing modes across samples (${round1Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round1 demultiplexing."
+    }
+
+    if (hasAllRound2) {
+      def round2Modes = runConfigs.collect { it.barcode_ids_round2_parsed.mode }.unique()
+      if (round2Modes.size() > 1) {
+        error "run '${run.run_id}' mixes barcode_ids_round2 demultiplexing modes across samples (${round2Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round2 demultiplexing."
+      }
+    }
+
+    runConfigs
+  }
+
   // Create a channel of runs
   runs_ch = Channel.fromList(params.runs)
 
@@ -126,18 +248,45 @@ workflow {
   // makeBarcodesFasta
   //******************
 
+  round2_run_ids = run_sample_configs
+    .findAll { it.round2_enabled }
+    .collect { it.run_id }
+    .unique()
+
   // Create input channel
   makeBarcodesFasta_input_ch = runs_ch.map { run ->
-      tuple(
-        run.run_id,
-        run.samples
-          .collect { sample -> ">${sample.barcode_id}\n${sample.barcode}" }
-          .join("\n")
-      )
-  }
+    def barcodeIdsInRun = run_sample_configs
+      .findAll { it.run_id == run.run_id }
+      .collectMany { cfg -> cfg.barcode_ids_parsed.ids }
+      .toSet()
+      .toList()
+      .sort()
+
+    def runBarcodeFasta = barcodeIdsInRun.collect { barcodeId ->
+      ">${barcodeId}\n${barcode_seq_by_id[barcodeId]}"
+    }.join("\n")
+
+    tuple(run.run_id, 'round1', runBarcodeFasta)
+  }.mix(
+    Channel.fromList(round2_run_ids).map { run_id ->
+      def barcodeIdsInRun = run_sample_configs
+        .findAll { it.run_id == run_id }
+        .collectMany { cfg -> cfg.barcode_ids_round2_parsed.ids }
+        .toSet()
+        .toList()
+        .sort()
+
+      def runBarcodeFasta = barcodeIdsInRun.collect { barcodeId ->
+        ">${barcodeId}\n${barcode_seq_by_id[barcodeId]}"
+      }.join("\n")
+
+      tuple(run_id, 'round2', runBarcodeFasta)
+    }
+  )
 
   // Run process
   makeBarcodesFasta(makeBarcodesFasta_input_ch)
+
 
   //******************
   // ccs
@@ -193,49 +342,101 @@ workflow {
   // limaDemux
   //******************
 
+  limaDemux_round1_mode_ch = Channel.fromList(run_sample_configs)
+    .map { cfg -> tuple(cfg.run_id, cfg.barcode_ids_parsed.mode) }
+    .unique()
+
   // Create input channel
-  limaDemux_input_ch = filterAdapter.out
-      .join(makeBarcodesFasta.out, by:0)
-      .map { r_id, bamFile, pbiFile, barcodesFasta ->
-        tuple(r_id, bamFile, pbiFile, barcodesFasta)
+  limaDemux_round1_input_ch = filterAdapter.out
+      .join(makeBarcodesFasta.out, by: 0)
+      .filter { run_id, bamFile, pbiFile, barcodesFasta, demux_round -> demux_round == 'round1' }
+      .map { run_id, bamFile, pbiFile, barcodesFasta, demux_round ->
+        tuple(run_id, bamFile, pbiFile, barcodesFasta)
+      }
+      .join(limaDemux_round1_mode_ch, by: 0)
+      .map { run_id, bamFile, pbiFile, barcodesFasta, mode ->
+        tuple(run_id, bamFile, pbiFile, barcodesFasta, mode, params.lima_supplemental_settings)
       }
 
-  // Run process
-  limaDemux(limaDemux_input_ch)
+  limaDemux_round1 = limaDemux(limaDemux_round1_input_ch)
+
+  limaDemux_round1_map_ch = limaDemux_round1.out.bam
+    .transpose()
+    .map { run_id, bamFile ->
+      def m = bamFile.name =~ /.*\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/
+      if (!m) {
+          error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
+      }
+      tuple(run_id, m[0][1], m[0][2], bamFile)
+    }
+
+  mergeDemuxBams_round1_input_ch = Channel.fromList(run_sample_configs)
+    .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_parsed.mode, cfg.barcode_ids_parsed.ids[0], cfg.barcode_ids_parsed.ids.size()==2 ? cfg.barcode_ids_parsed.ids[1] : cfg.barcode_ids_parsed.ids[0]) }
+    .combine(limaDemux_round1_map_ch, by: 0)
+    .filter { run_id, individual_id, sample_id, barcode_ids, mode, id1, id2, leftId, rightId, bamFile ->
+      ([leftId,rightId] as Set) == ([id1,id2] as Set)
+    }
+    .map { run_id, individual_id, sample_id, barcode_ids, mode, id1, id2, leftId, rightId, bamFile ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
+    }
+    .groupTuple(by: [0,1,2,3])
+
+  mergeDemuxBams_round1 = mergeDemuxBams(mergeDemuxBams_round1_input_ch)
+
+  limaDemux_round2_samples_ch = Channel.fromList(run_sample_configs)
+    .filter { it.round2_enabled }
+    .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.ids[0], cfg.barcode_ids_round2_parsed.ids.size()==2 ? cfg.barcode_ids_round2_parsed.ids[1] : cfg.barcode_ids_round2_parsed.ids[0]) }
+
+  limaDemux_round2_input_ch = mergeDemuxBams_round1.out
+    .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
+    .join(makeBarcodesFasta.out, by: 0)
+    .filter { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22, barcodesFasta, demux_round -> demux_round == 'round2' }
+    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22, barcodesFasta, demux_round ->
+      tuple(run_id, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
+    }
+
+  limaDemux_round2 = limaDemux(limaDemux_round2_input_ch)
+
+  limaDemux_round2_map_ch = limaDemux_round2.out.bam
+    .transpose()
+    .map { run_id, bamFile ->
+      def m = bamFile.name =~ /(.*)\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/
+      if (!m) {
+          error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
+      }
+      tuple(run_id, m[0][1], m[0][2], m[0][3], bamFile)
+    }
+
+  mergeDemuxBams_round2_input_ch = mergeDemuxBams_round1.out
+    .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
+    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22 ->
+      tuple(run_id, mergedBam.baseName, individual_id, sample_id, barcode_ids, mode2, id21, id22)
+    }
+    .combine(limaDemux_round2_map_ch, by: [0,1])
+    .filter { run_id, output_prefix, individual_id, sample_id, barcode_ids, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
+      ([leftId,rightId] as Set) == ([id21,id22] as Set)
+    }
+    .map { run_id, output_prefix, individual_id, sample_id, barcode_ids, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
+    }
+    .groupTuple(by: [0,1,2,3])
+
+  mergeDemuxBams_round2 = mergeDemuxBams(mergeDemuxBams_round2_input_ch)
 
   //******************
   // pbmm2Align
   //******************
 
   // Create input channel
+  pbmm2_round1_final_ch = mergeDemuxBams_round1.out
+    .filter { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> !round2_run_ids.contains(run_id) }
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> tuple(run_id, individual_id, sample_id, barcode_ids, bamFile) }
 
-  // Here, for each sample the input BAM is assumed to have the name:
-  // ${run_id}.ccs.filtered.demux.${barcodeID}--${barcodeID}.bam
-  demuxMap_ch = limaDemux.out.bam
-  .transpose()
-  .map { run_id, bamFile ->
-      def m = bamFile.name =~ /${run_id}\.ccs\.filtered\.demux\.(\w+)--\1\.bam/
-      if (!m) {
-          error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
-      }
-      tuple(run_id, m[0][1], bamFile)
-    }
+  pbmm2_round2_final_ch = mergeDemuxBams_round2.out
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> tuple(run_id, individual_id, sample_id, barcode_ids, bamFile) }
 
-  sample_to_individual = params.samples.collectEntries { [ (it.sample_id): it.individual_id ] }
-
-  pbmm2Align_input_ch = Channel.fromList(params.runs)
-      .flatMap { run ->
-          run.samples.collect { sample ->
-              tuple(run.run_id, sample.sample_id, sample.barcode_id)
-          }
-      }
-      .combine(demuxMap_ch, by: 0) // Combine by run_id
-      .filter { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-          barcode_id == demux_barcode_id
-      }
-      .map { run_id, sample_id, barcode_id, demux_barcode_id, demux_bam ->
-          tuple(run_id, sample_to_individual[sample_id], sample_id, barcode_id, demux_bam)
-      }
+  pbmm2Align_input_ch = pbmm2_round1_final_ch
+    .mix(pbmm2_round2_final_ch)
 
   // Run process
   pbmm2Align(pbmm2Align_input_ch)
@@ -461,25 +662,27 @@ process makeBarcodesFasta {
     cpus 1
     memory '2 GB'
     time '10m'
-    tag "makeBarcodesFasta"
+    tag { "makeBarcodesFasta: ${run_id} ${demux_round}" }
     container "${params.hidefseq_container}"
 
     input:
-      tuple val(run_id), val(content)
-    
+      tuple val(run_id), val(demux_round), val(content)
+
     output:
-      tuple val(run_id), path("barcodes.fasta")
+      tuple val(run_id), path("${run_id}.${demux_round}.barcodes.fasta"), val(demux_round)
+
+    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.barcodes.fasta"
 
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${task.process}.${params.analysis_id}.${run_id}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.${demux_round}.command.log"
       )
     }
-    
+
     script:
     """
-    echo -e "${content}" > barcodes.fasta
+    echo -e "${content}" > ${run_id}.${demux_round}.barcodes.fasta
     """
 }
 
@@ -606,38 +809,76 @@ process limaDemux {
     cpus 8
     memory '8 GB'
     time '4h'
-    tag "limaDemux"
+    tag { "limaDemux: ${bamFile.baseName}" }
     container "${params.hidefseq_container}"
-    
+
     input:
-      tuple val(run_id), path(bamFile), path(pbiFile), path(barcodesFasta)
+      tuple val(run_id), path(bamFile), path(pbiFile), path(barcodesFasta), val(mode), val(supplemental_settings)
 
     output:
-      tuple val(run_id), path("${run_id}.ccs.filtered.demux.*.bam"), emit: bam
+      tuple val(run_id), path("*.demux.*.bam"), emit: bam
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
-    
+
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.summary"
     publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.counts"
 
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${task.process}.${params.analysis_id}.${run_id}.command.log"
+        "${task.process}.${params.analysis_id}.${run_id}.${bamFile.baseName}.command.log"
       )
     }
-    
+
+    script:
+    def modeFlags = mode == 'same' ? '--same' : '--different --keep-tag-idx-order'
+    """
+    source ${params.conda_base_script}
+    conda activate ${params.conda_pbbioconda_env}
+    lima --ccs --split-named ${modeFlags} ${supplemental_settings} \
+         ${bamFile} \
+         ${barcodesFasta} \
+         ${bamFile.baseName}.demux.bam
+    """
+}
+
+
+/*
+  mergeDemuxBams: Merges one or more demultiplexed BAMs for a sample into a single BAM.
+*/
+process mergeDemuxBams {
+    cpus 2
+    memory '8 GB'
+    time '2h'
+    tag { "mergeDemuxBams: ${run_id} ${sample_id} ${barcode_ids}" }
+    container "${params.hidefseq_container}"
+
+    input:
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), path(demuxBams)
+
+    output:
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), path("${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam"), path("${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam.pbi")
+
+    afterScript{
+      generateAfterScript(
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
+        "${task.process}.${params.analysis_id}.${run_id}.${individual_id}.${sample_id}.${barcode_ids}.command.log"
+      )
+    }
+
     script:
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    lima --ccs --split-named --same --min-score ${params.lima_min_score} \\
-         --min-ref-span 0.9 --min-scoring-regions 2 \\
-         ${bamFile} \\
-         ${barcodesFasta} \\
-         ${run_id}.ccs.filtered.demux.bam
+    if [[ ${demuxBams.size()} -eq 1 ]]; then
+      cp ${demuxBams[0]} ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam
+    else
+      pbmerge -o ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam ${demuxBams.join(' ')}
+    fi
+    pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam
     """
 }
+
 
 /*
   pbmm2Align: Aligns a demultiplexed BAM file using pbmm2.
@@ -667,7 +908,7 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_override_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_supplemental_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
     pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
     """
 }

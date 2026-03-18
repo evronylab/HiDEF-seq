@@ -34,10 +34,13 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `reads_type` | string (`subreads` or `ccs`) | yes | Type of reads: `subreads` data are split into `ccs_chunks` for CCS consensus calling, while `ccs` data skip CCS consensus calling. All `runs[].reads_file` entries must have the same `reads_type`. |
 | `runs[].run_id` | string | yes | Run identifier propagated to data outputs. |
 | `runs[].reads_file` | path | yes | Absolute path to the CCS or subread BAM. A companion BAM index file with suffix `.pbi` is expected. |
-| `runs[].samples[]` | list | yes | Barcode definitions for each sample present in the run. A single sample may have multiple different barcode definitions (for example, a sample prepared with multiple barcodes and sequenced together in the same run). |
+| `barcodes[]` | list | yes | Global barcode dictionary used by lima demultiplexing. |
+| `barcodes[].barcode_id` | string | yes | Barcode identifier; must match `[A-Za-z0-9_]+`. |
+| `barcodes[].barcode` | DNA sequence | yes | Barcode sequence. |
+| `runs[].samples[]` | list | yes | Sample-to-barcode mapping entries for each run. |
 | `runs[].samples[].sample_id` | string | yes | Sample identifier. Must match an entry in samples[].sample_id`. |
-| `runs[].samples[].barcode_id` | string | yes | Barcode label used during BAM demultiplexing. |
-| `runs[].samples[].barcode` | DNA sequence | yes | Barcode sequence. |
+| `runs[].samples[].barcode_ids` | string | yes | Either one barcode_id (single-end barcode; lima runs with `--same`) or two barcode_ids separated by `-` (lima runs with `--different --keep-tag-idx-order`). The two values must differ when two are supplied. |
+| `runs[].samples[].barcode_ids_round2` | string | optional | Optional second-round demultiplexing barcode_ids using the same format/rules as `barcode_ids`. This field must be defined for all samples within a run if it is defined for any sample in that run. |
 
 ### Sample metadata
 | Key | Type | Required | Description |
@@ -82,8 +85,9 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `ccs_chunks` | integer | required when `reads_type: subreads` | Number of chunks in which CCS consensus sequence calling is performed for subreads data. Resulting CCS chunks are then merged. |
-| `lima_min_score` | integer | yes | Minimum Lima barcode score enforced by `limaDemux`. See [lima documentation](https://lima.how/faq/filter-input.html#--min-score) for details. |
-| `pbmm2_override_settings` | string | optional | Settings to add when running pbmm2 to override the [default --preset CCS settings](https://github.com/PacificBiosciences/pbmm2). For example, the supplied templates define settings that mimic pbmm2 versions < 1.13 that bias more towards indels than substitutions when both alignments are valid. This removes residual clustered SBS mismatches near homopolymers at the cost of more indels, though note that this could potentially be mitigated in the absence of these custom pbmm2 settings using the `ccs_sbs_flank` setting. |
+| `lima_supplemental_settings` | string | yes | Supplemental lima settings appended to first-round demultiplexing command. See [lima documentation](https://lima.how) for details. |
+| `lima_round2_supplemental_settings` | string | yes | Supplemental lima settings appended to optional second-round demultiplexing command. See [lima documentation](https://lima.how) for details. |
+| `pbmm2_supplemental_settings` | string | optional | Settings added when running pbmm2 to supplement/override the [default --preset CCS settings](https://github.com/PacificBiosciences/pbmm2). For example, the supplied templates define settings that mimic pbmm2 versions < 1.13 that bias more towards indels than substitutions when both alignments are valid. This removes residual clustered SBS mismatches near homopolymers at the cost of more indels, though note that this could potentially be mitigated in the absence of these custom pbmm2 settings using the `ccs_sbs_flank` setting. |
 | `analysis_chunks` | integer | yes | Number of chunks to split processed BAM files into in the `splitBAMs` workflow for subsequent `extractCalls` and `filterCalls` workflows. Higher values increase parallelism. |
 | `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
 | `mem_filterCallsChunkChromgroupFiltergroup`, `time_filterCallsChunkChromgroupFiltergroup`, `maxRetries_filterCallsChunkChromgroupFiltergroup` | string/integer | optional | Analogous settings for `filterCallsChunkChromgroupFiltergroup` processes. |

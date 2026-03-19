@@ -360,7 +360,7 @@ workflow {
 
   limaDemux_round1 = limaDemux(limaDemux_round1_input_ch)
 
-  limaDemux_round1_map_ch = limaDemux_round1.out.bam
+  limaDemux_round1_map_ch = limaDemux_round1.bam
     .transpose()
     .map { run_id, bamFile ->
       def m = bamFile.name =~ /.*\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/
@@ -397,7 +397,7 @@ workflow {
 
   limaDemux_round2 = limaDemux(limaDemux_round2_input_ch)
 
-  limaDemux_round2_map_ch = limaDemux_round2.out.bam
+  limaDemux_round2_map_ch = limaDemux_round2.bam
     .transpose()
     .map { run_id, bamFile ->
       def m = bamFile.name =~ /(.*)\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/

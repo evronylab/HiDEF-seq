@@ -358,7 +358,7 @@ workflow {
         tuple(run_id, bamFile, pbiFile, barcodesFasta, mode, params.lima_supplemental_settings)
       }
 
-  limaDemux_round1 = limaDemux(limaDemux_round1_input_ch)
+  limaDemux_round1 = limaDemuxRound1(limaDemux_round1_input_ch)
 
   limaDemux_round1_map_ch = limaDemux_round1.bam
     .transpose()
@@ -395,7 +395,7 @@ workflow {
       tuple(run_id, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
     }
 
-  limaDemux_round2 = limaDemux(limaDemux_round2_input_ch)
+  limaDemux_round2 = limaDemuxRound2(limaDemux_round2_input_ch)
 
   limaDemux_round2_map_ch = limaDemux_round2.bam
     .transpose()
@@ -800,6 +800,32 @@ process filterAdapter {
     conda activate ${params.conda_pbbioconda_env}
     pbindex ${run_id}.ccs.filtered.bam
     """
+}
+
+workflow limaDemuxRound1 {
+    take:
+      limaDemux_input_ch
+
+    main:
+      demux = limaDemux(limaDemux_input_ch)
+
+    emit:
+      bam = demux.bam
+      lima_summary = demux.lima_summary
+      lima_counts = demux.lima_counts
+}
+
+workflow limaDemuxRound2 {
+    take:
+      limaDemux_input_ch
+
+    main:
+      demux = limaDemux(limaDemux_input_ch)
+
+    emit:
+      bam = demux.bam
+      lima_summary = demux.lima_summary
+      lima_counts = demux.lima_counts
 }
 
 /*

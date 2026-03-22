@@ -381,7 +381,7 @@ workflow {
     }
     .groupTuple(by: [0,1,2,3])
 
-  mergeDemuxBams_round1 = mergeDemuxBams(mergeDemuxBams_round1_input_ch)
+  mergeDemuxBams_round1 = mergeDemuxBamsRound1(mergeDemuxBams_round1_input_ch).out
 
   limaDemux_round2_samples_ch = Channel.fromList(run_sample_configs)
     .filter { it.round2_enabled }
@@ -421,7 +421,7 @@ workflow {
     }
     .groupTuple(by: [0,1,2,3])
 
-  mergeDemuxBams_round2 = mergeDemuxBams(mergeDemuxBams_round2_input_ch)
+  mergeDemuxBams_round2 = mergeDemuxBamsRound2(mergeDemuxBams_round2_input_ch).out
 
   //******************
   // pbmm2Align
@@ -802,32 +802,6 @@ process filterAdapter {
     """
 }
 
-workflow limaDemuxRound1 {
-    take:
-      limaDemux_input_ch
-
-    main:
-      demux = limaDemux(limaDemux_input_ch)
-
-    emit:
-      bam = demux.bam
-      lima_summary = demux.lima_summary
-      lima_counts = demux.lima_counts
-}
-
-workflow limaDemuxRound2 {
-    take:
-      limaDemux_input_ch
-
-    main:
-      demux = limaDemux(limaDemux_input_ch)
-
-    emit:
-      bam = demux.bam
-      lima_summary = demux.lima_summary
-      lima_counts = demux.lima_counts
-}
-
 /*
   limaDemux: Demultiplexes the filtered BAM using lima.
 */
@@ -868,6 +842,32 @@ process limaDemux {
     """
 }
 
+workflow limaDemuxRound1 {
+    take:
+      limaDemux_input_ch
+
+    main:
+      demux = limaDemux(limaDemux_input_ch)
+
+    emit:
+      bam = demux.bam
+      lima_summary = demux.lima_summary
+      lima_counts = demux.lima_counts
+}
+
+workflow limaDemuxRound2 {
+    take:
+      limaDemux_input_ch
+
+    main:
+      demux = limaDemux(limaDemux_input_ch)
+
+    emit:
+      bam = demux.bam
+      lima_summary = demux.lima_summary
+      lima_counts = demux.lima_counts
+}
+
 
 /*
   mergeDemuxBams: Merges one or more demultiplexed BAMs for a sample into a single BAM.
@@ -903,6 +903,28 @@ process mergeDemuxBams {
     fi
     pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam
     """
+}
+
+workflow mergeDemuxBamsRound1 {
+    take:
+      mergeDemuxBams_input_ch
+
+    main:
+      out = mergeDemuxBams(mergeDemuxBams_input_ch)
+
+    emit:
+      out
+}
+
+workflow mergeDemuxBamsRound2 {
+    take:
+      mergeDemuxBams_input_ch
+
+    main:
+      out = mergeDemuxBams(mergeDemuxBams_input_ch)
+
+    emit:
+      out
 }
 
 

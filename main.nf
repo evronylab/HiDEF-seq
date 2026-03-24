@@ -896,11 +896,7 @@ process mergeDemuxBams {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    if [[ ${demuxBams.size()} -eq 1 ]]; then
-      cp ${demuxBams[0]} ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam
-    else
-      pbmerge -o ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam ${demuxBams.join(' ')}
-    fi
+    pbmerge -o ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam ${demuxBams.join(' ')}
     pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_ids}.ccs.filtered.bam
     """
 }

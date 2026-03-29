@@ -604,7 +604,7 @@ cat("## Outputting germline variant calls...")
 #Define columns that are identical between strands to either '_keep' or '_discard' in the subsequent pivot_wider.
 strand_identical_cols_keep <- c(
 	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
-	"analysis_chunk", "run_id", "zm",
+	"analysis_chunk", "run_id", "zm", "bc",
 	"call_class", "call_type", "SBSindel_call_type",
 	"seqnames", "start_refspace", "end_refspace", "ref_plus_strand", "alt_plus_strand",
 	"reftnc_plus_strand", "alttnc_plus_strand", "reftnc_pyr", "alttnc_pyr",

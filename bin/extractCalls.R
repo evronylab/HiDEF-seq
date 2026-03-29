@@ -179,7 +179,7 @@ bam <- bamFile %>%
     param=ScanBamParam(
       what=setdiff(scanBamWhat(),c("mrnm","mpos","groupid","mate_status")),
       tag=c(
-        "ec","np","rq","zm","sa","sm","sx","RG",
+        "ec","np","rq","zm","bc","sa","sm","sx","RG",
         call_types_MDB %>% pluck("call_bam_scoretag")
         )
     )
@@ -197,6 +197,10 @@ invisible(gc())
 #Add movie_ids and run_ids using run metadata, while maintaining DataFrame format
 bam.df <- bam.df %>%
 	cbind(run_metadata[match(bam.df$RG, run_metadata$rg_id),c("movie_id","run_id")])
+
+#Convert bc tag from uint16[2] list to comma-separated string (forward,reverse barcode FASTA indices)
+bam.df$bc <- bam.df$bc %>%
+	map_chr(function(x){str_c(x, collapse = ",")})
 
 #Extract ccs strand
 bam.df$ccs_strand <- bam.df$qname %>% str_extract("(fwd|rev)$")
@@ -362,6 +366,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   #Initialize empty calls tibble
   calls.out <- tibble(
     zm=integer(),
+    bc=character(),
     seqnames=factor(),
     strand=factor(),
     start_queryspace=integer(),
@@ -925,6 +930,15 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       )
     )
   
+  #Annotate barcode tag (bc) from input reads
+  calls.out <- calls.out %>%
+    left_join(
+      bam.gr.input %>%
+        distinct(zm, strand, bc),
+      by = join_by(zm, strand)
+    ) %>%
+    relocate(bc, .after = zm)
+
   #Set call_class and call_type
   calls.out <- calls.out %>%
     mutate(

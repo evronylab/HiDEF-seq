@@ -776,7 +776,7 @@ indel_cols_discard <- c(
 
 #Define columns that are identical between zm and strands to either '_keep' or '_discard' in the subsequent pivot_wider for SBSindel_call_type == "mutation" call tables. Not including call_class, call_type, SBSindel_call_type as these are removed from finalCalls after the below nest_join.
 zm_identical_cols_keep <- c(
-	"analysis_chunk", "run_id", "zm"
+	"analysis_chunk", "run_id", "zm", "bc"
 )
 
 strand_identical_cols_keep <- c(

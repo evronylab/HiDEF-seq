@@ -358,7 +358,7 @@ workflow {
       }
       .join(limaDemux_round1_mode_ch, by: 0)
       .map { run_id, bamFile, pbiFile, barcodesFasta, mode ->
-        tuple(run_id, bamFile, pbiFile, barcodesFasta, mode, params.lima_supplemental_settings)
+        tuple(run_id, null, null, null, null, null, bamFile, pbiFile, barcodesFasta, mode, params.lima_supplemental_settings)
       }
 
   limaDemux_round1 = limaDemuxRound1(limaDemux_round1_input_ch)
@@ -370,16 +370,16 @@ workflow {
       if (!m) {
           error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
       }
-      tuple(run_id, m[0][1], m[0][2], bamFile)
+      def barcode_pair_key = [m[0][1], m[0][2]].sort().join('-')
+      tuple(run_id, barcode_pair_key, bamFile)
     }
 
   mergeDemuxBams_round1_input_ch = Channel.fromList(run_sample_configs)
-    .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_parsed.mode, cfg.barcode_ids_parsed.ids[0], cfg.barcode_ids_parsed.ids.size()==2 ? cfg.barcode_ids_parsed.ids[1] : cfg.barcode_ids_parsed.ids[0]) }
-    .combine(limaDemux_round1_map_ch, by: 0)
-    .filter { run_id, individual_id, sample_id, barcode_ids, mode, id1, id2, leftId, rightId, bamFile ->
-      ([leftId,rightId] as Set) == ([id1,id2] as Set)
+    .map { cfg ->
+      tuple(cfg.run_id, cfg.barcode_ids_parsed.canonical, cfg.individual_id, cfg.sample_id, cfg.barcode_ids)
     }
-    .map { run_id, individual_id, sample_id, barcode_ids, mode, id1, id2, leftId, rightId, bamFile ->
+    .join(limaDemux_round1_map_ch, by: [0,1])
+    .map { run_id, barcode_pair_key, individual_id, sample_id, barcode_ids, bamFile ->
       tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
     }
     .groupTuple(by: [0,1,2,3])
@@ -388,40 +388,36 @@ workflow {
 
   limaDemux_round2_samples_ch = Channel.fromList(run_sample_configs)
     .filter { it.round2_enabled }
-    .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.ids[0], cfg.barcode_ids_round2_parsed.ids.size()==2 ? cfg.barcode_ids_round2_parsed.ids[1] : cfg.barcode_ids_round2_parsed.ids[0]) }
+    .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.canonical) }
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
     .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
     .join(makeBarcodesFasta.out, by: 0)
-    .filter { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22, barcodesFasta, demux_round -> demux_round == 'round2' }
-    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22, barcodesFasta, demux_round ->
-      tuple(run_id, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
+    .filter { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta, demux_round -> demux_round == 'round2' }
+    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta, demux_round ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
     }
 
   limaDemux_round2 = limaDemuxRound2(limaDemux_round2_input_ch)
 
   limaDemux_round2_map_ch = limaDemux_round2.bam
     .transpose()
-    .map { run_id, bamFile ->
-      def m = bamFile.name =~ /(.*)\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/
+    .map { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, bamFile ->
+      def m = bamFile.name =~ /.*\.demux\.([A-Za-z0-9_]+)--([A-Za-z0-9_]+)\.bam$/
       if (!m) {
           error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
       }
-      tuple(run_id, m[0][1], m[0][2], m[0][3], bamFile)
+      def barcode_pair_key = [m[0][1], m[0][2]].sort().join('-')
+      tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile)
     }
-
-  mergeDemuxBams_round2_input_ch = mergeDemuxBams_round1
-    .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
-    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22 ->
-      tuple(run_id, mergedBam.baseName, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22)
+    .filter { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile ->
+      barcode_pair_key == barcode_pair_key_round2
     }
-    .combine(limaDemux_round2_map_ch, by: [0,1])
-    .filter { run_id, output_prefix, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
-      ([leftId,rightId] as Set) == ([id21,id22] as Set)
-    }
-    .map { run_id, output_prefix, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
+    .map { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile ->
       tuple(run_id, individual_id, sample_id, "${barcode_ids}.${barcode_ids_round2}", bamFile)
     }
+  
+  mergeDemuxBams_round2_input_ch = limaDemux_round2_map_ch
     .groupTuple(by: [0,1,2,3])
 
   mergeDemuxBams_round2 = mergeDemuxBamsRound2(mergeDemuxBams_round2_input_ch).out
@@ -816,10 +812,10 @@ process limaDemux {
     container "${params.hidefseq_container}"
 
     input:
-      tuple val(run_id), path(bamFile), path(pbiFile), path(barcodesFasta), val(mode), val(supplemental_settings)
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), val(barcode_ids_round2), val(barcode_pair_key_round2), path(bamFile), path(pbiFile), path(barcodesFasta), val(mode), val(supplemental_settings)
 
     output:
-      tuple val(run_id), path("*.demux.*.bam"), emit: bam
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), val(barcode_ids_round2), val(barcode_pair_key_round2), path("*.demux.*.bam"), emit: bam
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
 
@@ -853,7 +849,9 @@ workflow limaDemuxRound1 {
       demux = limaDemux(limaDemux_input_ch)
 
     emit:
-      bam = demux.bam
+      bam = demux.bam.map { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, bamFiles ->
+        tuple(run_id, bamFiles)
+      }
       lima_summary = demux.lima_summary
       lima_counts = demux.lima_counts
 }

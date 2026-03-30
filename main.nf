@@ -199,20 +199,20 @@ workflow {
       ]
     }
 
-    runConfigs.groupBy { cfg ->
-      cfg.barcode_ids_parsed.canonical
-    }.each { key, cfgs ->
-      if (cfgs.size() > 1) {
-        error "run '${run.run_id}' has duplicate barcode_ids configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
-      }
-    }
-
     if (hasAllRound2) {
       runConfigs.groupBy { cfg ->
-        cfg.barcode_ids_round2_parsed.canonical
+        "${cfg.barcode_ids_parsed.canonical}|${cfg.barcode_ids_round2_parsed.canonical}"
       }.each { key, cfgs ->
         if (cfgs.size() > 1) {
-          error "run '${run.run_id}' has duplicate barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
+          error "run '${run.run_id}' has duplicate barcode_ids + barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}. When using two demultiplexing rounds, each sample in a run must have a unique combination across both rounds."
+        }
+      }
+    } else {
+      runConfigs.groupBy { cfg ->
+        cfg.barcode_ids_parsed.canonical
+      }.each { key, cfgs ->
+        if (cfgs.size() > 1) {
+          error "run '${run.run_id}' has duplicate barcode_ids configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
         }
       }
     }
@@ -410,14 +410,14 @@ workflow {
   mergeDemuxBams_round2_input_ch = mergeDemuxBams_round1
     .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
     .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, id21, id22 ->
-      tuple(run_id, mergedBam.baseName, individual_id, sample_id, barcode_ids, mode2, id21, id22)
+      tuple(run_id, mergedBam.baseName, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22)
     }
     .combine(limaDemux_round2_map_ch, by: [0,1])
-    .filter { run_id, output_prefix, individual_id, sample_id, barcode_ids, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
+    .filter { run_id, output_prefix, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
       ([leftId,rightId] as Set) == ([id21,id22] as Set)
     }
-    .map { run_id, output_prefix, individual_id, sample_id, barcode_ids, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
-      tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
+    .map { run_id, output_prefix, individual_id, sample_id, barcode_ids, barcode_ids_round2, mode2, id21, id22, d_run_id, d_output_prefix, leftId, rightId, bamFile ->
+      tuple(run_id, individual_id, sample_id, "${barcode_ids}.${barcode_ids_round2}", bamFile)
     }
     .groupTuple(by: [0,1,2,3])
 

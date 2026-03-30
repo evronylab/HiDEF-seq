@@ -40,7 +40,7 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `runs[].samples[]` | list | yes | Sample-to-barcode mapping entries for each run. |
 | `runs[].samples[].sample_id` | string | yes | Sample identifier. Must match an entry in samples[].sample_id`. |
 | `runs[].samples[].barcode_ids` | string | yes | Either one barcode_id (single-end barcode; lima runs with `--same`) or two barcode_ids separated by `-` (lima runs with `--different --keep-tag-idx-order`). The two values must differ when two are supplied. |
-| `runs[].samples[].barcode_ids_round2` | string | optional | Optional second-round demultiplexing barcode_ids using the same format/rules as `barcode_ids`. This field must be defined for all samples within a run if it is defined for any sample in that run. |
+| `runs[].samples[].barcode_ids_round2` | string | optional | Optional second-round demultiplexing barcode_ids using the same format/rules as `barcode_ids`. This field must be defined for every sample in every run if it is defined for any sample. |
 
 Barcode uniqueness rules within a run:
 - If only one round is configured (`barcode_ids_round2` not set), `barcode_ids` must be unique across samples.

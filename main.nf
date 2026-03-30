@@ -349,11 +349,18 @@ workflow {
     .map { cfg -> tuple(cfg.run_id, cfg.barcode_ids_parsed.mode) }
     .unique()
 
+  round1_barcodes_fasta_ch = makeBarcodesFasta.out
+    .filter { run_id, barcodesFasta, demux_round -> demux_round == 'round1' }
+    .map { run_id, barcodesFasta, demux_round -> tuple(run_id, barcodesFasta) }
+
+  round2_barcodes_fasta_ch = makeBarcodesFasta.out
+    .filter { run_id, barcodesFasta, demux_round -> demux_round == 'round2' }
+    .map { run_id, barcodesFasta, demux_round -> tuple(run_id, barcodesFasta) }
+
   // Create input channel
   limaDemux_round1_input_ch = filterAdapter.out
-      .join(makeBarcodesFasta.out, by: 0)
-      .filter { run_id, bamFile, pbiFile, barcodesFasta, demux_round -> demux_round == 'round1' }
-      .map { run_id, bamFile, pbiFile, barcodesFasta, demux_round ->
+      .join(round1_barcodes_fasta_ch, by: 0)
+      .map { run_id, bamFile, pbiFile, barcodesFasta ->
         tuple(run_id, bamFile, pbiFile, barcodesFasta)
       }
       .join(limaDemux_round1_mode_ch, by: 0)
@@ -392,9 +399,8 @@ workflow {
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
     .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
-    .join(makeBarcodesFasta.out, by: 0)
-    .filter { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta, demux_round -> demux_round == 'round2' }
-    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta, demux_round ->
+    .join(round2_barcodes_fasta_ch, by: 0)
+    .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta ->
       tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
     }
 

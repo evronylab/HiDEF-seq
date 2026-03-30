@@ -65,7 +65,7 @@ Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/
 - Core sample scope: `processName.${analysis_id}.${individual_id}.${sample_id}.command.log` (for example `mergeAlignedSampleBAMs.A123.I456.S789.command.log`).
 - Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
 - Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
-- Per-barcode alignments append the run and barcode identifiers (for example `pbmm2Align.A123.Run123.I456.S789.bc2009.command.log` and `verifyBAMID.A123.Run123.I456.S789.bc2009.command.log`).
+- Per-barcode alignments append the run and barcode identifiers (for example `pbmm2Align.A123.Run123.I456.S789.bc2009.command.log` for one demultiplexing round, or `pbmm2Align.A123.Run123.I456.S789.bc2009.bc2010-bc2011.command.log` when two rounds are configured; analogous naming applies to `verifyBAMID` logs).
 
 ## Top-level files
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
@@ -138,6 +138,8 @@ During `processReads`, the pipeline adds to the sharedLogs directory:
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/verifyBAMID/` (written when all `verifybamid_*` parameters are set)
 
 One VerifyBamID2 run is emitted per `run_id`/`sample_id`/`barcode_id` alignment produced by `pbmm2Align`. Two outputs are produced for each run, with the input BAM file name from `pbmm2Align` as the prefix:
+
+`barcode_id` is the sample barcode token from demultiplexing: `${barcode_ids}` when one demultiplexing round is configured, or `${barcode_ids}.${barcode_ids_round2}` when two rounds are configured.
 
 | File | Description |
 | --- | --- |

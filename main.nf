@@ -55,6 +55,10 @@ def configHash(params_input, keys) {
   digest.digest().encodeHex().toString()
 }
 
+def canonicalBarcodePair(barcodeA, barcodeB) {
+  return barcodeA == barcodeB ? barcodeA : [barcodeA, barcodeB].toSorted().join('-')
+}
+
 def parseBarcodeIds(rawBarcodeIds, fieldName, contextLabel) {
   if (!rawBarcodeIds) {
     error "${contextLabel}: ${fieldName} must be defined."
@@ -79,7 +83,7 @@ def parseBarcodeIds(rawBarcodeIds, fieldName, contextLabel) {
     raw: rawBarcodeIds,
     ids: barcodeIds,
     mode: barcodeIds.size() == 1 ? 'same' : 'different',
-    canonical: barcodeIds.size() == 1 ? barcodeIds[0] : barcodeIds.toSorted().join('-')
+    canonical: barcodeIds.size() == 1 ? canonicalBarcodePair(barcodeIds[0], barcodeIds[0]) : canonicalBarcodePair(barcodeIds[0], barcodeIds[1])
   ]
 }
 
@@ -377,7 +381,7 @@ workflow {
       if (!m) {
           error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
       }
-      def barcode_pair_key = [m[0][1], m[0][2]].sort().join('-')
+      def barcode_pair_key = canonicalBarcodePair(m[0][1], m[0][2])
       tuple(run_id, barcode_pair_key, bamFile)
     }
 
@@ -413,7 +417,7 @@ workflow {
       if (!m) {
           error "Can't match BAM file name to run_id and barcode_id: ${bamFile.name}"
       }
-      def barcode_pair_key = [m[0][1], m[0][2]].sort().join('-')
+      def barcode_pair_key = canonicalBarcodePair(m[0][1], m[0][2])
       tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile)
     }
     .filter { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile ->

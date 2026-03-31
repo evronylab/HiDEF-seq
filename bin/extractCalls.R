@@ -934,6 +934,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   calls.out <- calls.out %>%
     left_join(
       bam.gr.input %>%
+        as_tibble %>%
         distinct(zm, strand, bc),
       by = join_by(zm, strand)
     ) %>%

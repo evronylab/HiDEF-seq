@@ -198,15 +198,16 @@ invisible(gc())
 bam.df <- bam.df %>%
 	cbind(run_metadata[match(bam.df$RG, run_metadata$rg_id),c("movie_id","run_id")])
 
-#Convert bc tag from uint16[2] list to comma-separated string (forward,reverse barcode FASTA indices)
+#Convert bc tag from uint16[2] list to comma-separated string (factor) (forward,reverse barcode FASTA indices)
 bam.df$bc <- bam.df$bc %>%
-	map_chr(function(x){str_c(x, collapse = ",")})
+	map_chr(function(x){str_c(x, collapse = ",")}) %>%
+	factor
 
 #Extract ccs strand
 bam.df$ccs_strand <- bam.df$qname %>% str_extract("(fwd|rev)$")
 
 #Convert some columns to factor
-for(i in c("flag","RG","movie_id","run_id","ccs_strand")){
+for(i in c("flag","bc","RG","movie_id","run_id","ccs_strand")){
 	bam.df[,i] <- factor(bam.df[,i])
 }
 
@@ -932,6 +933,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   
   #Annotate barcode tag (bc) from input reads
   calls.out <- calls.out %>%
+  	select(-bc) %>%
     left_join(
       bam.gr.input %>%
         as_tibble %>%

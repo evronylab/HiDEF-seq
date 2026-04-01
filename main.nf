@@ -835,7 +835,7 @@ process limaDemux {
     afterScript{
       generateAfterScript(
         "${sharedLogsDir}",
-        "${task.process}.${params.analysis_id}.${run_id}.${bamFile.baseName}.command.log"
+        "${task.process}.${params.analysis_id}.${bamFile.baseName}.command.log"
       )
     }
 

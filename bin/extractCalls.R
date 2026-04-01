@@ -367,9 +367,9 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   #Initialize empty calls tibble
   calls.out <- tibble(
     zm=integer(),
-    bc=character(),
     seqnames=factor(),
     strand=factor(),
+    bc=factor(),
     start_queryspace=integer(),
     end_queryspace=integer(),
     start_refspace=integer(),
@@ -940,7 +940,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         distinct(zm, strand, bc),
       by = join_by(zm, strand)
     ) %>%
-    relocate(bc, .after = zm)
+    relocate(bc, .after = strand)
 
   #Set call_class and call_type
   calls.out <- calls.out %>%

@@ -25,10 +25,10 @@ runs: # can specify multiple run_id entries
     samples:
       - sample_id: 
         barcode_ids: 
-        barcode_ids_round2: # optional second demultiplexing round
+        barcode_ids_round2: # optional second demultiplexing round; if performed for a sample, barcode_ids_round2 must be configured for that sample across all runs that contain it
       - sample_id: 
         barcode_ids: 
-        barcode_ids_round2: # optional second demultiplexing round
+        barcode_ids_round2: # optional second demultiplexing round; if performed for a sample, barcode_ids_round2 must be configured for that sample across all runs that contain it
 
 samples:
   - sample_id:

@@ -40,12 +40,13 @@ Below, the `parameter[].subparameter` notation indicates that `parameter` is a l
 | `runs[].samples[]` | list | yes | Sample-to-barcode mapping entries for each run. |
 | `runs[].samples[].sample_id` | string | yes | Sample identifier. Must match an entry in samples[].sample_id`. |
 | `runs[].samples[].barcode_ids` | string | yes | Either one barcode_id (single-end barcode; lima runs with `--same`) or two barcode_ids separated by `-` (lima runs with `--different --keep-tag-idx-order`). The two values must differ when two are supplied. |
-| `runs[].samples[].barcode_ids_round2` | string | optional | Optional second-round demultiplexing barcode_ids using the same format/rules as `barcode_ids`. This field must be defined for every sample in every run if it is defined for any sample. |
+| `runs[].samples[].barcode_ids_round2` | string | optional | Optional second-round demultiplexing barcode_ids using the same format/rules as `barcode_ids`. This can be configured per sample (for example, some samples can be round1-only), but if round2 demultiplexing is performed for a sample, `barcode_ids_round2` must be configured for that sample across all runs that contain it. |
 
 Barcode uniqueness rules within a run:
-- If only one round is configured (`barcode_ids_round2` not set), `barcode_ids` must be unique across samples.
-- If two rounds are configured, the **combination** of `(barcode_ids, barcode_ids_round2)` must be unique across samples, but either field alone may repeat across samples.
-- This allows designs where round 1 is shared and round 2 differs per sample, or round 1 differs per sample and round 2 is shared.
+- Among round1-only samples (no `barcode_ids_round2`), `barcode_ids` must be unique.
+- Among round1+round2 samples, the **combination** of `(barcode_ids, barcode_ids_round2)` must be unique; either field alone may repeat.
+- Round1 barcode_ids used by round1-only samples cannot be reused by round1+round2 samples in the same run.
+- This allows mixed-run designs (some samples round1-only, others round1+round2) while preserving unambiguous sample assignment.
 
 ### Sample metadata
 | Key | Type | Required | Description |

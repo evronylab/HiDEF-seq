@@ -197,30 +197,44 @@ workflow {
     }
   }
 
-  def hasAnyRound2 = provisional_run_sample_configs.any { it.barcode_ids_round2_parsed }
-  def hasAllRound2 = provisional_run_sample_configs.every { it.barcode_ids_round2_parsed }
-  if (hasAnyRound2 && !hasAllRound2) {
-    error "barcode_ids_round2 is configured for only a subset of samples. Define barcode_ids_round2 for all samples in every run_id or for none."
-  }
+  provisional_run_sample_configs
+    .groupBy { it.sample_id }
+    .each { sampleId, sampleConfigs ->
+      def round2Usage = sampleConfigs.collect { it.barcode_ids_round2_parsed != null }.unique()
+      if (round2Usage.size() > 1) {
+        def runIds = sampleConfigs.collect { it.run_id }.unique().sort().join(', ')
+        error "sample '${sampleId}' has inconsistent barcode_ids_round2 usage across runs (${runIds}). Configure this sample with either barcode_ids only in all runs or with both barcode_ids and barcode_ids_round2 in all runs."
+      }
+    }
 
   run_sample_configs = provisional_run_sample_configs
     .groupBy { it.run_id }
     .collectMany { runId, runConfigs ->
-      if (hasAllRound2) {
-        runConfigs.groupBy { cfg ->
+      def round1OnlyConfigs = runConfigs.findAll { !it.barcode_ids_round2_parsed }
+      def round2Configs = runConfigs.findAll { it.barcode_ids_round2_parsed }
+
+      round1OnlyConfigs.groupBy { cfg ->
+        cfg.barcode_ids_parsed.canonical
+      }.each { key, cfgs ->
+        if (cfgs.size() > 1) {
+          error "run '${runId}' has duplicate barcode_ids configuration '${key}' across round1-only samples: ${cfgs.collect{it.sample_id}.join(', ')}"
+        }
+      }
+
+      if (round2Configs) {
+        round2Configs.groupBy { cfg ->
           "${cfg.barcode_ids_parsed.canonical}|${cfg.barcode_ids_round2_parsed.canonical}"
         }.each { key, cfgs ->
           if (cfgs.size() > 1) {
-            error "run '${runId}' has duplicate barcode_ids + barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}. When using two demultiplexing rounds, each sample in a run must have a unique combination across both rounds."
+            error "run '${runId}' has duplicate barcode_ids + barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}. For samples using two demultiplexing rounds, each sample in a run must have a unique combination across both rounds."
           }
         }
-      } else {
-        runConfigs.groupBy { cfg ->
-          cfg.barcode_ids_parsed.canonical
-        }.each { key, cfgs ->
-          if (cfgs.size() > 1) {
-            error "run '${runId}' has duplicate barcode_ids configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}"
-          }
+
+        def overlappingRound1Keys = round1OnlyConfigs.collect { it.barcode_ids_parsed.canonical }.intersect(
+          round2Configs.collect { it.barcode_ids_parsed.canonical }
+        )
+        if (overlappingRound1Keys) {
+          error "run '${runId}' reuses round1 barcode_ids across round1-only and round2 samples (${overlappingRound1Keys.join(', ')}). Round1 barcode_ids must be unique for round1-only samples relative to all other samples in the same run."
         }
       }
 
@@ -229,14 +243,14 @@ workflow {
         error "run '${runId}' mixes barcode_ids demultiplexing modes across samples (${round1Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round1 demultiplexing."
       }
 
-      if (hasAllRound2) {
-        def round2Modes = runConfigs.collect { it.barcode_ids_round2_parsed.mode }.unique()
+      if (round2Configs) {
+        def round2Modes = round2Configs.collect { it.barcode_ids_round2_parsed.mode }.unique()
         if (round2Modes.size() > 1) {
           error "run '${runId}' mixes barcode_ids_round2 demultiplexing modes across samples (${round2Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round2 demultiplexing."
         }
       }
 
-      runConfigs.collect { cfg -> cfg + [round2_enabled: hasAllRound2] }
+      runConfigs.collect { cfg -> cfg + [round2_enabled: cfg.barcode_ids_round2_parsed != null] }
     }
 
   // Create a channel of runs
@@ -259,6 +273,11 @@ workflow {
     .findAll { it.round2_enabled }
     .collect { it.run_id }
     .unique()
+
+  round2_sample_keys = run_sample_configs
+    .findAll { it.round2_enabled }
+    .collect { cfg -> "${cfg.run_id}|${cfg.individual_id}|${cfg.sample_id}|${cfg.barcode_ids}" }
+    .toSet()
 
   // Create input channel
   makeBarcodesFasta_input_ch = runs_ch.map { run ->
@@ -438,7 +457,9 @@ workflow {
 
   // Create input channel
   pbmm2_round1_final_ch = mergeDemuxBams_round1
-    .filter { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> !round2_run_ids.contains(run_id) }
+    .filter { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile ->
+      !round2_sample_keys.contains("${run_id}|${individual_id}|${sample_id}|${barcode_ids}")
+    }
     .map { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> tuple(run_id, individual_id, sample_id, barcode_ids, bamFile) }
 
   pbmm2_round2_final_ch = mergeDemuxBams_round2

@@ -296,7 +296,7 @@ workflow {
   }.mix(
     Channel.fromList(round2_run_ids).map { run_id ->
       def barcodeIdsInRun = run_sample_configs
-        .findAll { it.run_id == run_id }
+        .findAll { cfg -> cfg.run_id == run_id && cfg.barcode_ids_round2_parsed != null }
         .collectMany { cfg -> cfg.barcode_ids_round2_parsed.ids }
         .toSet()
         .toList()

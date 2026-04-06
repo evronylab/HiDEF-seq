@@ -403,7 +403,7 @@ workflow {
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
     .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
-    .join(round2_barcodes_fasta_ch, by: 0)
+    .combine(round2_barcodes_fasta_ch, by: 0)
     .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta ->
       tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
     }

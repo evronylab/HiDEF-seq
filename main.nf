@@ -503,12 +503,24 @@ workflow {
   // mergeAlignedSampleBAMs
   //******************
 
+  // Preserve run ordering from params.runs so merge order matches the YAML configuration
+  run_id_order = params.runs.collectEntries { run, idx -> [(run.run_id): idx] }
+
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
     .map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile ->
-        tuple(individual_id, sample_id, bamFile, pbiFile)
+        tuple(individual_id, sample_id, run_id_order[run_id], bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
+    .map { individual_id, sample_id, run_order, bamFiles, pbiFiles ->
+      def ordered = [run_order, bamFiles, pbiFiles].transpose().sort { it[0] }
+      tuple(
+        individual_id,
+        sample_id,
+        ordered.collect { it[1] },
+        ordered.collect { it[2] }
+      )
+    }
 
   // Run process
   mergeAlignedSampleBAMs(mergeAlignedSampleBAMs_input_ch)

@@ -504,7 +504,7 @@ workflow {
   //******************
 
   // Preserve run ordering from params.runs so merge order matches the YAML configuration
-  run_id_order = params.runs.collectEntries { run, idx -> [(run.run_id): idx] }
+  run_id_order = params.runs.withIndex().collectEntries { run, idx -> [(run.run_id): idx] }
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out

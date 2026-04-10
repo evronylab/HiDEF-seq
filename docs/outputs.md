@@ -233,7 +233,7 @@ The pipeline produces several files per per below, and each table contains metad
 
   - `.finalCalls.reftnc_template_strand_spectrum.tsv` (reference>call trinucleotide spectra of the strand replicated by the sequencer polymerase, of all calls, for single-strand call types): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
   
-  - Each of the above `_spectrum.tsv` files is paired with `.sigfit.pdf` spectra plots as follows: `_spectrum.sigfit.pdf` (uncorrected), `_spectrum.corrected_to_genome.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome), and `_spectrum.corrected_to_genome_chromgroup.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome chromgroup chromosomes).
+  - Each of the above `_spectrum.tsv` files is paired with `.sigfit.pdf` spectra plots as follows: `_spectrum.sigfit.pdf` (uncorrected), `_spectrum.corrected_to_genome.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome), and `_spectrum.corrected_to_genome_chromgroup.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome chromgroup chromosomes). In `.finalCalls.reftnc_template_strand_spectrum*.sigfit.pdf` plots, "transcribed" and "untranscribed" bars correspond to central pyrimidine (e.g., ACA>ATA) and central purine (e.g., TGT>TAT) calls, respectively.
 
 
 - **indel** `call_class` files:

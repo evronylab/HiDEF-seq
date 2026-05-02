@@ -15,6 +15,7 @@ This guide documents every final file produced by the `processReads` and `output
     - [QC contributions to shared logs](#qc-contributions-to-shared-logs)
   - [Coverage and reference trinucleotides](#coverage-and-reference-trinucleotides)
   - [Filter statistics](#filter-statistics)
+  - [Filter mutation error probability](#filter-mutation-error-probability)
   - [Final calls](#final-calls)
   - [Germline variant calls](#germline-variant-calls)
   - [Final-call spectra](#final-call-spectra)
@@ -38,6 +39,7 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
   ├─ splitBAMs/ (if output_intermediate_files: true)
   ├─ extractCalls/ (if output_intermediate_files: true)
   ├─ filterCalls/ (if output_intermediate_files: true)
+  ├─ filterMutationErrorProbability/ (QC outputs always; rewritten chunks if output_intermediate_files: true)
   ├─ calculateBurdens/ (if output_intermediate_files: true)
   ├─ coverage_reftnc/
   ├─ filterStats/
@@ -175,6 +177,26 @@ Each combination of chromgroup and filter group yields three TSV tables named:
 | `molecule_stats.by_run_id.tsv` | Number of molecules and number of sequenced bases (in reference space) remaining after each filter, for each run_id. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `run_id`, `stat`, `value`. `stat` contains the filter label and type of statistic, and `value` contains the value of the statistic. |
 | `molecule_stats.by_analysis_id.tsv` | Same as above without aggregating across `run_id`. |
 | `region_genome_filter_stats.tsv` | Number of genome bases remaining after each genome region filter. Columns: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `filter` (filter label derived from the threshold file basename), `binsize` (per YAML configuration), `threshold` (per YAML configuration), `padding` (per YAML configuration), `region_filter_threshold_file` (per YAML configuration), `num_genomebases_individually_filtered` (number of genome bases removed when applying only this filter), `num_genomebases_remaining` (number of genome bases remaining after applying this and all prior filters). |
+
+### Filter mutation error probability
+
+Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/filterMutationErrorProbability/[chromgroup]/`
+
+For each `chromgroup` × `filtergroup`, `filterMutationErrorProbability` writes QC artifacts named:
+`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].filterMutationErrorProbability.qc.*`.
+
+Expected files:
+
+| File suffix | Description |
+| --- | --- |
+| `summary.tsv` | Configuration and training summary (`max_mutation_errors_per_bp`, `filterMutationErrorProbability_qual_bins`, number of SBS training channels, and number of indel training contexts). |
+| `source.tsv` | Counts of scored calls by mutation-error-probability source (`sbs_context_bq_cutoff`, `indel_context_bq_cutoff`, `disabled`). |
+| `context.tsv` | Per-context totals with pass counts and mean mutation error probability. |
+| `context_mean_probability.png` | Bar plot of mean mutation error probability by context (faceted by call class). |
+| `context_bin_errors_per_bp.tsv` | Per `call_class` × context × quality-bin `errors_per_bp` and `pass` (TRUE/FALSE) status relative to `max_mutation_errors_per_bp`. |
+| `context_bin_errors_per_bp.pdf` | Line/point plot of per-context `errors_per_bp` across quality bins with pass/fail coloring. |
+| `sbs_spectra_by_qual_bin.tsv` | ssDNA SBS spectra by quality bin (`qual_bin`, SBS `channel`, count, and within-bin fraction). |
+| `sbs_spectra_by_qual_bin.pdf` | Heatmap of ssDNA SBS spectra fractions across quality bins. |
 
 ### Final calls
 Final-call tables are written to `finalCalls/[chromgroup]/` as `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.

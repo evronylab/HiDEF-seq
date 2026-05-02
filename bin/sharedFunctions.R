@@ -1853,3 +1853,433 @@ indelspectrum.to.sigfit <- function(indelspectrum){
 		arrange(label) %>%
 		pivot_wider(names_from = label, values_from = count)
 }
+
+# sigfit spectrum plotting helpers.
+# Source: sigfit R package, https://github.com/kgori/sigfit, upstream default
+# branch "master" at commit 46e89a1e861048e43ea1ce2367dcddfeff9d695e.
+# Copied/adapted from R/sigfit_plotting.R and R/sigfit_utility.R.
+# Authors: Kevin Gori and Adrian Baez-Ortega. License: GPL (>=3).
+# Citation: Gori K, Baez-Ortega A. sigfit: flexible Bayesian inference of
+# mutational signatures. bioRxiv 372896 (2018). doi: 10.1101/372896.
+# HiDEF-seq uses sigfit-style plots for SBS (96), strand-wise SBS (192), and
+# indel (83) spectra, so the DBS helper that depends on sigfit package data is
+# intentionally not copied.
+
+#' Initial coercion to matrix for signatures/exposures/counts
+to_matrix <- function(x, int = FALSE) {
+    # If x is coming from retrieve_pars, get mean
+    if (is.list(x) & "mean" %in% names(x))
+        x <- x$mean
+    # If x is a vector, transform to 1-row matrix
+    if (is.vector(x))
+        x <- matrix(x, nrow = 1, dimnames = list(NULL, names(x)))
+    # Otherwise, try coercing to matrix
+    if (!is.matrix(x))
+        x <- as.matrix(x)
+    # For counts matrix: if real-valued, round
+    if (int) {
+        x <- round(x)
+    }
+    x
+}
+
+
+#' Generates character vector of 96 (or 192, if strand=TRUE) trinucleotide mutation types
+mut_types <- function(strand = FALSE) {
+    bases <- c("A", "C", "G", "T")
+    muts <- paste0(rep(rep(bases, each = 4), 6),
+                   rep(bases[c(2, 4)], each = 48),
+                   rep(bases, 6 * 16 / 4),
+                   ">",
+                   rep(rep(bases, each = 4), 6),
+                   c(rep(bases[-2], each = 16), rep(bases[-4], each = 16)),
+                   rep(bases, 6 * 16 / 4))
+    if (strand) {
+        paste(c(rep("T", 96), rep("U", 96)), muts, sep = ":")
+    }
+    else {
+        muts
+    }
+}
+
+
+#' Plot mutational spectra
+plot_spectrum <- function(spectra, pdf_path = NULL, pdf_width = 24, pdf_height = 8, name = NULL,
+                          max_y = NULL, colors = NULL, boxes = TRUE, generic = FALSE) {
+    # Fetch HPD interval values, if present
+    if (is.list(spectra) & "mean" %in% names(spectra)) {
+        spec <- to_matrix(spectra$mean)
+        lwr <- to_matrix(spectra$lower)
+        upr <- to_matrix(spectra$upper)
+    }
+    else {
+        spec <- to_matrix(spectra)
+        lwr <- NULL
+        upr <- NULL
+    }
+    if (is.null(rownames(spec))) {
+        rownames(spec) <- paste("Sample", 1:nrow(spec))
+    }
+
+    NTYPES <- c("SBS"=96, "TSW"=192, "ID"=83)  # number of categories per spectrum type
+    NCAT <- ncol(spec)                          # number of categories in spectrum
+
+    # Initialise PDF
+    if (!is.null(pdf_path)) {
+        cairo_pdf(pdf_path, width = pdf_width, height = pdf_height, onefile = TRUE)
+        if (NCAT %in% NTYPES) {
+            par(mar = c(5.5, 7, 7.5, 2))
+        }
+        else {
+            par(mar = c(10, 7, 7.5, 2))
+        }
+    }
+
+    # Generic spectrum (NCAT!={83,96,192})
+    if (!(NCAT %in% NTYPES) | generic) {
+        plot_spectrum_generic(spec, lwr, upr, name, max_y, colors, boxes)
+    }
+    else {
+        # Standard SBS spectrum (NCAT=96)
+        if (NCAT == NTYPES["SBS"]) {
+            plot_spectrum_sbs(spec, lwr, upr, name, max_y, colors, boxes)
+        }
+        # Strand-wise SBS spectrum (NCAT=192)
+        if (NCAT == NTYPES["TSW"]) {
+            plot_spectrum_tsw(spec, lwr, upr, name, max_y, colors, boxes)
+        }
+        # Indel spectrum (NCAT=83)
+        if (NCAT == NTYPES["ID"]) {
+            plot_spectrum_id(spec, lwr, upr, name, max_y, colors, boxes)
+        }
+    }
+    if (!is.null(pdf_path)) {
+        invisible(dev.off())
+    }
+}
+
+
+#' Plot SBS spectrum
+plot_spectrum_sbs <- function(spec, lwr, upr, name, max_y, colors, boxes) {
+    TYPES <- c("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
+    COLORS <- c("deepskyblue", "black", "firebrick2", "gray76", "darkolivegreen3", "rosybrown2")
+    LINECOL <- "gray60"
+    XL <- c(0.2, 19.4, 38.6, 57.8, 77, 96.2)
+    XR <- c(19.2, 38.4, 57.6, 76.8, 96, 115.2)
+    FACTOR <- 1.095
+    NCAT <- ncol(spec)   # number of categories
+    NSAMP <- nrow(spec)  # number of samples
+    for (i in 1:NSAMP) {
+        if (is.null(max_y)) {
+            samp_max_y <- max(0.05,
+                              ifelse(is.null(upr), max(spec[i,]) * FACTOR, max(upr[i,]) * FACTOR))
+        }
+        else {
+            samp_max_y <- max_y
+        }
+        if (boxes) {
+            xlim <- c(-0.105, 115.5)
+        }
+        else {
+            xlim <- c(-1, 116)
+        }
+        # Plot spectrum bars
+        if (is.null(colors)) {
+            colors = rep(COLORS, each = 16)
+        }
+        else if ((length(colors) > 1) & (length(colors) != NCAT)) {
+            stop("'colors' must contain either a single value, or one value per mutation type.")
+        }
+        bars <- barplot(spec[i, ],
+                        names.arg = substr(mut_types(), 1, 3), mgp = c(3, 0.8, 0),
+                        col = colors, border = "white",
+                        las = 2, ylim = c(0, samp_max_y), xlim = xlim,
+                        yaxt = "n", cex.names = 1.6, xaxs = "i", family = "mono")
+        # Highlight trinucleotide middle bases
+        for (j in 1:length(COLORS)) {
+            idx <- ((j-1) * 16 + 1):(j * 16)
+            axis(side = 1, at = bars[idx], tick = FALSE, cex.axis = 1.6,
+                 mgp = c(3, 0.8, 0), las = 2, family = "mono", font = 2,
+                 col.axis = COLORS[j], labels = paste0(" ", substr(mut_types()[idx], 2, 2), " "))
+        }
+        # Plot axis
+        if (any(spec > 1)) {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutations"
+            n_text <- paste0(" (", prettyNum(sum(spec[i,]), big.mark = ","), " mutations)")
+        }
+        else {
+            axis(side = 2, at = seq(0, samp_max_y, ifelse(samp_max_y > 0.25, 0.1, 0.05)),
+                 cex.axis = 1.9, lwd = 2)
+            label <- "Mutation probability"
+            n_text <- ""
+        }
+        if (is.null(name)) {
+            nme <- rownames(spec)[i]
+        }
+        else {
+            nme <- name
+        }
+        mtext(label, side = 2, cex = 2.4, line = 3.5)
+        title(paste0(nme, n_text), line = 4, cex.main = 2.5)
+        # Plot HPD intervals
+        if (!is.null(lwr)) {
+            arrows(bars, upr[i,],
+                   bars, lwr[i,],
+                   length = 0, lwd = 3, col = LINECOL)
+        }
+        # Plot mutation type labels
+        text(x = (XL + XR) / 2, y = 1.055 * samp_max_y,
+             labels = TYPES, cex = 2.4, xpd = TRUE)
+        rect(xleft = XL, xright = XR, ybottom = 0.945 * samp_max_y,
+             ytop = samp_max_y, col = COLORS, border = "white")
+        # Plot box
+        if (boxes) {
+            box(lwd = 2)
+        }
+    }
+}
+
+
+#' Plot strandwise SBS spectrum
+plot_spectrum_tsw <- function(spec, lwr, upr, name, max_y, colors, boxes) {
+    TYPES <- c("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
+    COLORS <- c("deepskyblue", "black", "firebrick2", "gray76", "darkolivegreen3", "rosybrown2")
+    STRANDCOL <- c("deepskyblue3", "red3")
+    BACKCOL <- c("#00BFFF33", "#00000033", "#EE2C2C33", "#C2C2C24D", "#A2CD5A4D", "#EEB4B44D")
+    LINECOL <- "gray60"
+    XL <- c(0.2, 19.4, 38.6, 57.8, 77, 96.2)
+    XR <- c(19.2, 38.4, 57.6, 76.8, 96, 115.2)
+    BACKLIM <- c(0, 46.8, 93.2, 139.55, 186, 232.35, 279.2)
+    FACTOR <- 1.095
+    NCAT <- ncol(spec)   # number of categories
+    NSAMP <- nrow(spec)  # number of samples
+    for (i in 1:NSAMP) {
+        if (is.null(max_y)) {
+            samp_max_y <- max(0.05,
+                              ifelse(is.null(upr), max(spec[i,]) * FACTOR, max(upr[i,]) * FACTOR))
+        }
+        else {
+            samp_max_y <- max_y
+        }
+        if (boxes) {
+            xlim <- c(0, 279.2)
+        }
+        else {
+            xlim <- c(-3, 280)
+        }
+        # Plot background panes and mutation type labels
+        barplot(rbind(spec[i, 1:(NCAT/2)], spec[i, (NCAT/2+1):NCAT]), beside = TRUE,
+                col = NA, border = NA, space = c(0.1, 0.8), xaxs = "i", yaxt = "n",
+                xaxt = "n", ylim = c(0, samp_max_y), xlim = xlim)
+        for (j in 1:length(COLORS)) {
+            rect(xleft = BACKLIM[j], xright = BACKLIM[j+1], ybottom = 0,
+                 ytop = samp_max_y, col = BACKCOL[j], border = "white")
+            text(x = (BACKLIM[j] + BACKLIM[j+1]) / 2, y = 1.055 * samp_max_y,
+                 labels = TYPES[j], cex = 2.4, xpd = TRUE)
+            rect(xleft = BACKLIM[j], xright = BACKLIM[j+1], ybottom = 0.945 * samp_max_y,
+                 ytop = samp_max_y, col = COLORS[j], border = "white")
+        }
+        # Plot legend
+        legend("topright", bty = "n", inset = c(0.016, 0.03),
+               legend = c("Central pyrimidine", "Central purine"),
+               cex = 2.1, fill = NA, border = NA)
+        legend("topright", bty = "n", inset = c(0.115, 0.03), pch=15, pt.cex=3.75,
+               col=STRANDCOL, legend = c("", ""), cex = 2.1)
+        # Plot spectrum bars
+        bars <- barplot(rbind(spec[i, 1:(NCAT/2)],
+                              spec[i, (NCAT/2+1):NCAT]),
+                        names.arg = substr(mut_types(), 1, 3), beside = TRUE,
+                        space = c(0.1, 0.8), mgp = c(3, 0.8, 0), las = 2,
+                        col = STRANDCOL, border = "white", yaxt = "n",
+                        cex.names = 1.6, xaxs = "i", family = "mono", add = TRUE)
+        # Highlight trinucleotide middle bases
+        for (j in 1:length(COLORS)) {
+            idx <- ((j-1) * 16 + 1):(j * 16)
+            axis(side = 1, at = colMeans(bars)[idx], tick = FALSE, cex.axis = 1.6,
+                 mgp = c(3, 0.8, 0), las = 2, family = "mono", font = 2,
+                 col.axis = COLORS[j], labels = paste0(" ", substr(mut_types()[idx], 2, 2), " "))
+        }
+        # Plot axis
+        if (any(spec > 1)) {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutations"
+            n_text <- paste0(" (", prettyNum(sum(spec[i,]), big.mark = ","), " mutations)")
+        }
+        else {
+            axis(side = 2, at = seq(0, samp_max_y, ifelse(samp_max_y > 0.25, 0.1, 0.05)),
+                 cex.axis = 1.9, lwd = 2)
+            label <- "Mutation probability"
+            n_text <- ""
+        }
+        if (is.null(name)) {
+            nme <- rownames(spec)[i]
+        }
+        else {
+            nme <- name
+        }
+        mtext(label, side = 2, cex = 2.4, line = 3.5)
+        title(paste0(nme, n_text), line = 4, cex.main = 2.5)
+        # Plot HPD intervals
+        if (!is.null(lwr)) {
+            bars <- as.numeric(t(bars))
+            arrows(bars, upr[i,],
+                   bars, lwr[i,],
+                   length = 0, lwd = 2.5, col = LINECOL)
+        }
+        # Plot box
+        if (boxes) {
+            box(lwd = 2)
+        }
+    }
+}
+
+
+#' Plot ID (indel) spectrum
+plot_spectrum_id <- function(spec, lwr, upr, name, max_y, colors, boxes) {
+    TYPES <- c("1-bp deletion", "1-bp insertion", ">1-bp deletion at repeat\n(deletion length)",
+               ">1-bp insertion at repeat\n(insertion length)", "Microhomology\n(deletion length)")
+    COLORS <- c(rep(c("#FCBD6F", "#FE8002", "#AFDC8A", "#36A02E", "#FCC9B4", "#FB896A", "#F04432",
+                      "#BB191A", "#CFE0F1", "#93C3DE", "#4A97C8", "#1764AA"), each = 6), "#E1E1EE",
+                rep("#B5B5D7", 2), rep("#8582BC", 3), rep("#62409A", 5))
+    LINECOL <- "gray60"
+    XL <- c(0.2, 7.4, 14.6, 21.8, 29, 36.2, 43.4, 50.6, 57.8, 65, 72.2, 79.4, 86.6, 87.8, 90.2, 93.8)
+    XR <- c(7.2, 14.4, 21.6, 28.8, 36, 43.2, 50.4, 57.6, 64.8, 72, 79.2, 86.4, 87.6, 90, 93.6, 99.6)
+    XM <- c(7.3, 21.7, 43.3, 72.1, 93.1)
+    FACTOR <- 1.095
+    NCAT <- ncol(spec)   # number of categories
+    NSAMP <- nrow(spec)  # number of samples
+    colnames(spec) <- c(rep(c(paste0(1:5, "  "), "6+"), 2), rep(c(paste0(0:4, "  "), "5+"), 2),
+                        rep(c(paste0(1:5, "  "), "6+"), 4), rep(c(paste0(0:4, "  "), "5+"), 4),
+                        paste0(c(1, 1:2, 1:3, 1:4), "  "), "5+")
+    par(mar = c(5.5, 7, 11, 2))
+    for (i in 1:NSAMP) {
+        if (is.null(max_y)) {
+            samp_max_y <- max(0.05,
+                              ifelse(is.null(upr), max(spec[i,]) * FACTOR, max(upr[i,]) * FACTOR))
+        }
+        else {
+            samp_max_y <- max_y
+        }
+        if (boxes) {
+            xlim <- c(-0.105, 99.9)
+        }
+        else {
+            xlim <- c(-1, 100.2)
+        }
+        # Plot spectrum bars
+        if (is.null(colors)) {
+            colors <- COLORS
+        }
+        else if ((length(colors) > 1) & (length(colors) != NCAT)) {
+            stop("'colors' must contain either a single value, or one value per mutation type.")
+        }
+        bars <- barplot(spec[i, ], names.arg = colnames(spec),
+                        mgp = c(3, 0.3, 0), col = colors, border = "white",
+                        ylim = c(0, samp_max_y), xlim = xlim, yaxt = "n", xaxs = "i",
+                        las = 2, cex.names = 1.5, adj = 0.5)
+        # Plot axis
+        if (any(spec > 1)) {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutations"
+            n_text <- paste0(" (", prettyNum(sum(spec[i,]), big.mark = ","), " mutations)")
+        }
+        else {
+            axis(side = 2, at = seq(0, samp_max_y, ifelse(samp_max_y > 0.25, 0.1, 0.05)),
+                 cex.axis = 1.9, lwd = 2)
+            label <- "Mutation probability"
+            n_text <- ""
+        }
+        if (is.null(name)) {
+            nme <- rownames(spec)[i]
+        }
+        else {
+            nme <- name
+        }
+        mtext(label, side = 2, cex = 2.4, line = 3.5)
+        title(paste0(nme, n_text), line = 7.8, cex.main = 2.5)
+        # Plot HPD intervals
+        if (!is.null(lwr)) {
+            arrows(bars, upr[i,],
+                   bars, lwr[i,],
+                   length = 0, lwd = 3, col = LINECOL)
+        }
+        # Plot mutation type labels
+        rect(xleft = XL, xright = XR, ybottom = 0.945 * samp_max_y,
+             ytop = samp_max_y, col = unique(COLORS), border = "white")
+        mtext(TYPES, side = 3, at = XM, line = 2.4, cex = 2.2, xpd = TRUE)
+        mtext(c(rep(c("C", "T"), 2), rep(c("2", "3", "4", "5+"), 3)),
+              at = (XL + XR) / 2, side = 3, line = 0.35, cex = 2.1)
+        mtext(c(rep(c("Homopolymer length", "Number of repeat units"), each = 2),
+                "Microhomology length"),
+              side = 1, at = XM + c(0, 0, 0, 0, 0.2), line = 2.8, cex = c(rep(1.95, 4), 1.85))
+        # Plot box
+        if (boxes) {
+            box(lwd = 2)
+        }
+    }
+}
+
+
+#' Plot generic spectrum
+plot_spectrum_generic <- function(spec, lwr, upr, name, max_y, colors, boxes) {
+    COLOR <- "orangered3"
+    LINECOL <- "gray60"
+    FACTOR <- 1.05
+    NCAT <- ncol(spec)   # number of categories
+    NSAMP <- nrow(spec)  # number of samples
+    if (is.null(colnames(spec))) {
+        types <- paste("Mut. type", 1:NCAT)
+    }
+    else {
+        types <- colnames(spec)
+    }
+
+    for (i in 1:NSAMP) {
+        if (is.null(max_y)) {
+            samp_max_y <- ifelse(is.null(upr), max(spec[i,]) * FACTOR, max(upr[i,]) * FACTOR)
+        }
+        else {
+            samp_max_y <- max_y
+        }
+        if (is.null(colors)) {
+            colors = COLOR
+        }
+        else if ((length(colors) > 1) & (length(colors) != NCAT)) {
+            stop("'colors' must contain either a single value, or one value per mutation type.")
+        }
+        # Plot spectrum bars
+        bars <- barplot(spec[i,], names.arg = types, col = colors, mgp = c(3, 0.8, 0),
+                        border = "white", las = 2, cex.names = 1,
+                        ylim = c(0, samp_max_y), yaxt = "n", xaxs="i")
+        # Plot axis
+        if (any(spec > 1)) {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutations"
+            n_text <- paste0(" (", prettyNum(sum(spec[i,]), big.mark = ","), " mutations)")
+        }
+        else {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutation probability"
+            n_text <- ""
+        }
+        if (is.null(name)) {
+            nme <- rownames(spec)[i]
+        }
+        else {
+            nme <- name
+        }
+        mtext(label, side = 2, cex = 2.4, line = 3.5)
+        title(paste0(nme, n_text), line = 4, cex.main = 2.5)
+        # Plot HPD intervals
+        if (!is.null(lwr)) {
+            arrows(bars, upr[i,],
+                   bars, lwr[i,],
+                   length = 0, lwd = 3, col = LINECOL)
+        }
+        # Plot box
+        if (boxes) {
+            box(lwd = 2)
+        }
+    }
+}

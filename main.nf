@@ -17,6 +17,7 @@ dirVerifyBAMID = { individual_id, sample_id -> "${sampleBaseDir(individual_id, s
 dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
 dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
 dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
+dirFilterMutationErrorProbability = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterMutationErrorProbability" }
 dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
 dirCoverage_Reftnc = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc" }
 
@@ -138,6 +139,7 @@ workflow {
     processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin', 'sharedFunctionsHash']),
     extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap', 'sharedFunctionsHash']),
     filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
+    filterMutationErrorProbabilityChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'individuals', 'samples', 'sharedFunctionsHash']),
     calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
     outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples', 'sharedFunctionsHash'])
   ]
@@ -661,16 +663,32 @@ workflow {
   filterCallsChunkChromgroupFiltergroup(filterCallsChunkChromgroupFiltergroup_input_ch)
 
   //******************
-  // calculateBurdensChromgroupFiltergroup
+  // filterMutationErrorProbabilityChromgroupFiltergroup
   //******************
   // Create input channel
-  calculateBurdensChromgroupFiltergroup_input_ch = filterCallsChunkChromgroupFiltergroup.out
-      .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
+  filterMutationErrorProbabilityChromgroupFiltergroup_input_ch = filterCallsChunkChromgroupFiltergroup.out
+      .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup.
       .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
           // Sort by chunkID
           def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
           def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
-          return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
+          return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles, config_signatures.filterMutationErrorProbabilityChromgroupFiltergroup)
+      }
+
+  // Run process
+  filterMutationErrorProbabilityChromgroupFiltergroup(filterMutationErrorProbabilityChromgroupFiltergroup_input_ch)
+
+  //******************
+  // calculateBurdensChromgroupFiltergroup
+  //******************
+  // Create input channel
+  calculateBurdensChromgroupFiltergroup_input_ch = filterMutationErrorProbabilityChromgroupFiltergroup.out.tuple_qs2
+      .map { individual_id, sample_id, chromgroup, filtergroup, filterMutationErrorProbabilityFiles, filterMutationErrorProbabilityConfigSig ->
+          def sortedfilterMutationErrorProbabilityFiles = filterMutationErrorProbabilityFiles.sort { file ->
+            def m = (file.name =~ /chunk(\d+)/)
+            m ? (m[0][1] as int) : Integer.MAX_VALUE
+          }
+          return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterMutationErrorProbabilityFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
       }
 
   // Run process
@@ -1524,6 +1542,54 @@ process calculateBurdensChromgroupFiltergroup {
     script:
     """
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    """
+}
+
+/*
+  filterMutationErrorProbabilityChromgroupFiltergroup: Run filterMutationErrorProbability.R for each sample_id x chromgroup x filtergroup combination
+*/
+process filterMutationErrorProbabilityChromgroupFiltergroup {
+    cpus 2
+    memory {
+      def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time {
+        def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
+    tag { "filterMutationErrorProbabilityChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    container "${params.hidefseq_container}"
+
+    input:
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
+
+    output:
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.chunk*.qs2"), val(config_sig), emit: tuple_qs2
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.qc.*"), emit: qc
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      pattern: "*.filterMutationErrorProbability.chunk*.qs2",
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${filename}" }
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'copy',
+      pattern: "*.filterMutationErrorProbability.qc.*",
+      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${chromgroup}/${filename}" }
+
+    afterScript{
+      generateAfterScript(
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.command.log"
+      )
+    }
+
+    script:
+    """
+    filterMutationErrorProbability.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}
     """
 }
 

@@ -32,6 +32,8 @@ chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 output_prefix <- opt$output_prefix
 
+source(Sys.which("sharedFunctions.R"))
+
 filtergroup_config <- yaml.config$filtergroups %>%
   enframe(name = NULL) %>%
   unnest_wider(value) %>%
@@ -169,6 +171,64 @@ sbs_channel_rc <- function(channel) {
   str_c(reftnc_rc, ">", alttnc_rc)
 }
 
+make_sbs_spectra_by_qual_bin <- function(sbs_channel_bq_counts) {
+  observed <- sbs_channel_bq_counts %>%
+    filter(!is.na(channel), !is.na(qual_bin)) %>%
+    transmute(
+      qual_bin = as.character(qual_bin),
+      channel = sbs_template_channel_to_sigfit(channel),
+      count = as.numeric(n_channel_bq)
+    ) %>%
+    filter(!is.na(channel)) %>%
+    group_by(qual_bin, channel) %>%
+    summarize(count = sum(count, na.rm = TRUE), .groups = "drop")
+
+  expand_grid(
+    qual_bin = qual_bin_labels,
+    channel = sbs192_labels.sigfit
+  ) %>%
+    left_join(observed, by = join_by(qual_bin, channel)) %>%
+    mutate(
+      count = replace_na(count, 0),
+      qual_bin = factor(qual_bin, levels = qual_bin_labels),
+      channel = factor(channel, levels = sbs192_labels.sigfit)
+    ) %>%
+    arrange(qual_bin, channel) %>%
+    group_by(qual_bin) %>%
+    mutate(
+      total_in_bin = sum(count, na.rm = TRUE),
+      fraction = if_else(total_in_bin > 0, count / total_in_bin, NA_real_)
+    ) %>%
+    ungroup() %>%
+    transmute(
+      qual_bin = as.character(qual_bin),
+      channel = as.character(channel),
+      count,
+      fraction
+    )
+}
+
+make_sbs_spectra_by_qual_bin_sigfit <- function(sbs_spectra_by_qual_bin) {
+  sbs_spectra_by_qual_bin %>%
+    mutate(
+      qual_bin = factor(qual_bin, levels = qual_bin_labels),
+      channel = factor(channel, levels = sbs192_labels.sigfit)
+    ) %>%
+    select(qual_bin, channel, count) %>%
+    arrange(qual_bin, channel) %>%
+    pivot_wider(names_from = channel, values_from = count, values_fill = 0) %>%
+    arrange(qual_bin) %>%
+    mutate(qual_bin = as.character(qual_bin)) %>%
+    select(qual_bin, all_of(sbs192_labels.sigfit))
+}
+
+qual_bin_file_label <- function(qual_bin) {
+  qual_bin %>%
+    str_replace_all(">=", "gte") %>%
+    str_replace_all("[^A-Za-z0-9]+", "_") %>%
+    str_replace_all("^_|_$", "")
+}
+
 get_passfilter_columns <- function(df) {
   names(df) %>%
     str_subset("passfilter$") %>%
@@ -265,7 +325,8 @@ qc_prob_parts <- list()
 qc_source_parts <- list()
 qc_context_parts <- list()
 qc_context_bin <- tibble()
-sbs_spectra_by_qual_bin <- tibble()
+sbs_spectra_by_qual_bin <- make_sbs_spectra_by_qual_bin(sbs_channel_bq_counts)
+sbs_spectra_by_qual_bin_sigfit <- make_sbs_spectra_by_qual_bin_sigfit(sbs_spectra_by_qual_bin)
 
 make_output_chunk_file <- function(input_path) {
   base <- basename(input_path)
@@ -341,12 +402,6 @@ for (i in seq_along(filterCallsFiles)) {
       sbs_rate_table %>% transmute(call_class = "SBS", context = channel, qual_bin, errors_per_bp, pass = !context_filtered),
       indel_rate_table %>% transmute(call_class = "indel", context, qual_bin, errors_per_bp, pass = !context_filtered)
     )
-    sbs_spectra_by_qual_bin <- sbs_channel_bq_counts %>%
-      group_by(qual_bin) %>%
-      mutate(total_in_bin = sum(n_channel_bq, na.rm = TRUE), frac_in_bin = if_else(total_in_bin > 0, n_channel_bq / total_in_bin, NA_real_)) %>%
-      ungroup() %>%
-      transmute(qual_bin, channel, n = n_channel_bq, fraction = frac_in_bin)
-
     sbs_updates <- eligible %>%
       filter(call_class == "SBS") %>%
       mutate(
@@ -419,7 +474,7 @@ cat(" DONE\n")
 
 cat("## Writing filterMutationErrorProbability QC outputs...\n")
 
-qc_prefix <- str_c(output_prefix, ".filterMutationErrorProbability.qc")
+qc_prefix <- str_c(output_prefix, ".qc")
 
 qc_source <- bind_rows(qc_source_parts) %>%
   {
@@ -459,6 +514,7 @@ write_tsv(qc_source %>% arrange(desc(n)), str_c(qc_prefix, ".source.tsv"))
 write_tsv(qc_context %>% arrange(call_class, context), str_c(qc_prefix, ".context.tsv"))
 write_tsv(qc_context_bin %>% arrange(call_class, context, qual_bin), str_c(qc_prefix, ".context_bin_errors_per_bp.tsv"))
 write_tsv(sbs_spectra_by_qual_bin %>% arrange(qual_bin, channel), str_c(qc_prefix, ".sbs_spectra_by_qual_bin.tsv"))
+write_tsv(sbs_spectra_by_qual_bin_sigfit, str_c(qc_prefix, ".sbs_spectra_by_qual_bin.sigfit.tsv"))
 
 if (nrow(qc_context) > 0) {
   p_context <- ggplot(qc_context, aes(x = reorder(context, mean_mutation_error_probability), y = mean_mutation_error_probability, fill = call_class)) +
@@ -481,14 +537,30 @@ if (nrow(qc_context_bin) > 0) {
   ggsave(str_c(qc_prefix, ".context_bin_errors_per_bp.pdf"), p_context_bin, width = 12, height = 8)
 }
 
-if (nrow(sbs_spectra_by_qual_bin) > 0) {
-  p_sbs_spectra <- ggplot(sbs_spectra_by_qual_bin, aes(x = qual_bin, y = channel, fill = fraction)) +
-    geom_tile() +
-    scale_fill_viridis_c(option = "C", na.value = "grey90") +
-    labs(x = "quality bin", y = "SBS channel", fill = "fraction", title = "ssDNA SBS spectra by quality bin") +
-    theme_bw() +
-    theme(axis.text.y = element_text(size = 5))
-  ggsave(str_c(qc_prefix, ".sbs_spectra_by_qual_bin.pdf"), p_sbs_spectra, width = 12, height = 10)
-}
+sbs_spectra_by_qual_bin_sigfit %>%
+  mutate(total_count = rowSums(pick(all_of(sbs192_labels.sigfit)), na.rm = TRUE)) %>%
+  filter(total_count > 0) %>%
+  pwalk(function(...) {
+    x <- list(...)
+    qual_bin <- x$qual_bin
+    df.input <- x[setdiff(names(x), c("qual_bin", "total_count"))] %>%
+      as_tibble() %>%
+      select(all_of(sbs192_labels.sigfit)) %>%
+      as.data.frame()
+    rownames(df.input) <- qual_bin
+
+    output_name <- str_c(qc_prefix, ".sbs_spectra_by_qual_bin.", qual_bin_file_label(qual_bin), ".sigfit")
+    sum_counts <- sum(as.matrix(df.input), na.rm = TRUE)
+
+    if (sum_counts > 0) {
+      df.input <- df.input / sum_counts
+    }
+
+    df.input %>%
+      plot_spectrum(
+        pdf_path = str_c(output_name, ".pdf"),
+        name = str_c(output_name %>% basename(), "\n(", round(sum_counts, 2), " calls)")
+    )
+  })
 
 cat("DONE\n")

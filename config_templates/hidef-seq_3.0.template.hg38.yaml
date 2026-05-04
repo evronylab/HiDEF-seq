@@ -109,6 +109,9 @@ maxRetries_extractCallsChunk: 3
 mem_filterCallsChunkChromgroupFiltergroup: 48GB # each retry will increase by half of this amount
 time_filterCallsChunkChromgroupFiltergroup: 2h # each retry will increase by this same amount
 maxRetries_filterCallsChunkChromgroupFiltergroup: 3
+mem_filterMutationErrorProbabilityChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
+time_filterMutationErrorProbabilityChromgroupFiltergroup: 12h # each retry will increase by this same amount
+maxRetries_filterMutationErrorProbabilityChromgroupFiltergroup: 3
 mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
 maxRetries_calculateBurdensChromgroupFiltergroup: 3

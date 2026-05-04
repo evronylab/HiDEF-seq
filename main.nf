@@ -682,12 +682,16 @@ workflow {
   // calculateBurdensChromgroupFiltergroup
   //******************
   // Create input channel
+  chunkIDFromChunkFile = { file ->
+      def m = (file.name =~ /(?:^|\.)chunk(\d+)\.qs2$/)
+      if (!m) error "Could not extract chunk ID from file '${file.name}'"
+      m[0][1] as int
+  }
+
   calculateBurdensChromgroupFiltergroup_input_ch = filterMutationErrorProbabilityChromgroupFiltergroup.out.tuple_qs2
-      .map { individual_id, sample_id, chromgroup, filtergroup, filterMutationErrorProbabilityFiles, filterMutationErrorProbabilityConfigSig ->
-          def sortedfilterMutationErrorProbabilityFiles = filterMutationErrorProbabilityFiles.sort { file ->
-            def m = (file.name =~ /chunk(\d+)/)
-            m ? (m[0][1] as int) : Integer.MAX_VALUE
-          }
+      .map { individual_id, sample_id, chromgroup, filtergroup, filterMutationErrorProbabilityFiles ->
+          // The path wildcard output order is not guaranteed, so sort files by the chunk ID in their filenames.
+          def sortedfilterMutationErrorProbabilityFiles = filterMutationErrorProbabilityFiles.sort { chunkIDFromChunkFile(it) }
           return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterMutationErrorProbabilityFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
       }
 
@@ -1498,6 +1502,54 @@ process filterCallsChunkChromgroupFiltergroup {
 }
 
 /*
+  filterMutationErrorProbabilityChromgroupFiltergroup: Run filterMutationErrorProbability.R for each sample_id x chromgroup x filtergroup combination
+*/
+process filterMutationErrorProbabilityChromgroupFiltergroup {
+    cpus 2
+    memory {
+      def baseMemory = params.mem_filterMutationErrorProbabilityChromgroupFiltergroup as nextflow.util.MemoryUnit
+      baseMemory * (1 + 0.5*(task.attempt - 1))
+    }
+    time {
+        def baseTime = params.time_filterMutationErrorProbabilityChromgroupFiltergroup as nextflow.util.Duration
+        baseTime * (1 + (task.attempt - 1))
+    }
+    maxRetries params.maxRetries_filterMutationErrorProbabilityChromgroupFiltergroup
+    tag { "filterMutationErrorProbabilityChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
+    container "${params.hidefseq_container}"
+
+    input:
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
+
+    output:
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.chunk*.qs2"), emit: tuple_qs2
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.qc.*"), emit: qc
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'link',
+      pattern: "*.filterMutationErrorProbability.chunk*.qs2",
+      enabled: params.output_intermediate_files,
+      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${filename}" }
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'copy',
+      pattern: "*.filterMutationErrorProbability.qc.*",
+      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${chromgroup}/${filename}" }
+
+    afterScript{
+      generateAfterScript(
+        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.command.log"
+      )
+    }
+
+    script:
+    """
+    filterMutationErrorProbability.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterMutationErrorProbability
+    """
+}
+
+/*
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
 process calculateBurdensChromgroupFiltergroup {
@@ -1513,10 +1565,10 @@ process calculateBurdensChromgroupFiltergroup {
     maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
     tag { "calculateBurdensChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
-    
+
     input:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
-    
+
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.bed.gz"), path("*.bed.gz.tbi"), emit: coverage_reftnc
@@ -1542,54 +1594,6 @@ process calculateBurdensChromgroupFiltergroup {
     script:
     """
     calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
-    """
-}
-
-/*
-  filterMutationErrorProbabilityChromgroupFiltergroup: Run filterMutationErrorProbability.R for each sample_id x chromgroup x filtergroup combination
-*/
-process filterMutationErrorProbabilityChromgroupFiltergroup {
-    cpus 2
-    memory {
-      def baseMemory = params.mem_calculateBurdensChromgroupFiltergroup as nextflow.util.MemoryUnit
-      baseMemory * (1 + 0.5*(task.attempt - 1))
-    }
-    time {
-        def baseTime = params.time_calculateBurdensChromgroupFiltergroup as nextflow.util.Duration
-        baseTime * (1 + (task.attempt - 1))
-    }
-    maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
-    tag { "filterMutationErrorProbabilityChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
-    container "${params.hidefseq_container}"
-
-    input:
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
-
-    output:
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.chunk*.qs2"), val(config_sig), emit: tuple_qs2
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.filterMutationErrorProbability.qc.*"), emit: qc
-
-    publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
-      pattern: "*.filterMutationErrorProbability.chunk*.qs2",
-      enabled: params.output_intermediate_files,
-      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${filename}" }
-
-    publishDir path: "${params.analysis_output_dir}",
-      mode: 'copy',
-      pattern: "*.filterMutationErrorProbability.qc.*",
-      saveAs: { filename -> "${dirFilterMutationErrorProbability(individual_id, sample_id)}/${chromgroup}/${filename}" }
-
-    afterScript{
-      generateAfterScript(
-        "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
-        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.command.log"
-      )
-    }
-
-    script:
-    """
-    filterMutationErrorProbability.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}
     """
 }
 

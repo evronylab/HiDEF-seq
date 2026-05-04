@@ -195,8 +195,9 @@ Expected files:
 | `context_mean_probability.png` | Bar plot of mean mutation error probability by context (faceted by call class). |
 | `context_bin_errors_per_bp.tsv` | Per `call_class` × context × quality-bin `errors_per_bp` and `pass` (TRUE/FALSE) status relative to `max_mutation_errors_per_bp`. |
 | `context_bin_errors_per_bp.pdf` | Line/point plot of per-context `errors_per_bp` across quality bins with pass/fail coloring. |
-| `sbs_spectra_by_qual_bin.tsv` | ssDNA SBS spectra by quality bin (`qual_bin`, SBS `channel`, count, and within-bin fraction). |
-| `sbs_spectra_by_qual_bin.pdf` | Heatmap of ssDNA SBS spectra fractions across quality bins. |
+| `sbs_spectra_by_qual_bin.tsv` | ssDNA SBS spectra by quality bin (`qual_bin`, sigfit-formatted SBS `channel`, `count`, and within-bin `fraction`). |
+| `sbs_spectra_by_qual_bin.sigfit.tsv` | Wide sigfit-formatted ssDNA SBS count matrix with one row per `qual_bin` and one column per sigfit SBS channel. |
+| `sbs_spectra_by_qual_bin.[qual_bin_label].sigfit.pdf` | Per-quality-bin ssDNA SBS spectrum plots generated with `plot_spectrum`. |
 
 ### Final calls
 Final-call tables are written to `finalCalls/[chromgroup]/` as `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.

@@ -2081,10 +2081,10 @@ plot_spectrum_tsw <- function(spec, lwr, upr, name, max_y, colors, boxes) {
                  ytop = samp_max_y, col = COLORS[j], border = "white")
         }
         # Plot legend
-        legend("topright", bty = "n", inset = c(0.016, 0.03),
+        legend("topright", bty = "n", inset = c(0.008, 0.03),
                legend = c("Central pyrimidine", "Central purine"),
                cex = 2.1, fill = NA, border = NA)
-        legend("topright", bty = "n", inset = c(0.115, 0.03), pch=15, pt.cex=3.75,
+        legend("topright", bty = "n", inset = c(0.135, 0.03), pch=15, pt.cex=3.75,
                col=STRANDCOL, legend = c("", ""), cex = 2.1)
         # Plot spectrum bars
         bars <- barplot(rbind(spec[i, 1:(NCAT/2)],

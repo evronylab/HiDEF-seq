@@ -34,21 +34,27 @@ output_prefix <- opt$output_prefix
 
 source(Sys.which("sharedFunctions.R"))
 
-filtergroup_config <- yaml.config$filtergroups %>%
+filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
   enframe(name = NULL) %>%
   unnest_wider(value) %>%
   filter(filtergroup == filtergroup_toanalyze)
 
-if (nrow(filtergroup_config) != 1) stop("Could not find exactly one filtergroup configuration.")
-
-max_mutation_errors_per_bp <- suppressWarnings(as.numeric(filtergroup_config$max_mutation_errors_per_bp))
+max_mutation_errors_per_bp <- if ("max_mutation_errors_per_bp" %in% names(filtergroup_toanalyze_config)) {
+  suppressWarnings(as.numeric(filtergroup_toanalyze_config$max_mutation_errors_per_bp))
+} else {
+  NA_real_
+}
 if (is.na(max_mutation_errors_per_bp)) max_mutation_errors_per_bp <- NULL
+mutation_error_filter_enabled <- !is.null(max_mutation_errors_per_bp)
 
-default_qual_bin_edges <- c(10, 20, 30, 40, 50, 60, 70, 80, 89, Inf)
-parse_qual_bin_edges <- function(x, strict = FALSE) {
-  if (is.null(x) || (length(x) == 1 && is.na(x))) return(default_qual_bin_edges)
+parse_qual_bin_edges <- function(x) {
+  if (is.list(x)) x <- unlist(x, use.names = FALSE)
+  if (is.null(x) || length(x) == 0 || all(is.na(x)) || (length(x) == 1 && str_trim(as.character(x)) == "")) {
+    stop("filterMutationErrorProbability_qual_bins must be defined when max_mutation_errors_per_bp is set.")
+  }
   if (is.character(x) && length(x) == 1) x <- str_split_1(x, ",") %>% str_trim()
   parsed <- map(x, ~ {
+    if (is.na(.x) || str_trim(as.character(.x)) == "") return(list(value = NA_real_, valid = FALSE))
     v <- suppressWarnings(as.numeric(.x))
     if (!is.na(v)) return(list(value = v, valid = TRUE))
     if (tolower(as.character(.x)) %in% c("inf", "+inf", "infinity", "+infinity")) return(list(value = Inf, valid = TRUE))
@@ -56,16 +62,15 @@ parse_qual_bin_edges <- function(x, strict = FALSE) {
   })
   vals <- parsed %>% map_dbl("value")
   invalid_entries <- parsed %>% map_lgl(~ !.x$valid)
-  if (strict && any(invalid_entries)) {
+  if (any(invalid_entries)) {
     stop("Invalid value(s) in filterMutationErrorProbability_qual_bins. Use numeric upper edges and/or Inf.")
   }
   vals <- vals[!is.na(vals)]
   if (length(vals) == 0) {
-    if (strict) stop("filterMutationErrorProbability_qual_bins could not be parsed.")
-    return(default_qual_bin_edges)
+    stop("filterMutationErrorProbability_qual_bins could not be parsed.")
   }
   vals <- unique(sort(vals))
-  if (strict && any(vals <= 0)) {
+  if (any(vals <= 0)) {
     stop("filterMutationErrorProbability_qual_bins must contain positive upper edges.")
   }
   if (!is.infinite(tail(vals, 1))) vals <- c(vals, Inf)
@@ -85,12 +90,15 @@ make_qual_bin_labels <- function(edges) {
   })
 }
 
-qual_bins_raw <- filtergroup_config$filterMutationErrorProbability_qual_bins[[1]]
-if (!is.null(max_mutation_errors_per_bp) && (is.null(qual_bins_raw) || (length(qual_bins_raw) == 1 && (is.na(qual_bins_raw) || qual_bins_raw == "")))) {
-  stop("filterMutationErrorProbability_qual_bins must be defined when max_mutation_errors_per_bp is set.")
+if (mutation_error_filter_enabled) {
+  qual_bins_raw <- if ("filterMutationErrorProbability_qual_bins" %in% names(filtergroup_toanalyze_config)) {
+    filtergroup_toanalyze_config$filterMutationErrorProbability_qual_bins[[1]]
+  } else {
+    NULL
+  }
+  qual_bin_edges <- parse_qual_bin_edges(qual_bins_raw)
+  qual_bin_labels <- make_qual_bin_labels(qual_bin_edges)
 }
-qual_bin_edges <- parse_qual_bin_edges(qual_bins_raw, strict = !is.null(max_mutation_errors_per_bp))
-qual_bin_labels <- make_qual_bin_labels(qual_bin_edges)
 
 hp_cache <- new.env(parent = emptyenv())
 
@@ -258,14 +266,18 @@ for (i in seq_along(filterCallsFiles)) {
       call_class %in% c("SBS", "indel"),
       SBSindel_call_type == "mismatch-ss",
       if_all(all_of(pass_cols), ~ .x == TRUE)
-    ) %>%
-    mutate(
-      mean_qual = map_dbl(qual, safe_mean),
-      mean_qual_opp = map_dbl(qual.opposite_strand, safe_mean),
-      mean_qual_both = pmin(mean_qual, mean_qual_opp, na.rm = TRUE),
-      mean_qual_both = if_else(is.infinite(mean_qual_both), mean_qual, mean_qual_both),
-      qual_bin = qual_bin_label(mean_qual_both)
     )
+
+  if (mutation_error_filter_enabled) {
+    train <- train %>%
+      mutate(
+        mean_qual = map_dbl(qual, safe_mean),
+        mean_qual_opp = map_dbl(qual.opposite_strand, safe_mean),
+        mean_qual_both = pmin(mean_qual, mean_qual_opp, na.rm = TRUE),
+        mean_qual_both = if_else(is.infinite(mean_qual_both), mean_qual, mean_qual_both),
+        qual_bin = qual_bin_label(mean_qual_both)
+      )
+  }
 
   sbs_train <- train %>%
     filter(call_class == "SBS") %>%
@@ -273,7 +285,9 @@ for (i in seq_along(filterCallsFiles)) {
 
   if (nrow(sbs_train) > 0) {
     sbs_channel_parts[[length(sbs_channel_parts) + 1]] <- sbs_train %>% count(channel, name = "n")
-    sbs_channel_bq_parts[[length(sbs_channel_bq_parts) + 1]] <- sbs_train %>% count(channel, qual_bin, name = "n")
+    if (mutation_error_filter_enabled) {
+      sbs_channel_bq_parts[[length(sbs_channel_bq_parts) + 1]] <- sbs_train %>% count(channel, qual_bin, name = "n")
+    }
   }
 
   sbs_cov_tbl <- x$bam.gr.filtertrack.bytype %>%
@@ -295,7 +309,9 @@ for (i in seq_along(filterCallsFiles)) {
 
   if (nrow(indel_train) > 0) {
     indel_ctx_parts[[length(indel_ctx_parts) + 1]] <- indel_train %>% count(context, name = "n")
-    indel_ctx_bq_parts[[length(indel_ctx_bq_parts) + 1]] <- indel_train %>% count(context, qual_bin, name = "n")
+    if (mutation_error_filter_enabled) {
+      indel_ctx_bq_parts[[length(indel_ctx_bq_parts) + 1]] <- indel_train %>% count(context, qual_bin, name = "n")
+    }
   }
 
   indel_cov_tbl <- x$bam.gr.filtertrack.bytype %>%
@@ -315,18 +331,21 @@ for (i in seq_along(filterCallsFiles)) {
 cat(" DONE\n")
 
 sbs_channel_counts <- safe_count_bind(sbs_channel_parts, c("channel"), "n_channel")
-sbs_channel_bq_counts <- safe_count_bind(sbs_channel_bq_parts, c("channel", "qual_bin"), "n_channel_bq")
 sbs_reftnc_interrogated <- safe_count_bind(sbs_reftnc_cov_parts, c("reftnc"), "interrogated")
 indel_ctx_counts <- safe_count_bind(indel_ctx_parts, c("context"), "n_context")
-indel_ctx_bq_counts <- safe_count_bind(indel_ctx_bq_parts, c("context", "qual_bin"), "n_context_bq")
 indel_interrogated_total <- if (length(indel_interrogated_parts) == 0) 0 else bind_rows(indel_interrogated_parts) %>% pull(n) %>% sum(na.rm = TRUE)
 
 qc_prob_parts <- list()
 qc_source_parts <- list()
 qc_context_parts <- list()
 qc_context_bin <- tibble()
-sbs_spectra_by_qual_bin <- make_sbs_spectra_by_qual_bin(sbs_channel_bq_counts)
-sbs_spectra_by_qual_bin_sigfit <- make_sbs_spectra_by_qual_bin_sigfit(sbs_spectra_by_qual_bin)
+
+if (mutation_error_filter_enabled) {
+  sbs_channel_bq_counts <- safe_count_bind(sbs_channel_bq_parts, c("channel", "qual_bin"), "n_channel_bq")
+  indel_ctx_bq_counts <- safe_count_bind(indel_ctx_bq_parts, c("context", "qual_bin"), "n_context_bq")
+  sbs_spectra_by_qual_bin <- make_sbs_spectra_by_qual_bin(sbs_channel_bq_counts)
+  sbs_spectra_by_qual_bin_sigfit <- make_sbs_spectra_by_qual_bin_sigfit(sbs_spectra_by_qual_bin)
+}
 
 make_output_chunk_file <- function(input_path) {
   base <- basename(input_path)
@@ -344,19 +363,23 @@ for (i in seq_along(filterCallsFiles)) {
 
   x <- qs_read(in_file)
   calls <- x$calls %>%
-    mutate(
-      row_id = row_number(),
-      mean_qual = map_dbl(qual, safe_mean),
-      mean_qual_opp = map_dbl(qual.opposite_strand, safe_mean),
-      mean_qual_both = pmin(mean_qual, mean_qual_opp, na.rm = TRUE),
-      mean_qual_both = if_else(is.infinite(mean_qual_both), mean_qual, mean_qual_both),
-      qual_bin = qual_bin_label(mean_qual_both)
-    )
+    mutate(row_id = row_number())
+
+  if (mutation_error_filter_enabled) {
+    calls <- calls %>%
+      mutate(
+        mean_qual = map_dbl(qual, safe_mean),
+        mean_qual_opp = map_dbl(qual.opposite_strand, safe_mean),
+        mean_qual_both = pmin(mean_qual, mean_qual_opp, na.rm = TRUE),
+        mean_qual_both = if_else(is.infinite(mean_qual_both), mean_qual, mean_qual_both),
+        qual_bin = qual_bin_label(mean_qual_both)
+      )
+  }
 
   eligible <- calls %>%
     filter(call_class %in% c("SBS", "indel"), SBSindel_call_type == "mutation")
 
-  if (is.null(max_mutation_errors_per_bp)) {
+  if (!mutation_error_filter_enabled) {
     updates <- eligible %>%
       transmute(
         row_id,
@@ -464,7 +487,7 @@ for (i in seq_along(filterCallsFiles)) {
       )
   }
 
-  x$calls <- calls %>% select(-row_id, -mean_qual, -mean_qual_opp, -mean_qual_both, -qual_bin)
+  x$calls <- calls %>% select(-row_id, -any_of(c("mean_qual", "mean_qual_opp", "mean_qual_both", "qual_bin")))
   qs_save(x, out_file)
 
   rm(x, calls, eligible, updates)
@@ -502,8 +525,8 @@ summary_tbl <- tibble(
   sample_id = sample_id_toanalyze,
   chromgroup = chromgroup_toanalyze,
   filtergroup = filtergroup_toanalyze,
-  max_mutation_errors_per_bp = if_else(is.null(max_mutation_errors_per_bp), NA_real_, max_mutation_errors_per_bp),
-  filterMutationErrorProbability_qual_bins = str_c(qual_bin_labels, collapse = ","),
+  max_mutation_errors_per_bp = if (mutation_error_filter_enabled) max_mutation_errors_per_bp else NA_real_,
+  filterMutationErrorProbability_qual_bins = if (mutation_error_filter_enabled) str_c(qual_bin_labels, collapse = ",") else NA_character_,
   sbs_training_channels = nrow(sbs_channel_counts),
   indel_training_contexts = nrow(indel_ctx_counts),
   indel_interrogated_total = indel_interrogated_total
@@ -512,9 +535,12 @@ summary_tbl <- tibble(
 write_tsv(summary_tbl, str_c(qc_prefix, ".summary.tsv"))
 write_tsv(qc_source %>% arrange(desc(n)), str_c(qc_prefix, ".source.tsv"))
 write_tsv(qc_context %>% arrange(call_class, context), str_c(qc_prefix, ".context.tsv"))
-write_tsv(qc_context_bin %>% arrange(call_class, context, qual_bin), str_c(qc_prefix, ".context_bin_errors_per_bp.tsv"))
-write_tsv(sbs_spectra_by_qual_bin %>% arrange(qual_bin, channel), str_c(qc_prefix, ".sbs_spectra_by_qual_bin.tsv"))
-write_tsv(sbs_spectra_by_qual_bin_sigfit, str_c(qc_prefix, ".sbs_spectra_by_qual_bin.sigfit.tsv"))
+
+if (mutation_error_filter_enabled) {
+  write_tsv(qc_context_bin %>% arrange(call_class, context, qual_bin), str_c(qc_prefix, ".context_bin_errors_per_bp.tsv"))
+  write_tsv(sbs_spectra_by_qual_bin %>% arrange(qual_bin, channel), str_c(qc_prefix, ".sbs_spectra_by_qual_bin.tsv"))
+  write_tsv(sbs_spectra_by_qual_bin_sigfit, str_c(qc_prefix, ".sbs_spectra_by_qual_bin.sigfit.tsv"))
+}
 
 if (nrow(qc_context) > 0) {
   p_context <- ggplot(qc_context, aes(x = reorder(context, mean_mutation_error_probability), y = mean_mutation_error_probability, fill = call_class)) +
@@ -525,7 +551,7 @@ if (nrow(qc_context) > 0) {
   ggsave(str_c(qc_prefix, ".context_mean_probability.png"), p_context, width = 12, height = 10, dpi = 200)
 }
 
-if (nrow(qc_context_bin) > 0) {
+if (mutation_error_filter_enabled && nrow(qc_context_bin) > 0) {
   p_context_bin <- ggplot(qc_context_bin, aes(x = qual_bin, y = errors_per_bp, color = pass, group = context)) +
     geom_line(alpha = 0.5) +
     geom_point(size = 1) +
@@ -537,30 +563,32 @@ if (nrow(qc_context_bin) > 0) {
   ggsave(str_c(qc_prefix, ".context_bin_errors_per_bp.pdf"), p_context_bin, width = 12, height = 8)
 }
 
-sbs_spectra_by_qual_bin_sigfit %>%
-  mutate(total_count = rowSums(pick(all_of(sbs192_labels.sigfit)), na.rm = TRUE)) %>%
-  filter(total_count > 0) %>%
-  pwalk(function(...) {
-    x <- list(...)
-    qual_bin <- x$qual_bin
-    df.input <- x[setdiff(names(x), c("qual_bin", "total_count"))] %>%
-      as_tibble() %>%
-      select(all_of(sbs192_labels.sigfit)) %>%
-      as.data.frame()
-    rownames(df.input) <- qual_bin
+if (mutation_error_filter_enabled) {
+  sbs_spectra_by_qual_bin_sigfit %>%
+    mutate(total_count = rowSums(pick(all_of(sbs192_labels.sigfit)), na.rm = TRUE)) %>%
+    filter(total_count > 0) %>%
+    pwalk(function(...) {
+      x <- list(...)
+      qual_bin <- x$qual_bin
+      df.input <- x[setdiff(names(x), c("qual_bin", "total_count"))] %>%
+        as_tibble() %>%
+        select(all_of(sbs192_labels.sigfit)) %>%
+        as.data.frame()
+      rownames(df.input) <- qual_bin
 
-    output_name <- str_c(qc_prefix, ".sbs_spectra_by_qual_bin.", qual_bin_file_label(qual_bin), ".sigfit")
-    sum_counts <- sum(as.matrix(df.input), na.rm = TRUE)
+      output_name <- str_c(qc_prefix, ".sbs_spectra_by_qual_bin.", qual_bin_file_label(qual_bin), ".sigfit")
+      sum_counts <- sum(as.matrix(df.input), na.rm = TRUE)
 
-    if (sum_counts > 0) {
-      df.input <- df.input / sum_counts
-    }
+      if (sum_counts > 0) {
+        df.input <- df.input / sum_counts
+      }
 
-    df.input %>%
-      plot_spectrum(
-        pdf_path = str_c(output_name, ".pdf"),
-        name = str_c(output_name %>% basename(), "\n(", round(sum_counts, 2), " calls)")
-    )
-  })
+      df.input %>%
+        plot_spectrum(
+          pdf_path = str_c(output_name, ".pdf"),
+          name = str_c(output_name %>% basename(), "\n(", round(sum_counts, 2), " calls)")
+        )
+    })
+}
 
 cat("DONE\n")

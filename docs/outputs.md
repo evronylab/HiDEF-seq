@@ -39,7 +39,7 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
   ├─ splitBAMs/ (if output_intermediate_files: true)
   ├─ extractCalls/ (if output_intermediate_files: true)
   ├─ filterCalls/ (if output_intermediate_files: true)
-  ├─ filterMutationErrorProbability/ (QC outputs always; rewritten chunks if output_intermediate_files: true)
+  ├─ filterMutationErrorProbability/ (QC outputs when max_mutation_errors_per_bp is set; rewritten chunks if output_intermediate_files: true)
   ├─ calculateBurdens/ (if output_intermediate_files: true)
   ├─ coverage_reftnc/
   ├─ filterStats/
@@ -182,7 +182,7 @@ Each combination of chromgroup and filter group yields three TSV tables named:
 
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/filterMutationErrorProbability/[chromgroup]/`
 
-For each `chromgroup` × `filtergroup`, `filterMutationErrorProbability` writes QC artifacts named:
+For each `chromgroup` × `filtergroup` with `max_mutation_errors_per_bp` set, `filterMutationErrorProbability` writes QC artifacts named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].filterMutationErrorProbability.qc.*`.
 
 Expected files:

@@ -254,7 +254,7 @@ filtergroups:
     min_subreads_cvgmatch_method: all # how to filter min_frac_subreads_cvg and min_num/frac_subreads_match for insertions/deletions with sa/sm/sx tag lengths > 1: mean, all, or any
     max_finalcalls_eachstrand: 1 # filter applied independently for each call_type/SBSindel_call_type combo. If either strand fails, the entire molecule is filtered.
     max_mutation_errors_per_bp: # optional maximum mutation errors-per-bp cutoff for context x base-quality filtering of call_class SBS/indel with SBSindel_call_type = mutation.
-    filterMutationErrorProbability_qual_bins: [10, 20, 30, 40, 50, 60, 70, 80, 89, Inf] # required when max_mutation_errors_per_bp is set; bins are evaluated high->low and all bins at/after first failing bin are filtered
+    filterMutationErrorProbability_qual_bins: # required when max_mutation_errors_per_bp is set. Recommended: [10, 20, 30, 40, 50, 60, 70, 80, 89, Inf]; bins are evaluated high->low and all bins at/after first failing bin are filtered
   - filtergroup: strict
     min_rq_eachstrand: .999
     min_rq_avgstrands: 0
@@ -289,7 +289,7 @@ filtergroups:
     min_subreads_cvgmatch_method: all
     max_finalcalls_eachstrand: 1
     max_mutation_errors_per_bp:
-    filterMutationErrorProbability_qual_bins: [10, 20, 30, 40, 50, 60, 70, 80, 89, Inf]
+    filterMutationErrorProbability_qual_bins: # required when max_mutation_errors_per_bp is set. Recommended: [10, 20, 30, 40, 50, 60, 70, 80, 89, Inf]
 
 ###
 ### Region filters

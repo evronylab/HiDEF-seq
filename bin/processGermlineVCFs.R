@@ -37,7 +37,7 @@ option_list = list(
   make_option(c("-i", "--individual_id"), type = "character", default=NULL,
               help="individual_id to process"),
   make_option(c("-o", "--output"), type = "character", default=NULL,
-  						help="output qs2 file")
+						help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
@@ -52,9 +52,10 @@ individual_id_toprocess <- opt$individual_id
 outputFile <- opt$output
 
 cache_dir <- yaml.config$cache_dir
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 cat("DONE\n")
 
@@ -79,22 +80,22 @@ germline_vcf_variants <- list()
 vcf_files_individual <- vcf_files %>% filter(individual_id == individual_id_toprocess)
 
 for(i in 1:nrow(vcf_files_individual)){
-	
+
 	germline_vcf_file <- vcf_files_individual %>% pluck("germline_vcf_file",i)
 	germline_vcf_type <- vcf_files_individual %>% pluck("germline_vcf_type",i)
 
   cat(">> Processing VCF file:",germline_vcf_file,"...")
-  
+
   germline_vcf_variants[[i]] <- load_vcf(
-	  	vcf_file = germline_vcf_file,
-	  	genome_fasta = yaml.config$genome_fasta,
-	  	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-	  	bcftools_bin = yaml.config$bcftools_bin
-  	) %>%
-  	mutate(
-  		germline_vcf_file = factor(!!germline_vcf_file),
-  		germline_vcf_type = factor(!!germline_vcf_type)
-  	)
+		vcf_file = germline_vcf_file,
+		genome_fasta = yaml.config$genome_fasta,
+		BSgenome_name = BSgenome_name,
+		bcftools_bin = yaml.config$bcftools_bin
+	) %>%
+	mutate(
+		germline_vcf_file = factor(!!germline_vcf_file),
+		germline_vcf_type = factor(!!germline_vcf_type)
+	)
 
   cat("DONE\n")
 }

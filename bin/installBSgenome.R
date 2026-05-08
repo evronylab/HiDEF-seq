@@ -10,9 +10,17 @@ cat("#### Running installBSgenome ####\n")
 ######################
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(BSgenome))
+suppressPackageStartupMessages(library(BSgenomeForge))
 suppressPackageStartupMessages(library(configr))
+suppressPackageStartupMessages(library(devtools))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(withr))
+
+######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Load configuration
@@ -37,6 +45,8 @@ if(is.null(opt$config)){
 yaml.config <- suppressWarnings(read.config(opt$config))
 
 cache_dir <- yaml.config$cache_dir
+BSgenome_name <- get_bsgenome_name(yaml.config)
+writeLines(BSgenome_name, "BSgenome_name.txt")
 
 cat("DONE\n")
 
@@ -48,19 +58,73 @@ cat("## Installing BSgenome reference...")
 #Configure cache dir as the path for the BSgenome installation
 dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
-.libPaths(cache_dir)
+.libPaths(c(cache_dir, .libPaths()))
 
-#Check if BSgenome_name is already installed or available to be installed in Bioconductor, and if not, install the genome from BSgenome_file
-if(!yaml.config$BSgenome$BSgenome_name %in% installed.genomes()){
-	if(yaml.config$BSgenome$BSgenome_name %in% available.genomes() %>% suppressMessages){
-		BiocManager::install(yaml.config$BSgenome$BSgenome_name, lib = cache_dir)
-	}else if(!is.null(yaml.config$BSgenome$BSgenome_file)){
-		install.packages(yaml.config$BSgenome$BSgenome_file, repos = NULL, lib = cache_dir)
+#Check only the configured cache. Downstream scripts load the forged package from cache_dir.
+if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
+	cat("\n")
+	cat("> BSgenome package not found in cache:", BSgenome_name, "\n")
+	cat("> Forging BSgenome package from:", yaml.config$genome_fasta, "\n")
+
+	genome_fasta_basename <- basename(yaml.config$genome_fasta)
+	genome_part <- genome_fasta_basename %>%
+		gsub(pattern = "[^0-9a-zA-Z.]", replacement = "", x = .)
+
+	circular_chromosomes <- yaml.config$circular_chromosomes
+	if(is.null(circular_chromosomes)){
+		circular_chromosomes <- character(0)
 	}else{
-		stop("ERROR: Must specify either BSgenome_name that is in available.genomes() or a BSgenome_file!", call.=FALSE)
+		circular_chromosomes <- circular_chromosomes %>%
+			unlist(use.names=FALSE) %>%
+			as.character %>%
+			paste(collapse=",") %>%
+			str_split_1(",") %>%
+			str_trim
+		circular_chromosomes <- circular_chromosomes[nzchar(circular_chromosomes)]
 	}
-	
+
+	twobit_path <- tempfile(tmpdir=getwd(), pattern=str_c(genome_part, "."), fileext=".2bit")
+	BSgenomeForge::fastaTo2bit(
+		origfile = yaml.config$genome_fasta,
+		destfile = twobit_path
+	)
+
+	pkg_dir <- BSgenomeForge::forgeBSgenomeDataPkgFromTwobitFile(
+		filepath = twobit_path,
+		organism = yaml.config$genome_organism,
+		provider = "user",
+		genome = genome_fasta_basename,
+		# BSgenomeForge requires the Maintainer field to include an email address.
+		pkg_maintainer = "HiDEF-seq <hidef-seq@example.invalid>",
+		pkg_author = "HiDEF-seq",
+		circ_seqs = circular_chromosomes,
+		destdir = getwd()
+	)
+
+	if(basename(pkg_dir) != BSgenome_name){
+		stop(str_c(
+			"ERROR: Forged BSgenome package name did not match derived package name. Expected ",
+			BSgenome_name,
+			" but got ",
+			basename(pkg_dir),
+			"."
+		), call.=FALSE)
+	}
+
+	pkg_tarball <- devtools::build(pkg_dir, path=getwd(), vignettes=FALSE, manual=FALSE, quiet=FALSE)
+	devtools::check_built(pkg_tarball, cran=FALSE, force_suggests=FALSE, manual=FALSE, error_on="error", quiet=FALSE)
+
+	withr::with_libpaths(cache_dir, action="prefix", {
+		devtools::install_local(pkg_tarball, dependencies=FALSE, upgrade="never", build=FALSE, quiet=FALSE)
+	})
+
+	if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
+		stop(str_c("ERROR: ", BSgenome_name, " was not installed into cache_dir: ", cache_dir), call.=FALSE)
+	}
+
+	suppressPackageStartupMessages(library(BSgenome_name, character.only=TRUE, lib.loc=cache_dir))
+
 	cat("DONE\n")
 }else{
-  cat("Previously installed\n")
+	cat("Previously installed\n")
 }

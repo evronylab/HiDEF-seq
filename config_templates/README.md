@@ -72,7 +72,7 @@ Barcode uniqueness rules within a run:
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `analysis_output_dir` | path | yes | Root directory for final output folders. |
-| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources). Populate a shared cache with a single Nextflow run at a time (or point concurrent runs to distinct caches) so that parallel executions do not overwrite the same files while they are being written. |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (forged BSgenome installation, region filters, processed germline variant resources). Populate a shared cache with a single Nextflow run at a time (or point concurrent runs to distinct caches) so that parallel executions do not overwrite the same files while they are being written. |
 
 ## Container and tool paths
 
@@ -109,10 +109,12 @@ Barcode uniqueness rules within a run:
 | `genome_fasta` | path | yes | Reference FASTA. |
 | `genome_fai` | path | yes | FASTA index produced by `samtools faidx`. |
 | `genome_mmi` | path | yes | pbmm2 index produced by `pbmm2 index`. |
-| `BSgenome.BSgenome_name` | string | yes | BSgenome package name (for example `BSgenome.Hsapiens.UCSC.hg38`) used by R scripts. Run `BSGenome::available.genomes()` in R to see all publicly available genomes. If the desired reference genome is not available, [create a custom BSgenome package](https://bioconductor.org/packages/devel/bioc/manuals/BSgenomeForge/man/BSgenomeForge.pdf) and set `BSgenome.BSgenome_name` to the custom package's name.<br /><u>Important:</u> The configured `BSgenome` must exactly match the configured `genome_fasta/fai/mmi` (i.e., same contigs, contig lengths, sequence). |
-| `BSgenome.BSgenome_file` | path | optional | Tarball (.tar.gz) file containing a custom BSgenome build. When supplied, `installBSgenome.R` installs it into `cache_dir`. |
+| `genome_organism` | string | yes | Organism token used when forging the BSgenome package from `genome_fasta`. For the hg38 template this is `Hsapiens`, producing a package named like `BSgenome.Hsapiens.user.hg38.fa`. |
 | `sex_chromosomes` | comma-separated string | yes | Names of sex chromosomes. Used to exclude them from sensitivity analysis. |
 | `mitochondrial_chromosome` | string | yes | Name of the mitochondrial chromosome. Used to exclude it from sensitivity analysis. |
+| `circular_chromosomes` | comma-separated string | optional | Names of circular chromosomes to pass as `circ_seqs` when forging the BSgenome package. Set to `chrM` when `mitochondrial_chromosome: chrM`; leave blank when there are no circular chromosomes. |
+
+HiDEF-seq does not search Bioconductor for prebuilt BSgenome packages and does not install a user-provided BSgenome tarball. The pipeline derives the BSgenome package name from `genome_organism` and the basename of `genome_fasta`, checks whether that package is already installed in `cache_dir`, and otherwise forges it locally from `genome_fasta` with BSgenomeForge before installing it into `cache_dir`. BSgenomeForge keeps dots in the FASTA basename and removes characters that are not letters, numbers, or dots when constructing the package name; for example, `hg38_SMaHT.fa` becomes package suffix `hg38SMaHT.fa`.
 
 ### Chromosome grouping
 | Key | Type | Required | Description |
@@ -182,7 +184,7 @@ Filter groups enable creation of different sets of thresholds for basic molecule
 
 ## Region filter configuration
 
-Processed region filter bigWig files are prepared by the `prepareFilters` workflow for analysis based on the below settings and saved in `cache_dir` for future analyses. 
+Processed region filter bigWig files are prepared by the `prepareFilters` workflow for analysis based on the below settings and saved in `cache_dir` for future analyses.
 
 ### Region-based molecule filters
 
@@ -198,7 +200,7 @@ Processed region filter bigWig files are prepared by the `prepareFilters` workfl
 | `region_filters[].read_filters[].applyto_filtergroups` | string | yes | `all` or a comma-separated list of filter groups to which the filter is applied. |
 | `region_filters[].read_filters[].is_germline_filter` | boolean, `true` or `false` | yes | Boolean indicating whether the filter targets germline variant contexts (for example, a filter based on gnomAD variants). If `true`, the filter is excluded from sensitivity calculations that rely on germline variant calls that pass non-germline filters. |
 
-### Genome region filters 
+### Genome region filters
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `region_filters[].genome_filters[]` | list | optional | Filters based on genomic regions that filter calls. Deletions are filtered out even if they partially overlap filtered regions. |

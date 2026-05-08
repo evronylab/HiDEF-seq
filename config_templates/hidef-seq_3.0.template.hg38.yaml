@@ -6,7 +6,7 @@
 ###
 ### Analysis ID
 ###
-analysis_id: 
+analysis_id:
 
 ###
 ### Sequencing runs and samples
@@ -20,14 +20,14 @@ barcodes:
     barcode:
 
 runs: # can specify multiple run_id entries
-  - run_id: 
-    reads_file: 
+  - run_id:
+    reads_file:
     samples:
-      - sample_id: 
-        barcode_ids: 
+      - sample_id:
+        barcode_ids:
         barcode_ids_round2: # optional second demultiplexing round; if performed for a sample, barcode_ids_round2 must be configured for that sample across all runs that contain it
-      - sample_id: 
-        barcode_ids: 
+      - sample_id:
+        barcode_ids:
         barcode_ids_round2: # optional second demultiplexing round; if performed for a sample, barcode_ids_round2 must be configured for that sample across all runs that contain it
 
 samples:
@@ -42,29 +42,29 @@ samples:
 ### Individuals
 ###
 individuals:
-  - individual_id: 
+  - individual_id:
     sex:  # male or female
-    germline_bam_file: 
+    germline_bam_file:
     germline_bam_type: # Illumina or PacBio
     germline_vcf_files: # can define any number of germlien_vcf_files
-      - germline_vcf_file: 
+      - germline_vcf_file:
         germline_vcf_type:  # any value possible; each configured in the germline_vcf_types section
-      - germline_vcf_file: 
-        germline_vcf_type: 
-  - individual_id: 
-    sex: 
-    germline_bam_file: 
-    germline_bam_type: 
+      - germline_vcf_file:
+        germline_vcf_type:
+  - individual_id:
+    sex:
+    germline_bam_file:
+    germline_bam_type:
     germline_vcf_files:
-      - germline_vcf_file: 
-        germline_vcf_type: 
-      - germline_vcf_file: 
-        germline_vcf_type: 
+      - germline_vcf_file:
+        germline_vcf_type:
+      - germline_vcf_file:
+        germline_vcf_type:
 
 ###
 ### Output folders
 ###
-analysis_output_dir: 
+analysis_output_dir:
 cache_dir:  # cannot be under the /home folder to ensure mounting by container.
 
 ###
@@ -124,12 +124,11 @@ output_intermediate_files: true  # true or false
 genome_fasta: hg38.fa
 genome_fai: hg38.fa.fai
 genome_mmi: hg38.mmi
-BSgenome:
-  BSgenome_name: BSgenome.Hsapiens.UCSC.hg38 # run BSGenome available.genomes() function to see all available, or set to the BSgenome_name of below BSGenome_file
-  BSgenome_file:  # optional tar.gz of custom BSgenome that is not in available.genomes()
+genome_organism: Hsapiens
 sex_chromosomes: chrX,chrY # comma-delimited
 mitochondrial_chromosome: chrM
-chromgroups: 
+circular_chromosomes: chrM
+chromgroups:
   - chromgroup: 1-22X
     chroms: chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX #comma-delimited
   - chromgroup: mito
@@ -173,7 +172,7 @@ call_types:
         filtergroup: strict
       - SBSindel_call_type: mismatch-ds
         filtergroup: strict
-# - call_type: 
+# - call_type:
 #   call_class: MDB
 #   analyzein_chromgroups:
 #   MDB_bamtag: # only for MDB
@@ -182,34 +181,34 @@ call_types:
 #   MDB_base_opposite_strand:  # only for MDB; filter to require specific base on opposite strand or null if no filter
 #   SBSindel_call_types:
 #     - SBSindel_call_type: mutation
-#       filtergroup: 
+#       filtergroup:
 #     - SBSindel_call_type: mismatch-ss
-#       filtergroup: 
+#       filtergroup:
 #     - SBSindel_call_type: mismatch-ds
-#       filtergroup: 
+#       filtergroup:
 #     - SBSindel_call_type: mismatch-os
-#       filtergroup: 
+#       filtergroup:
 #     - SBSindel_call_type: match
-#       filtergroup: 
+#       filtergroup:
 
 ###
 ### Germline VCF filters
 ###
 # These filters, except for ins_pad/del_pad filters, are not applied to MDB calls.
 germline_vcf_types: #define one germline_vcf_type for each used for above germline_vcf_files
-  - germline_vcf_type: 
+  - germline_vcf_type:
     SBS_FILTERS: #Put filters in quotations to avoid bare '.' from being read as NA
-      - 
-    SBS_min_Depth: 
-    SBS_min_VAF: 
-    SBS_min_GQ: 
-    SBS_min_QUAL: 
-    indel_FILTERS: 
-      - 
-    indel_min_Depth: 
-    indel_min_VAF: 
-    indel_min_GQ: 
-    indel_min_QUAL: 
+      -
+    SBS_min_Depth:
+    SBS_min_VAF:
+    SBS_min_GQ:
+    SBS_min_QUAL:
+    indel_FILTERS:
+      -
+    indel_min_Depth:
+    indel_min_VAF:
+    indel_min_GQ:
+    indel_min_QUAL:
     indel_ins_pad: m2b15 # leave blank to disable this filter
     indel_del_pad: m2b15 # leave blank to disable this filter
 
@@ -387,7 +386,7 @@ region_filters:
 #Settings to select variants for sensitivity calculation for SBS and indels
 # Filters are applied separately for each germline_vcf_file and all filters
 # must pass in all germline VCF files. Note: MDB sensitivities are set in the
-# call_types section. 
+# call_types section.
 sensitivity_parameters:
   use_chromgroup: 1-22X # chromgroup to use for calculating sensitivity that is used for all chromgroups. If blank, sensitivity calculation is skipped and sensitivity for all SBS and indel call types is set to 1. Sex chromosomes and mitochondrial chromosome are always excluded from sensitivity analysis, due to complication of pseudo-autosomal regions.
   sensitivity_vcf: [gnomAD genomes SNVs and indels AF >= 0.001 vcf]

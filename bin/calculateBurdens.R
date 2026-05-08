@@ -23,6 +23,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -58,9 +63,10 @@ chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
 outputFile <- opt$output
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -111,11 +117,6 @@ cat("    chromgroup:",chromgroup_toanalyze,"\n")
 cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -171,7 +172,7 @@ indel_labels.sigfit <- c(
 #Function to sum two RleLists, including handling of chromosomes only present in one of the RleLists.
 sum_RleList <- function(a, b) {
 	seqs_union <- union(names(a), names(b))
-	
+
 	seqs_union %>%
 		map(function(nm){
 			seq_in_a <- nm %in% names(a)
@@ -199,43 +200,43 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 					map_lgl(function(x){
 						x_plus <- x %>% filter(strand == "+")
 						x_minus <- x %>% filter(strand == "-")
-						
+
 						return(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))
 					})
 			) %>%
 			pull(plus_minus_identical) %>%
 			all
 	}
-	
+
 	#Helper function to calculate coverage from both strands and then divide by two to get duplex coverage
 	calc_duplex_coverage <- function(gr){
 		cov <- gr %>% coverage
-		
+
 		#Confirm all values are even integers
 		if((cov %% 2L != 0L) %>% any %>% any){
 			stop("Non-even strand coverage in bam.gr.filtertrack!")
 		}
-		
+
 		return(cov %/% 2L)
 	}
-	
+
 	if(is.null(bam.gr.filtertrack2)){
 		if(! bam.gr.filtertrack1 %>% is_plus_minus_identical){
 			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
 		}
-		
+
 		bam.gr.filtertrack1 %>%
 			mutate(
 				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
 					map(function(x){x %>% calc_duplex_coverage})
 			) %>%
 			select(-bam.gr.filtertrack)
-		
+
 	}else{
 		if(! bam.gr.filtertrack2 %>% is_plus_minus_identical){
 			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
 		}
-		
+
 		bam.gr.filtertrack1 %>%
 			left_join(
 				bam.gr.filtertrack2 %>%
@@ -260,24 +261,24 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 
 #Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
 gr_1bp_cov <- function(gr, cov){
-	
+
 	stopifnot(all(width(gr) == 1))
-	
+
 	n <- length(gr)
 	result <- rep.int(0, n) #pre-fill zeros
 	chr <- gr %>% seqnames %>% as.character
 	pos <- gr %>% start
-	
+
 	# indices per chromosome (keeps order in 'gr')
 	idx_by_chr <- split(seq_len(n), chr)
-	
+
 	for (ch in names(idx_by_chr)) {
 		idx <- idx_by_chr[[ch]]
 		if (ch %in% names(cov)){
 			result[idx] <- cov[[ch]][pos[idx]]
 		}
 	}
-	
+
 	return(result)
 }
 
@@ -293,15 +294,15 @@ molecule_stats <- list()
 
 #Loop over all filterCallsFiles
 for(i in seq_along(filterCallsFiles)){
-	
+
 	#Extract analysis chunk number for logging in case filterCallsFiles are not supplied in order
 	analysis_chunk_num <- filterCallsFiles[i] %>% str_extract("(?<=chunk)\\d+")
-		
+
 	cat(" ", analysis_chunk_num, sep="")
-	
+
 	#Load filterCallsFile
 	filterCallsFile <- qs_read(filterCallsFiles[i])
-	
+
 	#Load basic configuration only from first chunk, since identical in all chunks.
 	if(i == 1){
 		#Basic configuration parameters
@@ -309,7 +310,7 @@ for(i in seq_along(filterCallsFiles)){
 		genome_chromgroup.gr <- filterCallsFile %>% pluck("config","genome_chromgroup.gr")
 		region_read_filters_config <- filterCallsFile %>% pluck("config","region_read_filters_config")
 		region_genome_filters_config <- filterCallsFile %>% pluck("config","region_genome_filters_config")
-		
+
 		#germline-related filters that are excluded when calculating sensitivity
 		germline_filters <- c(
 			"germline_vcf.passfilter",
@@ -327,7 +328,7 @@ for(i in seq_along(filterCallsFiles)){
 				basename %>%
 				str_c("region_genome_filter_",.,".passfilter")
 		)
-		
+
 		#region_genome_filter_stats
 		region_genome_filter_stats <- filterCallsFile %>% pluck("region_genome_filter_stats")
 	}
@@ -338,7 +339,7 @@ for(i in seq_along(filterCallsFiles)){
 		filter(
 			if_all(contains("passfilter"), ~ .x == TRUE)
 		)
-	
+
 	#Load germline variant calls that pass all filters ignoring the germline filters, since we will later also need the calls filtered by germline filters to calculate sensitivity
 	germlineVariantCalls[[i]] <- filterCallsFile %>%
 		pluck("calls") %>%
@@ -348,23 +349,23 @@ for(i in seq_along(filterCallsFiles)){
 			if_all(contains("passfilter") & !all_of(germline_filters), ~ .x == TRUE), #All non-germline filters == TRUE
 			germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
 		)
-	
+
 	#Filtered duplex read coverage of the genome, with and without germline_filters
 	if(i == 1){
 		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
 			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
 		)
-		
+
 		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
 			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
 		)
-		
+
 	}else{
 		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
 			bam.gr.filtertrack.bytype,
 			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
 		)
-		
+
 		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
 			bam.gr.filtertrack.except_germline_filters.bytype,
 			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
@@ -373,7 +374,7 @@ for(i in seq_along(filterCallsFiles)){
 
 	#molecule_stats
 	molecule_stats[[i]] <- filterCallsFile %>% pluck("molecule_stats")
-	
+
 	#Remove temporary objects
 	rm(filterCallsFile)
 	invisible(gc())
@@ -428,33 +429,33 @@ bam.gr.filtertrack.bytype %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_file <- str_c(x$row_id,".bed")
 			if(file.exists(output_file)){file.remove(output_file)}
 			file.create(output_file)
-			
+
 			x$bam.gr.filtertrack.coverage %>%
 				iwalk(
 					function(rle, seqname){
 						lens <- rle %>% runLength
 						vals <- rle %>% runValue
 						n <- lens %>% length
-						
+
 						offset <- 0L
-						
+
 						for(lo in seq.int(1L, n, by = chunk_runs)){
 							hi <- min(lo + chunk_runs - 1L, n)
 							len_slice <- lens[lo:hi]
 							val_slice <- vals[lo:hi]
-							
+
 							nz <- which(val_slice != 0L)
 							if(length(nz) == 0){
 								offset <- offset + sum(len_slice)
 								next
 							}
-							
+
 							ends_chunk <- offset + cumsum(len_slice)
-							
+
 							starts_chunk_sub <- ends_chunk[nz]
 							gt1 <- nz > 1L
 							if(any(gt1)){starts_chunk_sub[gt1] <- ends_chunk[nz[gt1] - 1L]}
@@ -467,9 +468,9 @@ bam.gr.filtertrack.bytype %>%
 								value = val_slice[nz]
 							) %>%
 								data.table::fwrite(output_file, sep="\t", col.names = FALSE, append = TRUE, showProgress = FALSE)
-							
+
 							offset <- ends_chunk[length(ends_chunk)]
-							
+
 							invisible(gc())
 						}
 					}
@@ -489,18 +490,18 @@ paste(
 	"| cut -f2- |",
 	yaml.config$bedtools_bin,"merge -i stdin > all.bed"
 ) %>%
-	system2(command="/bin/bash", args="-s", input=.) %>% 
+	system2(command="/bin/bash", args="-s", input=.) %>%
 	invisible
 
 #Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",BSgenome_name, ".bed.gz")
 
 paste(
 	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
 	yaml.config$bedtools_bin, "intersect -sorted -loj -wa -wb -a stdin -b",genome_trinuc_file, "-g", yaml.config$genome_fai,
 	"| cut -f 1-3,7 > all.trinuc.bed"
 ) %>%
-	system2(command="/bin/bash", args="-s", input=.) %>% 
+	system2(command="/bin/bash", args="-s", input=.) %>%
 	invisible
 
 file.remove("all.bed") %>% invisible
@@ -511,7 +512,7 @@ bam.gr.filtertrack.bytype %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			cov_output_file <- str_c(
 				yaml.config$analysis_id,
 				individual_id,
@@ -525,7 +526,7 @@ bam.gr.filtertrack.bytype %>%
 				"bed.gz",
 				sep="."
 			)
-			
+
 			paste(
 				yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
 				"-a", str_c(x$row_id,".bed"), "-b all.trinuc.bed",
@@ -544,9 +545,9 @@ bam.gr.filtertrack.bytype %>%
 				"&&",
 				yaml.config$tabix_bin, "-@2 -s1 -b2 -e3", cov_output_file
 			) %>%
-				system2(command="/bin/bash", args="-s", input=.) %>% 
+				system2(command="/bin/bash", args="-s", input=.) %>%
 				invisible
-			
+
 			file.remove(str_c(x$row_id,".bed")) %>% invisible
 		}
 	)
@@ -572,7 +573,7 @@ if(
 		"bed.gz",
 		sep="."
 	)
-	
+
 	file.remove(cov_output_file, str_c(cov_output_file,".tbi")) %>% invisible
 }
 
@@ -596,7 +597,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		name = "bam.gr.filtertrack.reftnc_plus_strand"
 	) %>%
 	select(-row_id) %>%
-	
+
 	mutate(
 		bam.gr.filtertrack.reftnc_minus_strand = bam.gr.filtertrack.reftnc_plus_strand %>%
 			map(function(x){
@@ -626,7 +627,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 					rename(reftnc_pyr = reftnc) %>%
 					mutate(fraction = count / sum(count))
 			}),
-		
+
 		bam.gr.filtertrack.reftnc_both_strands = map2(
 			bam.gr.filtertrack.reftnc_plus_strand,
 			bam.gr.filtertrack.reftnc_minus_strand,
@@ -644,7 +645,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
  #Function to extract trinucleotide distribution for selected chromosomes
 get_genome_reftnc <- function(BSgenome_name, chroms){
-	
+
 	reftnc_plus_strand <- BSgenome_name %>%
 		get %>%
 		getSeq(chroms) %>%
@@ -652,7 +653,7 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 		trinucleotideFrequency(simplify.as = "collapsed") %>%
 		enframe(name = "reftnc", value = "count") %>%
 		mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
-	
+
 	reftnc_minus_strand <- reftnc_plus_strand %>%
 		mutate(
 			reftnc = reftnc %>%
@@ -667,7 +668,7 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 		rename(reftnc_pyr = reftnc) %>%
 		filter(!is.na(reftnc_pyr)) %>%
 		mutate(fraction = count / sum(count))
-	
+
 	reftnc_both_strands <- bind_rows(
 		reftnc_plus_strand,
 		reftnc_minus_strand
@@ -677,7 +678,7 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 		arrange(reftnc) %>%
 		filter(!is.na(reftnc)) %>%
 		mutate(fraction = count / sum(count))
-	
+
 	return(
 		list(
 			reftnc_pyr = reftnc_pyr,
@@ -688,13 +689,13 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 
 	#Whole genome
 genome.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-	chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames
+	BSgenome_name = BSgenome_name,
+	chroms = BSgenome_name %>% get %>% seqnames
 	)
 
  #genome in the analyzed chromgroup
 genome_chromgroup.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	BSgenome_name = BSgenome_name,
 	chroms = chroms_toanalyze
 )
 
@@ -719,7 +720,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						)
 				}
 			),
-		
+
 		bam.gr.filtertrack.reftnc_both_strands = bam.gr.filtertrack.reftnc_both_strands %>%
 			map(
 				function(x){
@@ -736,14 +737,14 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 						)
 				}
 			),
-		
+
 		across(
 			starts_with("bam.gr.filtertrack.reftnc"),
 			function(x){
 				x %>%
 					map(
 						function(y){
-							y %>% 
+							y %>%
 								mutate(
 									fraction_ratio_to_genome = fraction / fraction.genome,
 									fraction_ratio_to_genome_chromgroup = fraction / fraction.genome_chromgroup
@@ -800,10 +801,10 @@ strand_redundant_cols_discard <- c(
 
 #Nest_join finalCalls for each call_class x call_type x SBSindel_call_type combination, and add SBS/mismatch-ss if not in call_types_toanalyze for downstream SBS mutation error rate calculation, and collapse to distinct calls ignoring strand for call_class = "SBS" and "indel" with SBSindel_call_type = "mutation" so that each of these events is only counted once, while all other SBS and indel SBSindel_call_types and all MDB SBSindel_call_types will be counted once for each strand on which they occur. Also extract unique calls for SBSindel_call_type = "mutation". Then convert to a table formatted for tsv output. Before the nest join, remove "germline_vcf_types_detected", "germline_vcf_files_detected", and "passfilter" columns as these are empty, empty, and TRUE, respectively for all finalCalls. Used for burden, spectra, and vcf output.
 finalCalls.bytype <- call_types_toanalyze %>%
-	
+
 	#remove columns that are not needed here
 	select(-analyzein_chromgroups, -starts_with("MDB")) %>%
-	
+
 	#Add row for SBS/mismatch-ss
 	bind_rows(
 		tibble(
@@ -814,7 +815,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		)
 	) %>%
 	distinct %>%
-	
+
 	#Nest join finalCalls
 	nest_join(
 		finalCalls %>%
@@ -830,7 +831,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
 	) %>%
-	
+
 	#Discard columns that are not needed for each call_class
 	mutate(
 		finalCalls = map2(
@@ -846,17 +847,17 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			}
 		)
 	) %>%
-	
+
 	#Make tables for tsv and vcf output
 	mutate(
-		
+
 		#Calls for tsv output
 		finalCalls_for_tsv = if_else(
 			call_class %in% c("SBS","indel") & SBSindel_call_type == "mutation",
 			finalCalls %>% map(
 				function(x){
 					x %>%
-						
+
 						#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
 						mutate(
 							strand = strand %>%
@@ -865,7 +866,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 									refstrand_minus_read = "-"
 								)
 						) %>%
-						
+
 						#Collapse to one row per mutation
             pivot_wider(
               id_cols = any_of(c(zm_identical_cols_keep, strand_identical_cols_keep)),
@@ -878,7 +879,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			),
 			finalCalls
 		),
-		
+
 		#Unique calls for tsv output
 		finalCalls_unique_for_tsv = if_else(
 			SBSindel_call_type == "mutation",
@@ -889,26 +890,26 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			),
 			NA
 		),
-		
+
 		#Calls for vcf output
 		finalCalls_for_vcf = finalCalls_for_tsv %>% map(
 			function(x){
-				x %>% 
+				x %>%
 					normalize_indels_for_vcf(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name
+						BSgenome_name = BSgenome_name
 					)
 			}
 		),
-		
+
 		#Unique calls for vcf output
 		finalCalls_unique_for_vcf = if_else(
 			SBSindel_call_type == "mutation",
 			finalCalls_unique_for_tsv %>%
 				map(
 					function(x){
-						x %>% 
+						x %>%
 							normalize_indels_for_vcf(
-								BSgenome_name = yaml.config$BSgenome$BSgenome_name
+								BSgenome_name = BSgenome_name
 							)
 					}
 				),
@@ -925,7 +926,7 @@ finalCalls <- finalCalls %>%
 #Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types (including SBS/mismatch-ss even if not in call_types_toanalyze, for downstream SBS mutation error calculation), calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 	mutate(
-		
+
 		finalCalls.reftnc_pyr = pmap(
 			list(call_class, finalCalls_for_tsv),
 			function(x,z){
@@ -941,7 +942,7 @@ finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 				}
 			}
 		),
-		
+
 		finalCalls_unique.reftnc_pyr = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
 			function(x,y,z){
@@ -957,7 +958,7 @@ finalCalls.reftnc_spectra <- finalCalls.bytype %>%
 				}
 			}
 		),
-		
+
 		finalCalls.reftnc_template_strand = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_for_tsv),
 			function(x,y,z){
@@ -1004,7 +1005,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				}
 			}
 		),
-		
+
 		finalCalls_unique.reftnc_pyr_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
 			function(x,y,z){
@@ -1024,7 +1025,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				}
 			}
 		),
-		
+
 		finalCalls.reftnc_template_strand_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_for_tsv),
 			function(x,y,z){
@@ -1047,7 +1048,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	)
 
 #Extract indel spectra (only for mutations)
-BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
+BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
 
@@ -1070,7 +1071,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				}
 			}
 		),
-		
+
 		finalCalls_unique.refindel_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
 			function(x,y,z){
@@ -1096,16 +1097,16 @@ invisible(gc())
 #Calculate trinucleotide distributions and spectra of SBS and MDB calls corrected for genome and genome_chromgroup distributions. Note, when genome correction factors are 0, setting corrected count to 0 rather than NA. When the sum of counts is 0, setting the fraction to 0 instead of NA.
  #Helper function to annotate corrected counts and fractions
 annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_type){
-	
+
 	expr_map <- list(
 		reftnc_pyr = expr(reftnc_pyr == reftnc_pyr),
 		reftnc_template_strand = expr(reftnc_template_strand == reftnc),
 		reftnc_pyr_channel = expr(reftnc_pyr_channel == reftnc_pyr),
 		reftnc_template_strand_channel = expr(reftnc_template_strand_channel == reftnc)
 	)
-	
+
 	join_by_expr <- expr_map %>% pluck(annotation_type)
-	
+
 	df %>%
 		mutate(
 			across(
@@ -1115,7 +1116,7 @@ annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_ty
 						s, !!sym(ref_col),
 						function(x,y){
 							if (is.null(x)){return(x)}
-							
+
 							if(annotation_type == "reftnc_pyr_channel"){
 								x <- x %>%
 									mutate(
@@ -1131,7 +1132,7 @@ annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_ty
 											factor(levels = trinucleotides_64)
 									)
 							}
-							
+
 							x %>% left_join(
 								y,
 								by = join_by(!!join_by_expr),
@@ -1191,19 +1192,19 @@ cat("## Calculating call burdens...")
 
 #Calculate number of interrogated base pairs (SBSindel_call_type = mutation) or bases (mismatch-ss, mismatch-ds, mismatch-os, match), for each call_type to analyze. Note, for mismatch-ds, each mismatch-ds is counted as 2 mismatches so burdens use interrogated bases rather than base pairs.
 finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
-	
-	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
+
+	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability.
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
-	
+
 	mutate(
 		cov_sum = bam.gr.filtertrack.coverage %>%
 			map_dbl(function(x){
 					x %>% map_dbl(sum) %>% sum
 			}),
-		
+
 		interrogated_bases_or_bp = if_else(
 			SBSindel_call_type == "mutation",
 			cov_sum,
@@ -1226,7 +1227,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					reftnc_corrected_reference = NA,
 					sensitivity_corrected = FALSE
 				),
-		
+
 			#Unique calls (only mutations)
 			finalCalls.bytype %>%
 				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
@@ -1254,7 +1255,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 #		unique_col_annotation: Label to give the unique_calls column in the resulting tibble
 get_burden_data <- function(x, y, reftnc_cols, ratio_col_suffix, unique_col_annotation){
 	df <- left_join(x, y, by = join_by(!!reftnc_cols))
-	
+
 	return(
 		tibble(
 			interrogated_bases_or_bp = df %>% pull(count.y) %>% sum,
@@ -1280,7 +1281,7 @@ finalCalls.reftnc_spectra.genome_correction.SBSmutations <- finalCalls.reftnc_sp
 finalCalls.burdens <- finalCalls.burdens %>%
 	bind_rows(
 		bind_rows(
-			
+
 			#Not unique calls, whole-genome corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSmutations %>%
 				mutate(
@@ -1290,7 +1291,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome",FALSE)}
 					)
 				),
-				
+
 			#Unique calls, whole-genome corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSmutations %>%
 				mutate(
@@ -1300,7 +1301,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 						function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome",TRUE)}
 					)
 				),
-				
+
 			#Not unique calls, genome chromgroup corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSmutations %>%
 				mutate(
@@ -1310,7 +1311,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 							function(x,y){get_burden_data(x,y,expr(reftnc_pyr==reftnc_pyr),"genome_chromgroup",FALSE)}
 					)
 				),
-				
+
 			#Unique calls, genome chromgroup corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSmutations %>%
 				mutate(
@@ -1338,7 +1339,7 @@ finalCalls.reftnc_spectra.genome_correction.SBSnonmutations <- finalCalls.reftnc
 finalCalls.burdens <- finalCalls.burdens %>%
 	bind_rows(
 		bind_rows(
-			
+
 			#Not unique calls, whole-genome corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSnonmutations %>%
 				mutate(
@@ -1348,7 +1349,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"genome",FALSE)}
 					)
 				),
-			
+
 			#Not unique calls, genome chromgroup corrected
 			finalCalls.reftnc_spectra.genome_correction.SBSnonmutations %>%
 				mutate(
@@ -1370,10 +1371,10 @@ invisible(gc())
 finalCalls.burdens <- finalCalls.burdens %>%
 	mutate(
 		ci = num_calls %>% map( function(x){cipoisson(x)} ),
-		
+
 		num_calls_lci = map_dbl(ci,1),
 		num_calls_uci = map_dbl(ci,2),
-		
+
 		burden_calls = num_calls / interrogated_bases_or_bp,
 		burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
 		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
@@ -1383,16 +1384,16 @@ finalCalls.burdens <- finalCalls.burdens %>%
 #Create sigfit-format finalCalls spectra tables
  #Helper function
 tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("pyr","template","indel"), value_col = NULL){
-				
+
 	map2(finalCalls_col, rowname_col, function(x,y){
 		if(is.null(x)){return(NULL)}
-		
+
 		result <- switch(
 			mode,
 			"pyr" = x %>%
 				select(channel, all_of(value_col)) %>%
 				pivot_wider(names_from = channel, values_from = all_of(value_col)),
-			
+
 			"template" = x %>%
 				mutate(
 					channel = if_else(
@@ -1408,7 +1409,7 @@ tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("pyr","templa
 				) %>%
 				select(channel, all_of(value_col)) %>%
 				pivot_wider(names_from = channel, values_from = all_of(value_col)),
-			
+
 			"indel" = x %>% indelspectrum.to.sigfit
 		) %>%
 			mutate(rowname = y) %>%
@@ -1425,7 +1426,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			call_class, call_type, SBSindel_call_type,
 			sep="."
 		),
-		
+
 		#reftnc_pyr spectra for all and unique calls
 		 #Not corrected
 		across(
@@ -1445,7 +1446,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count_corrected_to_genome_chromgroup")},
 			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
 		),
-		
+
 		#reftnc_template_strand spectra for all calls
 		 #Not corrected
 		across(
@@ -1465,7 +1466,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count_corrected_to_genome_chromgroup")},
 			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
 		),
-		
+
 		# indel spectra (all + unique)
 		across(
 			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
@@ -1499,9 +1500,9 @@ sensitivity <- call_types_toanalyze %>%
 
 #Create set of high-quality germline variants for sensitivity analysis if use_chromgroup is defined and is the current chromgroup
 if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup == chromgroup_toanalyze){
-	
+
 	cat("## Calculating SBS and indel sensitivity...")
-	
+
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
 		modify_tree(leaf = as.character) %>%
@@ -1512,16 +1513,16 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		unnest_wider(germline_vcf_files) %>%
 		filter(individual_id == !!individual_id) %>%
 		nrow
-	
+
 	#Load sensitivity_vcf
 	sensitivity_vcf <- load_vcf(
 		vcf_file = sensitivity_parameters$sensitivity_vcf,
 		genome_fasta = yaml.config$genome_fasta,
-		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		BSgenome_name = BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin
 	) %>%
 		as_tibble
-	
+
 	#Load germline VCF variants and filter to retain high-confidence variants
 	high_confidence_germline_vcf_variants <- qs_read(
 		str_c(
@@ -1538,13 +1539,13 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 		)
 	) %>%
 		as_tibble %>%
-		
+
 		#Separate genotypes of each allele
 		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
-		
+
 		#Group by germline_vcf_file so that filters are calculated separately for each germline VCF.
-		group_by(germline_vcf_file) %>% 
-		
+		group_by(germline_vcf_file) %>%
+
 		#Filter per sensitivity_threshold settings
 		filter(
 			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile) & call_class == "SBS") |
@@ -1561,29 +1562,29 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				(sensitivity_parameters$genotype == "homozygous" & (GT1 == "1" & GT2 == "1"))
 		) %>%
 		ungroup %>%
-		
+
 		#Keep variants detected in all germline vcfs
 		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
 		filter(n == !!num_germline_vcf_files) %>%
 		select(-n) %>%
-		
+
 		#Keep variants in chromgroup, and exclude variants in sex chromosomes and mitochondrial chromosome
 		filter(
 			seqnames %in% chroms_toanalyze,
 			! seqnames %in% sex_chromosomes,
 			! seqnames %in% mitochondrial_chromosome
 		) %>%
-		
+
 		#Keep variants in sensitivity_vcf
 		semi_join(
 			sensitivity_vcf,
 			by = names(.)
 		)
-	
+
 	rm(num_germline_vcf_files, sensitivity_vcf)
 	invisible(gc())
-	
-	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected. 
+
+	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected.
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
 		left_join(
 			germlineVariantCalls %>%
@@ -1597,7 +1598,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 			by = names(high_confidence_germline_vcf_variants)
 		) %>%
 		mutate(num_zm_detected = num_zm_detected %>% replace_na(0))
-	
+
 	#Annotate duplex coverage of high_confidence_germline_vcf_variants for each non-germline filter tracker. For insertions and deletions, annotate the minimum coverage at the left and right bases immediately flanking the insertion site/deleted bases.
 	#For high_confidence_germline_vcf_variants, change insertion and deletion ranges to span immediately flanking bases
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
@@ -1605,7 +1606,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 			start = if_else(call_class == "indel", start - 1, start),
 			end = if_else(call_class == "indel", end + 1, end)
 		)
-	
+
 	#Get coverage for start and end positions so that coverage is calculated for those bases specifically, and then set coverage to the minimum between these.
 	bam.gr.filtertrack.except_germline_filters.bytype <- bam.gr.filtertrack.except_germline_filters.bytype %>%
 		nest_join(high_confidence_germline_vcf_variants, by = "call_type") %>%
@@ -1614,12 +1615,12 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				high_confidence_germline_vcf_variants,
 				bam.gr.filtertrack.coverage,
 				function(x,y){
-					
+
 					gr <- x %>%
 						makeGRangesFromDataFrame(
-							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+							seqinfo = BSgenome_name %>% get %>% seqinfo
 						)
-					
+
 					x %>%
 						mutate(
 							duplex_coverage = pmin(
@@ -1634,18 +1635,18 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				}
 			)
 		)
-	
-	#Join high_confidence_germline_vcf_variants.annotated to sensitivity tibble 
+
+	#Join high_confidence_germline_vcf_variants.annotated to sensitivity tibble
 	sensitivity <- sensitivity %>%
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
 				select(-bam.gr.filtertrack.coverage),
 			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		)
-	
+
 	rm(high_confidence_germline_vcf_variants, bam.gr.filtertrack.except_germline_filters.bytype)
 	invisible(gc())
-	
+
 	#Sum number of high confidence germline VCF variant detections and coverage, and remove high_confidence_germline_vcf_variants that is no longer needed
 	sensitivity <- sensitivity %>%
 		mutate(
@@ -1653,43 +1654,43 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				map_int( function(x){x$num_zm_detected %>% sum} ),
 			high_confidence_germline_vcf_variants_sum_duplex_coverage = high_confidence_germline_vcf_variants %>%
 				map_int( function(x){x$duplex_coverage %>% sum} )
-		) %>% 
+		) %>%
 		select(-high_confidence_germline_vcf_variants)
-	
+
 	#Calculate sensitivity.
-	#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1. 
+	#Calculate sensitivity only if number of high-confidence germline variant detections is above the configured minimum required, otherwise keep as default of 1.
 	#If sensitivity_parameters$genotype = 'homozygous' (i.e. used only homozygous variants for sensitivity calculation): calculate sensitivity as sum(num_zm_detected) / sum(duplex_coverage)
 	#If sensitivity_parameters$genotype = 'heterozygous', calculate sensitivity as 2 * sum(num_zm_detected) / sum(duplex_coverage).
-	#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases. 
-	sensitivity <- sensitivity %>% 
+	#Cap sensitivity to a max of 1, since it is possible to exceed 1 due to the above 'heterozygous' correction and edge cases.
+	sensitivity <- sensitivity %>%
 		mutate(
-			
+
 			#Check based on thresholds if sensitivity should be calculated
 			calculate_sensitivity = (call_class == "SBS" &
 															 	high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$SBS_min_variant_detections &
 															 	high_confidence_germline_vcf_variants_sum_duplex_coverage > 0) |
-				
+
 				(call_class == "indel" &
 				 	high_confidence_germline_vcf_variants_sum_zm_detected >= sensitivity_parameters$indel_min_variant_detections &
 				 	high_confidence_germline_vcf_variants_sum_duplex_coverage > 0),
-			
+
 			sensitivity = case_when(
 				calculate_sensitivity & sensitivity_parameters$genotype == "homozygous" ~
 					high_confidence_germline_vcf_variants_sum_zm_detected / high_confidence_germline_vcf_variants_sum_duplex_coverage,
-				
+
 				calculate_sensitivity & sensitivity_parameters$genotype == "heterozygous" ~
 					2 * (high_confidence_germline_vcf_variants_sum_zm_detected / high_confidence_germline_vcf_variants_sum_duplex_coverage),
-				
+
 				.default = sensitivity
 			),
-			
+
 			sensitivity = pmin(1, sensitivity),
-			
+
 			sensitivity_source = if_else(calculate_sensitivity, "calculated", sensitivity_source)
-			
+
 		) %>%
 		select(-calculate_sensitivity)
-	
+
 	#Change sensitivity to sqrt(sensitivity) for SBSindel_call_type = 'mismatch-ss' and 'mismatch-ds'. Do not do this transformation for SBSindel_call_type = 'mutation' since this involves detection in both strands. Although 'mismatch-ds' is detected in both strands, these are counted for burdens as two events for simplicity in output of mismatch-ds calls. SBSindel_call_type = 'mismatch-os' and 'match' are also not changed since these are for type MDB that is set in the yaml.config.
 	sensitivity <- sensitivity %>%
 		mutate(
@@ -1699,9 +1700,9 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 				sensitivity
 			)
 		)
-	
+
 	cat("DONE\n")
-	
+
 }else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
 	cat("## All non-MDB sensitivities set to NA since the currently analyzed chromgroup is not equal to sensitivity_parameters$use_chromgroup.\n")
 	sensitivity <- sensitivity %>%
@@ -1733,7 +1734,7 @@ estimatedSBSMutationErrorProbability_by_channel <- left_join(
 		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
 		pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
 		select(reftnc, count),
-	
+
 	by = "reftnc",
 	suffix = c(".calls",".interrogated_bases")
 ) %>%
@@ -1783,15 +1784,15 @@ estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationError
 	arrange(channel_pyr)
 
 estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
-	pull(error_prob) %>% 
+	pull(error_prob) %>%
 	sum
 
 estimatedSBSMutationErrorProbability$total_corrected_to_genome <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
-	pull(error_prob_corrected_to_genome) %>% 
+	pull(error_prob_corrected_to_genome) %>%
 	sum
 
 estimatedSBSMutationErrorProbability$total_corrected_to_genome_chromgroup <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%
-	pull(error_prob_corrected_to_genome_chromgroup) %>% 
+	pull(error_prob_corrected_to_genome_chromgroup) %>%
 	sum
 
 rm(estimatedSBSMutationErrorProbability_by_channel)

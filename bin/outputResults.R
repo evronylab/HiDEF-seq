@@ -22,6 +22,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -51,9 +56,10 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #analysis_id
@@ -109,19 +115,14 @@ cat("    sample_id:",sample_id_toanalyze,"\n")
 cat(" DONE\n")
 
 ######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
-
-######################
 ### Define custom functions
 ######################
 #Function to write vcf from finalCalls/germlineCalls
 write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
-	
+
 	#Repair names in 'calls' so they are compatible with DataFrame objects required by VariantAnnotation (i.e. change '-' to '.' in column names)
 	names(calls) <- names(calls) %>% vctrs::vec_as_names(repair = "universal", quiet = TRUE)
-	
+
 	#Fixed fields
 	CHROM <- calls$seqnames
 	POS <- calls$start_refspace
@@ -129,7 +130,7 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	ALT <- calls$alt_plus_strand %>% DNAStringSet
 	QUAL <- rep(NA_real_, nrow(calls))
 	FILTER <- rep("PASS", nrow(calls))
-	
+
 	# Row ranges
 	if(nrow(calls)>0){
 		calls.gr <- GRanges(
@@ -141,20 +142,20 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	}else{
 		calls.gr <- GRanges(seqinfo = BSgenome_name %>% get %>% seqinfo)
 	}
-	
+
 	fixed <- DataFrame(REF = REF, ALT = ALT, QUAL = QUAL, FILTER = FILTER)
-	
+
 	# INFO: everything except the basic VCF columns
 	info_cols <- names(calls) %>%
 		setdiff(c("seqnames","start_refspace","ref_plus_strand","alt_plus_strand"))
-	
+
 	#Convert factor columns to character
 	info_df <- calls %>%
 		select(all_of(info_cols)) %>%
 		mutate(across(where(is.factor), as.character)) %>%
 		as.data.frame %>%
 		DataFrame
-	
+
 	#Sort by seqnames, start, end
 	calls.order <- order(
 		calls.gr %>% seqnames %>% as.integer,
@@ -164,33 +165,33 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	calls.gr <- calls.gr[calls.order]
 	fixed <- fixed[calls.order, , drop=FALSE]
 	info_df <- info_df[calls.order, , drop=FALSE]
-	
+
 	#INFO header
 	number_map <- function(x){
 		if(is.logical(x)){0L}else{1L}
 	}
-	
+
 	type_map <- function(x){
 		if(is.logical(x)){return("Flag")}
 		if(is.integer(x)){return("Integer")}
 		if(is.double(x)){return("Float")}
 		"String"
 	}
-	
+
 	info_header <- DataFrame(
 		Number = vapply(info_df, number_map, integer(1)),
 		Type = vapply(info_df, type_map, character(1)),
 		Description = info_cols,
 		row.names = info_cols
 	)
-	
+
 	# Build header (fileformat/source/reference/contigs via Seqinfo)
 	hdr <- VariantAnnotation::VCFHeader()
 	info(hdr) <- info_header
 	meta(hdr)$fileformat <- DataFrame(Value = "VCFv4.3", row.names = "fileformat")
 	meta(hdr)$source <- DataFrame(Value = "HiDEF-seq", row.names = "source")
 	meta(hdr)$reference <- DataFrame(Value = BSgenome_name, row.names = "reference")
-	
+
 	vcf <- VariantAnnotation::VCF(
 		rowRanges = calls.gr,
 		fixed = fixed,
@@ -198,7 +199,7 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 		collapsed = FALSE
 	)
 	header(vcf) <- hdr
-	
+
 	VariantAnnotation::writeVcf(vcf, filename = out_vcf, index = TRUE)
 }
 
@@ -225,31 +226,31 @@ estimatedSBSMutationErrorProbability <- list()
 
 #Loop over all calculateBurdens
 for(i in seq_along(calculateBurdensFiles)){
-	
+
 	#Load calculateBurdensFile
 	calculateBurdensFile <- qs_read(calculateBurdensFiles[i])
-	
+
 	#Annotations to add to tables
 	sample_annotations <- list(
 		analysis_id = analysis_id %>% factor,
 		individual_id = individual_id %>% factor,
 		sample_id = sample_id_toanalyze %>% factor
 	)
-	
+
 	chromgroup_filtergroup_annotations <- list(
 		chromgroup = calculateBurdensFile$chromgroup %>%
 			factor(levels = chromgroups),
 		filtergroup = calculateBurdensFile$filtergroup %>%
 			factor(levels = filtergroups)
 	)
-	
+
 	cat(" > chromgroup:", calculateBurdensFile$chromgroup, "/", "filtergroup:", calculateBurdensFile$filtergroup, "\n")
-	
+
 	#Run metadata
 	run_metadata[[i]] <- calculateBurdensFile %>%
 		pluck("run_metadata") %>%
 		mutate(!!!sample_annotations, .before = 1)
-	
+
 	#Filtering stats
 	molecule_stats.by_run_id[[i]] <- calculateBurdensFile %>%
 		pluck("molecule_stats.by_run_id") %>%
@@ -260,7 +261,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			.before = 1
 		) %>%
 		relocate(run_id, .after = filtergroup)
-	
+
 	molecule_stats.by_analysis_id[[i]] <- calculateBurdensFile %>%
 		pluck("molecule_stats.by_analysis_id") %>%
 		mutate(
@@ -269,7 +270,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		)
-	
+
 	region_genome_filter_stats[[i]] <- calculateBurdensFile %>%
 		pluck("region_genome_filter_stats") %>%
 		mutate(
@@ -277,7 +278,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			!!!chromgroup_filtergroup_annotations,
 			.before = 1
 		)
-	
+
 	#Final calls
 	finalCalls[[i]] <- calculateBurdensFile %>%
 		pluck("finalCalls") %>%
@@ -286,7 +287,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			!!!chromgroup_filtergroup_annotations,
 			.before = 1
 		)
-	
+
 	#finalCalls for tsv and vcf output
 	finalCalls.bytype[[i]] <- calculateBurdensFile %>%
 		pluck("finalCalls.bytype") %>%
@@ -297,7 +298,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			.before = 1
 		) %>%
 		relocate(filtergroup, call_class, .after = chromgroup)
-	
+
 	#Germline variant calls
 	germlineVariantCalls[[i]] <- calculateBurdensFile %>%
 		pluck("germlineVariantCalls") %>%
@@ -306,7 +307,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			!!!chromgroup_filtergroup_annotations,
 			.before = 1
 		)
-	
+
 	#Trinucleotide context counts and fractions of finalCalls
 	finalCalls.reftnc_spectra[[i]] <- calculateBurdensFile %>%
 		pluck("finalCalls.reftnc_spectra") %>%
@@ -317,7 +318,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			.before = 1
 		) %>%
 		relocate(filtergroup, call_class, .after = chromgroup)
-	
+
 	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile %>%
 		pluck("bam.gr.filtertrack.bytype.coverage_tnc") %>%
@@ -328,13 +329,13 @@ for(i in seq_along(calculateBurdensFiles)){
 			.before = 1
 		) %>%
 		relocate(filtergroup, call_class, .after = chromgroup)
-	
+
 	#Whole genome trinucleotide counts and fractions
 	genome.reftnc[[i]] <- calculateBurdensFile %>%
 		pluck("genome.reftnc") %>%
 		enframe %>%
 		pivot_wider(names_from = name, values_from = value)
-	
+
 	#Genome chromgroup trinucleotide counts and fractions
 		genome_chromgroup.reftnc[[i]] <- calculateBurdensFile %>%
 			pluck("genome_chromgroup.reftnc") %>%
@@ -368,7 +369,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			.before = 1
 		) %>%
 		relocate(filtergroup, call_class, .after = chromgroup)
-		
+
 	#estimated SBS mutation error probability
 	if(! calculateBurdensFile %>% pluck("estimatedSBSMutationErrorProbability") %>% is.null){
 		estimatedSBSMutationErrorProbability[[i]] <- calculateBurdensFile %>%
@@ -382,7 +383,7 @@ for(i in seq_along(calculateBurdensFiles)){
 				.before = 1
 			)
 	}
-	
+
 	#Remove temporary objects
 	rm(calculateBurdensFile)
 	invisible(gc())
@@ -444,9 +445,9 @@ germlineVariantCalls <- germlineVariantCalls %>%
 		start_refspace = start,
 		end_refspace = end
 	)
-	
+
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>% bind_rows
-	
+
 bam.gr.filtertrack.bytype.coverage_tnc <- bam.gr.filtertrack.bytype.coverage_tnc %>% bind_rows
 
 genome.reftnc <- genome.reftnc %>%
@@ -485,9 +486,9 @@ cat("## Outputting filtering statistics...")
 
 for(i in chromgroups){
 	for(j in filtergroups){
-		
+
 		output_basename_full <- str_c(str_c(filterStats_dir,i,"/",output_basename), i, j, sep=".")
-		
+
 		#molecule_stats.by_run_id
 		 #Outupt all_chroms and all_chromgroups stats to each output file
 		molecule_stats.by_run_id %>%
@@ -496,7 +497,7 @@ for(i in chromgroups){
 					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
 				) %>%
 			write_tsv(str_c(output_basename_full,".molecule_stats.by_run_id.tsv"))
-		
+
 		#molecule_stats.by_analysis_id
 		molecule_stats.by_analysis_id %>%
 			filter(
@@ -504,7 +505,7 @@ for(i in chromgroups){
 					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
 			) %>%
 			write_tsv(str_c(output_basename_full,".molecule_stats.by_analysis_id.tsv"))
-		
+
 		#region_genome_filter_stats
 		region_genome_filter_stats %>%
 			filter(chromgroup == i & filtergroup == j) %>%
@@ -528,7 +529,7 @@ finalCalls.bytype %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				str_c(finalCalls_dir,x$chromgroup,"/",output_basename),
 				x$chromgroup,
@@ -538,7 +539,7 @@ finalCalls.bytype %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
+
 			metadata <- x %>%
 				keep(
 					names(.) %in%
@@ -549,13 +550,13 @@ finalCalls.bytype %>%
 						)
 				) %>%
 				as_tibble
-			
+
 			#all calls tsv
 			metadata %>%
 				mutate(finalCalls_for_tsv = list(x$finalCalls_for_tsv)) %>%
 				unnest(finalCalls_for_tsv) %>%
 				write_tsv(str_c(output_basename_full,".finalCalls.tsv"))
-			
+
 			#unique calls tsv
 			if(!is.null(x$finalCalls_unique_for_tsv)){
 				metadata %>%
@@ -563,23 +564,23 @@ finalCalls.bytype %>%
 					unnest(finalCalls_unique_for_tsv) %>%
 					write_tsv(str_c(output_basename_full,".finalCalls_unique.tsv"))
 			}
-			
+
 			#all calls vcf
 			metadata %>%
 				mutate(finalCalls_for_vcf = list(x$finalCalls_for_vcf)) %>%
 				unnest(finalCalls_for_vcf) %>%
 				write_vcf_from_calls(
-					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+					BSgenome_name = BSgenome_name,
 					out_vcf = str_c(output_basename_full,".finalCalls.vcf")
 				)
-			
+
 			#unique calls vcf
 			if(!is.null(x$finalCalls_unique_for_vcf)){
 				metadata %>%
 					mutate(finalCalls_unique_for_vcf = list(x$finalCalls_unique_for_vcf)) %>%
 					unnest(finalCalls_unique_for_vcf) %>%
 					write_vcf_from_calls(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+						BSgenome_name = BSgenome_name,
 						out_vcf = str_c(output_basename_full,".finalCalls_unique.vcf")
 					)
 			}
@@ -630,7 +631,7 @@ for(i in chromgroups){
 
 		#Output path
 		output_basename_full <- str_c(str_c(germlineVariantCalls_dir,i,"/",output_basename),i,j,sep=".")
-		
+
 		#Define germline filter columns to keep in the output
 		region_read_filters_cols_keep <- yaml.config$region_filters %>%
 			map("read_filters") %>%
@@ -646,7 +647,7 @@ for(i in chromgroups){
 			pull(region_filter_threshold_file) %>%
 			basename %>%
 			str_c("region_read_filter_",.,".passfilter")
-		
+
 		region_genome_filters_cols_keep <- yaml.config$region_filters %>%
 			map("genome_filters") %>%
 			flatten %>%
@@ -661,21 +662,21 @@ for(i in chromgroups){
 			pull(region_filter_threshold_file) %>%
 			basename %>%
 			str_c("region_genome_filter_",.,".passfilter")
-		
+
 		germline_filter_cols_keep <- c( #not including germline_vcf.passfilter, since FALSE for all calls, and not including germline_vcf_indel_region_filter, max_germlineBAM_VariantReads.passfilter, max_germlineBAM_VAF.passfilter, since these are not relevant annotation to output for germline calls themselves (only relevant for somatic calls that are filtered based on germline calls).
 			region_read_filters_cols_keep,
 			region_genome_filters_cols_keep,
 			"germline_vcf_types_detected", "germline_vcf_files_detected"
 		)
-		
+
 		#Create and format output tibble
 		germlineVariantCalls.out <- germlineVariantCalls %>%
 			#Remove all passfilter columns (since all true) except germline filter columns
 			select(-(contains("passfilter") & !all_of(germline_filter_cols_keep))) %>%
-			
+
 			#Select current chromgroup/filtergroup
 			filter(chromgroup == i, filtergroup == j) %>%
-			
+
 			#Reformat list columns to be comma-delimited
 			mutate(
 				across(
@@ -683,7 +684,7 @@ for(i in chromgroups){
 					function(x){x %>% map_chr(function(v){str_c(v, collapse = ",")})}
 				)
 			) %>%
-			
+
 			#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
 			mutate(
 				refstrand = refstrand %>%
@@ -692,7 +693,7 @@ for(i in chromgroups){
 						refstrand_minus_read = "-"
 					)
 			) %>%
-			
+
 			#Collapse to one row per mutation
       pivot_wider(
 	      id_cols = all_of(c(strand_identical_cols_keep, germline_filter_cols_keep)),
@@ -701,11 +702,11 @@ for(i in chromgroups){
 	      names_glue = "{.value}_{refstrand}",
 	      names_expand = TRUE
 			)
-		
+
 		#tsv
 		germlineVariantCalls.out %>%
 			write_tsv(str_c(output_basename_full,".germlineVariantCalls.tsv"))
-		
+
 		#vcf
 		germlineVariantCalls.out %>%
 			#Rename back columns for normalize_indels_for_vcf
@@ -714,18 +715,18 @@ for(i in chromgroups){
 				end = end_refspace
 			) %>%
 			normalize_indels_for_vcf(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name
+				BSgenome_name = BSgenome_name
 			) %>%
 			#Rename back columns for greater clarity in final output
 			rename(start_refspace = start) %>%
 			write_vcf_from_calls(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+				BSgenome_name = BSgenome_name,
 				out_vcf = str_c(output_basename_full,".germlineVariantCalls.vcf")
 			)
-		
+
 		rm(germlineVariantCalls.out)
 		invisible(gc())
-		
+
 	}
 }
 
@@ -750,7 +751,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				finalCalls.refindel_spectrum.sigfit,
 				finalCalls_unique.refindel_spectrum.sigfit
 			) %>%
-			
+
 			#Sum insertion and deletion matrices (not grouping by call_type)
 			group_by(analysis_id, individual_id, sample_id, chromgroup, call_class, SBSindel_call_type) %>%
 			summarize(
@@ -767,7 +768,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 							list
 					}
 				),
-				
+
 				#Sigfit matrices, and rename rownames
 				across(
 					c(finalCalls.refindel_spectrum.sigfit, finalCalls_unique.refindel_spectrum.sigfit),
@@ -783,7 +784,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 							)
 					}
 				),
-				
+
 				.groups = "drop"
 			)
 	)
@@ -800,15 +801,15 @@ write_col <- function(df.input, col_name.input, metadata.input, output_basename_
 plot_col <- function(df.input, col_name.input, output_basename_full.input){
 	#Output name
 	output_name <- str_c(output_basename_full.input, ".", col_name.input)
-	
+
 	#Count number of calls
 	sum_counts <- sum(df.input)
-	
+
 	#Normalize to number of calls
 	if(sum_counts > 0){
 		df.input <- df.input / sum(df.input)
 	}
-	
+
 	df.input %>%
 		plot_spectrum(
 			pdf_path = str_c(output_name, ".pdf"),
@@ -822,7 +823,7 @@ finalCalls.reftnc_spectra %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				c(
 					str_c(finalCalls.spectra_dir,x$chromgroup,"/",output_basename),
@@ -835,7 +836,7 @@ finalCalls.reftnc_spectra %>%
 					discard(is.na), #Needed because filtergroup and call_type are NA for rows of combined insertion + deletion spectra
 				collapse="."
 			)
-			
+
 			metadata <- x %>%
 				keep(
 					names(.) %in%
@@ -846,7 +847,7 @@ finalCalls.reftnc_spectra %>%
 						)
 				) %>%
 				as_tibble
-			
+
 			sbs_tables_to_output <- c(
 				"finalCalls.reftnc_pyr",
 				"finalCalls_unique.reftnc_pyr",
@@ -855,12 +856,12 @@ finalCalls.reftnc_spectra %>%
 				"finalCalls_unique.reftnc_pyr_spectrum",
 				"finalCalls.reftnc_template_strand_spectrum"
 			)
-			
+
 			indel_tables_to_output <- c(
 				"finalCalls.refindel_spectrum.sigfit",
 				"finalCalls_unique.refindel_spectrum.sigfit"
 			)
-			
+
 			plots_to_output <- c(
 				"finalCalls.reftnc_pyr_spectrum.sigfit",
 				"finalCalls.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
@@ -874,7 +875,7 @@ finalCalls.reftnc_spectra %>%
 				"finalCalls.refindel_spectrum.sigfit",
 				"finalCalls_unique.refindel_spectrum.sigfit"
 			)
-			
+
 			sbs_tables_to_output %>%
 				walk(function(y){
 					if(!is.null(x[[y]])){
@@ -884,7 +885,7 @@ finalCalls.reftnc_spectra %>%
 						)
 					}
 				})
-			
+
 			indel_tables_to_output %>%
 				walk(function(y){
 					if(!is.null(x[[y]])){
@@ -897,7 +898,7 @@ finalCalls.reftnc_spectra %>%
 						)
 					}
 				})
-			
+
 			plots_to_output %>%
 				walk(function(y){
 					if(!is.null(x[[y]])){
@@ -907,7 +908,7 @@ finalCalls.reftnc_spectra %>%
 						)
 					}
 				})
-			
+
 		}
 	)
 
@@ -916,7 +917,7 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				str_c(interrogatedBases.spectra_dir,x$chromgroup,"/",output_basename),
 				x$chromgroup,
@@ -926,7 +927,7 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
+
 			metadata <- x %>%
 				keep(
 					names(.) %in%
@@ -937,12 +938,12 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 						)
 				) %>%
 				as_tibble
-			
+
 			sbs_tables_to_output <- c(
 				"bam.gr.filtertrack.reftnc_pyr",
 				"bam.gr.filtertrack.reftnc_both_strands"
 			)
-			
+
 			sbs_tables_to_output %>%
 				walk(function(y){
 					write_col(
@@ -950,7 +951,7 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 						col_name.input = y, metadata.input = metadata, output_basename_full.input = output_basename_full
 					)
 				})
-			
+
 		}
 	)
 
@@ -960,18 +961,18 @@ for(i in chromgroups){
 		select(reftnc_pyr) %>%
 		unnest(reftnc_pyr) %>%
 		write_tsv(str_c(genome.spectra_dir,i,"/","genome.reftnc_pyr.tsv"))
-	
+
 	genome_chromgroup.reftnc %>%
 		filter(chromgroup == i) %>%
 		select(chromgroup, reftnc_pyr) %>%
 		unnest(reftnc_pyr) %>%
 		write_tsv(str_c(genome.spectra_dir,i,"/",i,".genome_chromgroup.reftnc_pyr.tsv"))
-		
+
 	genome.reftnc %>%
 		select(reftnc_both_strands) %>%
 		unnest(reftnc_both_strands) %>%
 		write_tsv(str_c(genome.spectra_dir,i,"/","genome.reftnc_both_strands.tsv"))
-	
+
 	genome_chromgroup.reftnc %>%
 		filter(chromgroup == i) %>%
 		select(chromgroup, reftnc_both_strands) %>%
@@ -995,17 +996,17 @@ sensitivity <- sensitivity %>%
 			first(sensitivity[sensitivity_source == "calculated"], default = NA),
 			sensitivity
 		),
-		
+
 		sensitivity_source = case_when(
 			sensitivity_source == "other_chromgroup" & is.na(sensitivity.new) ~ "default_other_chromgroup",
 			sensitivity_source == "other_chromgroup" & !is.na(sensitivity.new) ~ "calculated_other_chromgroup",
 			.default = sensitivity_source
 		),
-		
+
 		sensitivity = sensitivity.new %>% replace_na(1)
 	) %>%
 	relocate(sensitivity, sensitivity_source, .after = last_col()) %>%
-	ungroup %>% 
+	ungroup %>%
 	select(-sensitivity.new)
 
 #Output as tsv
@@ -1014,7 +1015,7 @@ sensitivity %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				str_c(sensitivity_dir, x$chromgroup, "/", output_basename),
 				x$chromgroup,
@@ -1024,9 +1025,9 @@ sensitivity %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
+
 			x$data %>% write_tsv(str_c(output_basename_full, ".sensitivity.tsv"))
-			
+
 		}
 	)
 
@@ -1080,7 +1081,7 @@ finalCalls.burdens %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				str_c(finalCalls.burdens_dir, x$chromgroup, "/", output_basename),
 				x$chromgroup,
@@ -1090,9 +1091,9 @@ finalCalls.burdens %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
+
 			x$data %>% write_tsv(str_c(output_basename_full, ".finalCalls.burdens.tsv"))
-			
+
 		}
 	)
 
@@ -1108,7 +1109,7 @@ estimatedSBSMutationErrorProbability %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			
+
 			output_basename_full <- str_c(
 				str_c(estimatedSBSMutationErrorProbability_dir, x$chromgroup, "/", output_basename),
 				x$chromgroup,
@@ -1118,7 +1119,7 @@ estimatedSBSMutationErrorProbability %>%
 				x$SBSindel_call_type,
 				sep="."
 			)
-			
+
 			metadata <- x %>%
 				keep(
 					names(.) %in%
@@ -1128,13 +1129,13 @@ estimatedSBSMutationErrorProbability %>%
 						)
 				) %>%
 				as_tibble
-			
+
 			#by_channel_pyr error probability tsv
 			metadata %>%
 				mutate(by_channel_pyr = list(x$by_channel_pyr)) %>%
 				unnest(by_channel_pyr) %>%
 				write_tsv(str_c(output_basename_full, ".estimatedSBSMutationErrorProbability.by_channel_pyr.tsv"))
-			
+
 			#total error probability tsv
 			metadata %>%
 				mutate(

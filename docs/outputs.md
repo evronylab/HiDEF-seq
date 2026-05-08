@@ -237,9 +237,10 @@ The pipeline produces several files per per below, and each table contains metad
 
 
 - **indel** `call_class` files:
-  - `.finalCalls.refindel_spectrum.sigfit.tsv` / `.finalCalls_unique.refindel_spectrum.sigfit.tsv` (indel spectra of all and unique calls, respectively, per sigfit-style channel labels): `channel`, `count`, `fraction`.
+  - `.finalCalls.refindel_pyr_spectrum.sigfit.tsv` / `.finalCalls_unique.refindel_pyr_spectrum.sigfit.tsv` (indel spectra of all and unique calls, respectively, per sigfit-style channel labels): `channel`, `count`, `fraction`.
+  - `.finalCalls.refindel_template_strand_spectrum.sigfit.tsv` (template-strand indel spectra for single-strand call types, preserving separate 1-bp deletion/insertion C, T, G, and A channels): `channel`, `count`, `fraction`.
   - Each of the above `_spectrum.sigfit.tsv` files is paired with a `.sigfit.pdf` spectrum plot.
-  - Additional spectra tsv and pdf files named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.mutation.{finalCalls,finalcalls_unique}.refindel_spectrum.sigfit.{tsv,pdf}` are produced that combine insertion and deletion mutation spectra within each chromgroup (i.e., even if insertions and deletions were called in different filtergroups).
+  - Additional spectra tsv and pdf files named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.mutation.{finalCalls,finalCalls_unique}.refindel_pyr_spectrum.sigfit.{tsv,pdf}` are produced that combine insertion and deletion mutation spectra within each chromgroup (i.e., even if insertions and deletions were called in different filtergroups). Analogous combined template-strand indel spectra are named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.[SBSindel_call_type].finalCalls.refindel_template_strand_spectrum.sigfit.{tsv,pdf}`.
 
 ### Interrogated-base spectra
 Trinucleotide distributions of interrogated bases are output to `interrogatedBases.spectra/[chromgroup]/` and are named:
@@ -357,7 +358,7 @@ Germline variant calls with the same schema as the unified finalCalls table.
 
 #### finalCalls.reftnc_spectra
 
-Table containing trinucleotide distributions and spectra of final calls, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. Additionally, there is one additional row for each `analysis_id`, `individual_id`, `sample_id`, `chromgroup` combination that contains the combined spectra of insertion and deletion mutations; for these rows, `call_class` = `indel`, `SBSindel_call_type` = `mutation`,  and `filtergroup` and `call_type` = `NA`.
+Table containing trinucleotide distributions and spectra of final calls, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. Additionally, there is one additional row for each `analysis_id`, `individual_id`, `sample_id`, `chromgroup` combination that contains the combined spectra of insertion and deletion mutations, and analogous additional rows for combined insertion and deletion template-strand indel spectra; for these rows, `call_class` = `indel`, and `filtergroup` and `call_type` = `NA`.
 
 For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables (`reftnc` tables for SBS and MDB calls; and `refindel` tables for indel calls):
 
@@ -367,8 +368,8 @@ For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `s
 | `finalCalls.reftnc_template_strand` | Same format as `finalCalls.reftnc_template_strand.tsv` described above. |
 | `finalCalls.reftnc_pyr_spectrum`, `finalCalls_unique.reftnc_pyr_spectrum` | Same format as `finalCalls.reftnc_pyr_spectrum.tsv` and `finalCalls_unique.reftnc_pyr_spectrum.tsv` described above. |
 | `finalCalls.reftnc_template_strand_spectrum` | Same format as `finalCalls.reftnc_template_strand_spectrum.tsv` described above. |
-| `finalCalls.refindel_spectrum`, `finalCalls_unique.refindel_spectrum` | Indel spectra, with channel labels per the [indelwald package](https://github.com/MaximilianStammnitz/Indelwald) (created with the indel.spectrum() function in the HiDEF-seq bin/sharedFunctions.R script). |
-| `finalCalls.*.sigfit` columns | Sigfit-formatted matrices generated from the corresponding spectra. For each of `finalCalls.reftnc_pyr_spectrum`, `finalCalls_unique.reftnc_pyr_spectrum`, and `finalCalls.reftnc_template_strand_spectrum`, there are corresponding `.sigfit` matrices for uncorrected counts, genome-corrected counts, and genome chromgroup-corrected counts.  For `finalCalls.refindel_spectrum` and `finalCalls_unique.refindel_spectrum`, there are only matrices of uncorrected counts. |
+| `finalCalls.refindel_pyr_spectrum`, `finalCalls_unique.refindel_pyr_spectrum`, `finalCalls.refindel_template_strand_spectrum` | Indel spectra, with pyrimidine-collapsed mutation labels per the [indelwald package](https://github.com/MaximilianStammnitz/Indelwald) and template-strand labels preserving separate 1-bp deletion/insertion C, T, G, and A channels (created with the indel.spectrum() function in the HiDEF-seq bin/sharedFunctions.R script). |
+| `finalCalls.*.sigfit` columns | Sigfit-formatted matrices generated from the corresponding spectra. For each of `finalCalls.reftnc_pyr_spectrum`, `finalCalls_unique.reftnc_pyr_spectrum`, and `finalCalls.reftnc_template_strand_spectrum`, there are corresponding `.sigfit` matrices for uncorrected counts, genome-corrected counts, and genome chromgroup-corrected counts.  For `finalCalls.refindel_pyr_spectrum`, `finalCalls_unique.refindel_pyr_spectrum`, and `finalCalls.refindel_template_strand_spectrum`, there are only matrices of uncorrected counts. |
 
 #### bam.gr.filtertrack.bytype.coverage_tnc
 

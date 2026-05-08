@@ -136,7 +136,7 @@ workflow {
   config_signatures = [
     installBSgenome: configHash(params, ['cache_dir', 'BSgenome']),
     processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin', 'sharedFunctionsHash']),
-    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap', 'sharedFunctionsHash']),
+    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'sharedFunctionsHash']),
     filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
     calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
     outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples', 'sharedFunctionsHash'])
@@ -284,9 +284,7 @@ workflow {
     def barcodeIdsInRun = run_sample_configs
       .findAll { it.run_id == run.run_id }
       .collectMany { cfg -> cfg.barcode_ids_parsed.ids }
-      .toSet()
-      .toList()
-      .sort()
+      .unique()
 
     def runBarcodeFasta = barcodeIdsInRun.collect { barcodeId ->
       ">${barcodeId}\n${barcode_seq_by_id[barcodeId]}"
@@ -298,9 +296,7 @@ workflow {
       def barcodeIdsInRun = run_sample_configs
         .findAll { cfg -> cfg.run_id == run_id && cfg.barcode_ids_round2_parsed != null }
         .collectMany { cfg -> cfg.barcode_ids_round2_parsed.ids }
-        .toSet()
-        .toList()
-        .sort()
+        .unique()
 
       def runBarcodeFasta = barcodeIdsInRun.collect { barcodeId ->
         ">${barcodeId}\n${barcode_seq_by_id[barcodeId]}"
@@ -1434,7 +1430,7 @@ process extractCallsChunk {
 
     script:
     """
-    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
+    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -s ${sample_id} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
     """
 }
 

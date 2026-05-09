@@ -732,7 +732,7 @@ process makeBarcodesFasta {
     tag { "makeBarcodesFasta: ${run_id} ${demux_round}" }
     container "${params.hidefseq_container}"
 
-    publishDir sharedLogsDir(), mode: "copy", pattern: "*.barcodes.fasta"
+    publishDir path: sharedLogsDir(), mode: "copy", pattern: "*.barcodes.fasta"
 
     afterScript {
       generateAfterScript(
@@ -770,8 +770,8 @@ process ccsChunk {
     tag { "ccsChunk: chunk ${chunkID}" }
     container "${params.hidefseq_container}"
 
-    publishDir sharedLogsDir(), mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
-    publishDir sharedLogsDir(), mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
+    publishDir path: sharedLogsDir(), mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
+    publishDir path: sharedLogsDir(), mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
 
     afterScript {
       generateAfterScript(
@@ -879,8 +879,8 @@ process limaDemux {
     tag { "limaDemux: ${bamFile.baseName}" }
     container "${params.hidefseq_container}"
 
-    publishDir sharedLogsDir(), mode: "copy", pattern: "*.lima.summary"
-    publishDir sharedLogsDir(), mode: "copy", pattern: "*.lima.counts"
+    publishDir path: sharedLogsDir(), mode: "copy", pattern: "*.lima.summary"
+    publishDir path: sharedLogsDir(), mode: "copy", pattern: "*.lima.counts"
 
     afterScript {
       generateAfterScript(
@@ -1117,7 +1117,7 @@ process countZMWs {
     tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
 
-    publishDir sharedLogsDir(), mode: "copy"
+    publishDir path: sharedLogsDir(), mode: "copy"
 
     input:
       tuple path(bamFile), path(pbiFile), val(outFileSuffix)

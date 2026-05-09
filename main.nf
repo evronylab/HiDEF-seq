@@ -122,7 +122,7 @@ workflow {
   //******************
 
   // Save copy of parameters file to logs directory
-  logsDir = file("${sharedLogsDir()}")
+  logsDir = file(sharedLogsDir())
   logsDir.mkdirs()
 
   options = new org.yaml.snakeyaml.DumperOptions()
@@ -223,26 +223,26 @@ workflow {
   }
 
   provisional_run_sample_configs
-    .groupBy { it.sample_id }
+    .groupBy { sampleConfig -> sampleConfig.sample_id }
     .each { sampleId, sampleConfigs ->
-      def round2Usage = sampleConfigs.collect { it.barcode_ids_round2_parsed != null }.unique()
+      def round2Usage = sampleConfigs.collect { sampleConfig -> sampleConfig.barcode_ids_round2_parsed != null }.unique()
       if (round2Usage.size() > 1) {
-        def runIds = sampleConfigs.collect { it.run_id }.unique().sort().join(', ')
+        def runIds = sampleConfigs.collect { sampleConfig -> sampleConfig.run_id }.unique().sort().join(', ')
         error "sample '${sampleId}' has inconsistent barcode_ids_round2 usage across runs (${runIds}). Configure this sample with either barcode_ids only in all runs or with both barcode_ids and barcode_ids_round2 in all runs."
       }
     }
 
   run_sample_configs = provisional_run_sample_configs
-    .groupBy { it.run_id }
+    .groupBy { sampleConfig -> sampleConfig.run_id }
     .collectMany { runId, runConfigs ->
-      def round1OnlyConfigs = runConfigs.findAll { !it.barcode_ids_round2_parsed }
-      def round2Configs = runConfigs.findAll { it.barcode_ids_round2_parsed }
+      def round1OnlyConfigs = runConfigs.findAll { cfg -> !cfg.barcode_ids_round2_parsed }
+      def round2Configs = runConfigs.findAll { cfg -> cfg.barcode_ids_round2_parsed }
 
       round1OnlyConfigs.groupBy { cfg ->
         cfg.barcode_ids_parsed.canonical
       }.each { key, cfgs ->
         if (cfgs.size() > 1) {
-          error "run '${runId}' has duplicate barcode_ids configuration '${key}' across round1-only samples: ${cfgs.collect{it.sample_id}.join(', ')}"
+          error "run '${runId}' has duplicate barcode_ids configuration '${key}' across round1-only samples: ${cfgs.collect { cfg -> cfg.sample_id }.join(', ')}"
         }
       }
 
@@ -251,25 +251,25 @@ workflow {
           "${cfg.barcode_ids_parsed.canonical}|${cfg.barcode_ids_round2_parsed.canonical}"
         }.each { key, cfgs ->
           if (cfgs.size() > 1) {
-            error "run '${runId}' has duplicate barcode_ids + barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect{it.sample_id}.join(', ')}. For samples using two demultiplexing rounds, each sample in a run must have a unique combination across both rounds."
+            error "run '${runId}' has duplicate barcode_ids + barcode_ids_round2 configuration '${key}' across samples: ${cfgs.collect { cfg -> cfg.sample_id }.join(', ')}. For samples using two demultiplexing rounds, each sample in a run must have a unique combination across both rounds."
           }
         }
 
-        def overlappingRound1Keys = round1OnlyConfigs.collect { it.barcode_ids_parsed.canonical }.intersect(
-          round2Configs.collect { it.barcode_ids_parsed.canonical }
+        def overlappingRound1Keys = round1OnlyConfigs.collect { cfg -> cfg.barcode_ids_parsed.canonical }.intersect(
+          round2Configs.collect { cfg -> cfg.barcode_ids_parsed.canonical }
         )
         if (overlappingRound1Keys) {
           error "run '${runId}' reuses round1 barcode_ids across round1-only and round2 samples (${overlappingRound1Keys.join(', ')}). Round1 barcode_ids must be unique for round1-only samples relative to all other samples in the same run."
         }
       }
 
-      def round1Modes = runConfigs.collect { it.barcode_ids_parsed.mode }.unique()
+      def round1Modes = runConfigs.collect { cfg -> cfg.barcode_ids_parsed.mode }.unique()
       if (round1Modes.size() > 1) {
         error "run '${runId}' mixes barcode_ids demultiplexing modes across samples (${round1Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round1 demultiplexing."
       }
 
       if (round2Configs) {
-        def round2Modes = round2Configs.collect { it.barcode_ids_round2_parsed.mode }.unique()
+        def round2Modes = round2Configs.collect { cfg -> cfg.barcode_ids_round2_parsed.mode }.unique()
         if (round2Modes.size() > 1) {
           error "run '${runId}' mixes barcode_ids_round2 demultiplexing modes across samples (${round2Modes.join(', ')}). Use a single mode ('same' or 'different') per run for round2 demultiplexing."
         }
@@ -279,7 +279,7 @@ workflow {
     }
 
   // Create a channel of runs
-  runs_ch = Channel.fromList(params.runs)
+  runs_ch = channel.fromList(params.runs)
 
   // Create channel for the input reads file.
   reads_ch = runs_ch.map { run ->
@@ -295,19 +295,19 @@ workflow {
   //******************
 
   round2_run_ids = run_sample_configs
-    .findAll { it.round2_enabled }
-    .collect { it.run_id }
+    .findAll { cfg -> cfg.round2_enabled }
+    .collect { cfg -> cfg.run_id }
     .unique()
 
   round2_sample_keys = run_sample_configs
-    .findAll { it.round2_enabled }
+    .findAll { cfg -> cfg.round2_enabled }
     .collect { cfg -> "${cfg.run_id}|${cfg.individual_id}|${cfg.sample_id}|${cfg.barcode_ids}" }
     .toSet()
 
   // Create input channel
   makeBarcodesFasta_input_ch = runs_ch.map { run ->
     def barcodeIdsInRun = run_sample_configs
-      .findAll { it.run_id == run.run_id }
+      .findAll { cfg -> cfg.run_id == run.run_id }
       .collectMany { cfg -> cfg.barcode_ids_parsed.ids }
       .toSet()
       .toList()
@@ -319,7 +319,7 @@ workflow {
 
     tuple(run.run_id, 'round1', runBarcodeFasta)
   }.mix(
-    Channel.fromList(round2_run_ids).map { run_id ->
+    channel.fromList(round2_run_ids).map { run_id ->
       def barcodeIdsInRun = run_sample_configs
         .findAll { cfg -> cfg.run_id == run_id && cfg.barcode_ids_round2_parsed != null }
         .collectMany { cfg -> cfg.barcode_ids_round2_parsed.ids }
@@ -352,8 +352,8 @@ workflow {
       // Run CCS in chunks.
       ccsChunk(
         reads_ch
-          .combine(Channel.from(1..params.ccs_chunks))
-          .map { tuple(it[0], it[1], it[2], it[3]) }
+          .combine(channel.from(1..params.ccs_chunks))
+          .map { readTuple -> tuple(readTuple[0], readTuple[1], readTuple[2], readTuple[3]) }
       )
 
       mergeCCSchunks_input_ch = ccsChunk.out.bampbi_tuple
@@ -361,8 +361,8 @@ workflow {
           .map { run_id, bamFiles, pbiFiles, chunkIDs ->
             // Sort by chunkID
             def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
-            def sortedBamFiles = sortedIndices.collect { bamFiles[it] }
-            def sortedPbiFiles = sortedIndices.collect { pbiFiles[it] }
+            def sortedBamFiles = sortedIndices.collect { i -> bamFiles[i] }
+            def sortedPbiFiles = sortedIndices.collect { i -> pbiFiles[i] }
             tuple(run_id, sortedBamFiles, sortedPbiFiles)
           }
 
@@ -393,7 +393,7 @@ workflow {
   // limaDemux
   //******************
 
-  limaDemux_round1_mode_ch = Channel.fromList(run_sample_configs)
+  limaDemux_round1_mode_ch = channel.fromList(run_sample_configs)
     .map { cfg -> tuple(cfg.run_id, cfg.barcode_ids_parsed.mode) }
     .unique()
 
@@ -429,7 +429,7 @@ workflow {
       tuple(run_id, barcode_pair_key, bamFile)
     }
 
-  mergeDemuxBams_round1_input_ch = Channel.fromList(run_sample_configs)
+  mergeDemuxBams_round1_input_ch = channel.fromList(run_sample_configs)
     .map { cfg ->
       tuple(cfg.run_id, cfg.barcode_ids_parsed.canonical, cfg.individual_id, cfg.sample_id, cfg.barcode_ids)
     }
@@ -441,8 +441,8 @@ workflow {
 
   mergeDemuxBams_round1 = mergeDemuxBamsRound1(mergeDemuxBams_round1_input_ch).out
 
-  limaDemux_round2_samples_ch = Channel.fromList(run_sample_configs)
-    .filter { it.round2_enabled }
+  limaDemux_round2_samples_ch = channel.fromList(run_sample_configs)
+    .filter { cfg -> cfg.round2_enabled }
     .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.canonical) }
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
@@ -538,12 +538,12 @@ workflow {
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
     .map { individual_id, sample_id, run_order, bamFiles, pbiFiles ->
-      def ordered = [run_order, bamFiles, pbiFiles].transpose().sort { it[0] }
+      def ordered = [run_order, bamFiles, pbiFiles].transpose().sort { row -> row[0] }
       tuple(
         individual_id,
         sample_id,
-        ordered.collect { it[1] },
-        ordered.collect { it[2] }
+        ordered.collect { row -> row[1] },
+        ordered.collect { row -> row[2] }
       )
     }
 
@@ -556,7 +556,7 @@ workflow {
 
   // Create input channel
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
-      .combine(Channel.from(1..params.analysis_chunks))
+      .combine(channel.from(1..params.analysis_chunks))
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
       }
@@ -567,7 +567,7 @@ workflow {
   //******************
   // installBSgenome
   //******************
-  installBSgenome(Channel.value(config_signatures.installBSgenome))
+  installBSgenome(channel.value(config_signatures.installBSgenome))
 
   //******************
   // extractGenomeTrinucleotides
@@ -579,7 +579,7 @@ workflow {
   //******************
 
   // Create input channel
-  processGermlineVCFs_input_ch = Channel
+  processGermlineVCFs_input_ch = channel
     .from(params.individuals)
     .map { individual -> tuple(individual.individual_id, file(individual.germline_bam_file)) }
     .combine(installBSgenome.out)
@@ -595,7 +595,7 @@ workflow {
   //******************
 
   // Create input channel
-  processGermlineBAMs_input_ch = Channel.fromList(params.individuals)
+  processGermlineBAMs_input_ch = channel.fromList(params.individuals)
     .map { run ->
       tuple( file(run.germline_bam_file), run.germline_bam_type )
     }
@@ -608,7 +608,7 @@ workflow {
   //******************
 
   // Create input channel
-  prepareRegionFilters_input_ch = Channel.fromList(params.region_filters)
+  prepareRegionFilters_input_ch = channel.fromList(params.region_filters)
       .flatMap { region_filter ->
         def filters = []
 
@@ -662,7 +662,7 @@ workflow {
     .collectMany { call_type ->
       def chromgroup_names
       if (call_type.analyzein_chromgroups == 'all') {
-        chromgroup_names = params.chromgroups.collect { it.chromgroup }
+        chromgroup_names = params.chromgroups.collect { chromgroup -> chromgroup.chromgroup }
       } else {
         chromgroup_names = call_type.analyzein_chromgroups.split(',')
       }
@@ -677,7 +677,7 @@ workflow {
 
   // Create input channel
   filterCallsChunkChromgroupFiltergroup_input_ch = extractCallsChunk.out
-      .combine(Channel.fromList(chromgroups_filtergroups_list))
+      .combine(channel.fromList(chromgroups_filtergroups_list))
       .map { individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup ->
         tuple(individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup, config_signatures.filterCallsChunkChromgroupFiltergroup)
       }
@@ -694,7 +694,7 @@ workflow {
       .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
           // Sort by chunkID
           def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
-          def sortedfilterCallsFiles = sortedIndices.collect { filterCallsFiles[it] }
+          def sortedfilterCallsFiles = sortedIndices.collect { i -> filterCallsFiles[i] }
           return tuple(individual_id, sample_id, chromgroup, filtergroup, sortedfilterCallsFiles, config_signatures.calculateBurdensChromgroupFiltergroup)
       }
 
@@ -732,11 +732,11 @@ process makeBarcodesFasta {
     tag { "makeBarcodesFasta: ${run_id} ${demux_round}" }
     container "${params.hidefseq_container}"
 
-    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.barcodes.fasta"
+    publishDir sharedLogsDir(), mode: "copy", pattern: "*.barcodes.fasta"
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${params.analysis_id}.${run_id}.${demux_round}.command.log"
       )
     }
@@ -770,12 +770,12 @@ process ccsChunk {
     tag { "ccsChunk: chunk ${chunkID}" }
     container "${params.hidefseq_container}"
 
-    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
-    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
+    publishDir sharedLogsDir(), mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
+    publishDir sharedLogsDir(), mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${params.analysis_id}.${run_id}.chunk${chunkID}.command.log"
       )
     }
@@ -818,7 +818,7 @@ process mergeCCSchunks {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
@@ -849,7 +849,7 @@ process filterAdapter {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
@@ -879,12 +879,12 @@ process limaDemux {
     tag { "limaDemux: ${bamFile.baseName}" }
     container "${params.hidefseq_container}"
 
-    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.lima.summary"
-    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.lima.counts"
+    publishDir sharedLogsDir(), mode: "copy", pattern: "*.lima.summary"
+    publishDir sharedLogsDir(), mode: "copy", pattern: "*.lima.counts"
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${params.analysis_id}.${bamFile.baseName}.command.log"
       )
     }
@@ -1117,7 +1117,7 @@ process countZMWs {
     tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
 
-    publishDir "${sharedLogsDir()}", mode: "copy"
+    publishDir sharedLogsDir(), mode: "copy"
 
     input:
       tuple path(bamFile), path(pbiFile), val(outFileSuffix)
@@ -1223,7 +1223,7 @@ process installBSgenome {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.command.log"
       )
     }
@@ -1254,7 +1254,7 @@ process extractGenomeTrinucleotides {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.command.log"
       )
     }
@@ -1292,7 +1292,7 @@ process processGermlineVCFs {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${individual_id}.command.log"
       )
     }
@@ -1323,7 +1323,7 @@ process processGermlineBAMs {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${germline_bam_file}.command.log"
       )
     }
@@ -1384,7 +1384,7 @@ process prepareRegionFilters {
 
     afterScript {
       generateAfterScript(
-        "${sharedLogsDir()}",
+        sharedLogsDir(),
         "${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log"
       )
     }

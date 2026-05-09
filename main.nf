@@ -2,11 +2,6 @@
  * Global variables and functions
  *****************************************************************/
 
-//Library imports
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.DumperOptions
-import java.security.MessageDigest
-
 //Define output directories and related helper functions
 sharedLogsDir = "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
 
@@ -33,12 +28,12 @@ def generateAfterScript(logDir, logName) {
   """
 }
 
-signatureYamlOptions = new DumperOptions()
-signatureYamlOptions.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+signatureYamlOptions = new org.yaml.snakeyaml.DumperOptions()
+signatureYamlOptions.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK)
 signatureYamlOptions.setPrettyFlow(false)
 signatureYamlOptions.setIndent(2)
 
-signatureYaml = new Yaml(signatureYamlOptions)
+signatureYaml = new org.yaml.snakeyaml.Yaml(signatureYamlOptions)
 
 // Function to calculate a hash for a subset of keys from a parameters file
 def configHash(params_input, keys) {
@@ -50,7 +45,7 @@ def configHash(params_input, keys) {
   }
 
   def serialized = signatureYaml.dump(subset ?: [:])
-  def digest = MessageDigest.getInstance('SHA-256')
+  def digest = java.security.MessageDigest.getInstance('SHA-256')
   digest.update(serialized.getBytes('UTF-8'))
   digest.digest().encodeHex().toString()
 }
@@ -100,11 +95,11 @@ workflow {
   logsDir = file("${sharedLogsDir}")
   logsDir.mkdirs()
 
-  options = new DumperOptions()
-  options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+  options = new org.yaml.snakeyaml.DumperOptions()
+  options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK)
   options.setIndent(2)
 
-  yaml = new Yaml(options)
+  yaml = new org.yaml.snakeyaml.Yaml(options)
   timestamp = new Date().format('yyyy_MMdd_HHmm')
   file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
 
@@ -128,7 +123,7 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
-  sharedFunctionsHash = MessageDigest.getInstance('SHA-256')
+  sharedFunctionsHash = java.security.MessageDigest.getInstance('SHA-256')
     .digest(file("${workflow.projectDir}/bin/sharedFunctions.R").bytes)
     .encodeHex()
     .toString()

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #extractCalls.R:
-# Perform initial molecule filtering and extract calls, including all call information required for analysis.
+# Perform initial molecule filtering and extract calls, including all call information required for analysis.  
 # Note: extracts calls of all call_types across all chromosomes, not just those in configured chromgroups. filterCalls then removes calls outside configured chromgroups.
 
 cat("#### Running extractCalls ####\n")
@@ -164,7 +164,7 @@ run_metadata <- bamFile %>%
           yamlruns <- yaml.config$runs %>%
           	modify_tree(leaf = as.character) %>%
             map_df(~ tibble(run_id = .x$run_id, reads_file = .x$reads_file))
-
+          
           yamlruns %>%
             pluck("run_id") %>%
             keep(yamlruns %>% pluck("reads_file") %>% str_detect(x))
@@ -364,7 +364,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   #cigar.ops.input for the call_class: "X" for SBS; "I" for insertion; "D" for deletion; NULL for MDB
   #score_bamtag.input: tag in the BAM file containing the MDB score data (MDB only)
   #score_min.input: minimum score of MDBs to extract (MDB only)
-
+  
   #Initialize empty calls tibble
   calls.out <- tibble(
     zm=integer(),
@@ -390,30 +390,30 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     call_type=factor(),
     indel_width=integer()
     )
-
+  
   #Extract call positions
   if(call_class.input %in% c("SBS","indel")){
-
+    
     #Extract call positions in query space, and name calls with the position to retain this in the final data frame
     cigar.queryspace.var <- cigarRangesAlongQuerySpace(bam.gr.input$cigar,ops=cigar.ops.input)
     cigar.queryspace.var <- cigar.queryspace.var %>%
       unlist(use.names=FALSE) %>%
       setNames(str_c(start(.),end(.),sep="_")) %>%
       relist(.,cigar.queryspace.var)
-
+    
     #Extract call positions in reference space
     cigar.refspace.var <- cigarRangesAlongReferenceSpace(bam.gr.input$cigar,ops=cigar.ops.input,pos=start(bam.gr.input))
-
+    
   }else if(call_class.input == "MDB"){
-
+    
   }
-
+  
   #Check if no calls
   if(cigar.queryspace.var %>% as.data.frame %>% nrow == 0){
     cat("  No calls extracted of type", call_class.input, " / ", call_type.input, "!\n")
     return(calls.out)
   }
-
+  
   #Call positions in query space
   # Note for indels: in query space, deletion width = 0.
   var_queryspace <- cigar.queryspace.var %>%
@@ -428,7 +428,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       start_queryspace = start,
       end_queryspace = end
       )
-
+  
   if(call_class.input %in% c("SBS","MDB")){
     var_queryspace <- var_queryspace %>%
       uncount(weights=width) %>%
@@ -446,7 +446,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       select(-group,-names) %>%
       as_tibble
   }
-
+  
   #Call positions in reference space, annotated with positions in query space for later joining
   # Note for indels: in reference space, insertion width = 0.
   var_refspace <- cigar.refspace.var %>%
@@ -477,7 +477,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       data.frame(seqnames=seqnames(bam.gr.input), zm=bam.gr.input$zm) %>% distinct,
       by = join_by(zm)
     )
-
+  
   if(call_class.input %in% c("SBS","MDB")){
     var_refspace <- var_refspace %>%
       uncount(weights=width) %>%
@@ -497,10 +497,10 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       select(-group) %>%
       as_tibble
   }
-
+  
   rm(cigar.refspace.var)
   invisible(gc())
-
+  
   #Call REF base sequences, relative to reference plus strand
   var_refspace$ref_plus_strand <- var_refspace %>%
     mutate(strand="+") %>%
@@ -513,7 +513,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     ) %>%
     getSeq(eval(parse(text=BSgenome_name)),.) %>%
     as.character
-
+  
   #Call ALT base sequences, relative to reference plus strand
   var_alt <- extractAt(bam.gr.input$seq,cigar.queryspace.var) %>%
     as("CharacterList") %>%
@@ -529,7 +529,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       start_queryspace = as.integer(start_queryspace),
       end_queryspace = as.integer(end_queryspace)
     )
-
+  
   if(call_class.input %in% c("SBS","MDB")){
     var_alt <- var_alt %>%
       separate_longer_position(alt_plus_strand,width=1) %>%
@@ -540,7 +540,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       ) %>%
       ungroup
   }
-
+  
   #Call base qualities
   if(call_class.input %in% c("SBS","MDB")){
     cigar.queryspace.var.forqualdata <- cigar.queryspace.var
@@ -553,11 +553,11 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     start(cigar.queryspace.var.forqualdata[deletionidx]) <- newstart[deletionidx]
     end(cigar.queryspace.var.forqualdata[deletionidx]) <- newend[deletionidx]
     cigar.queryspace.var.forqualdata <- cigar.queryspace.var.forqualdata %>% relist(.,cigar.queryspace.var)
-
+    
     rm(deletionidx,newstart,newend)
     invisible(gc())
   }
-
+  
   var_qual <- extractAt(bam.gr.input$qual,cigar.queryspace.var.forqualdata) %>%
     as("CharacterList") %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
@@ -572,7 +572,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       start_queryspace = as.integer(start_queryspace),
       end_queryspace = as.integer(end_queryspace)
     )
-
+  
   if(call_class.input %in% c("SBS","MDB")){
     var_qual <- var_qual %>%
       separate_longer_position(qual,width=1) %>%
@@ -583,7 +583,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       ) %>%
       ungroup
   }
-
+  
   var_qual <- var_qual %>%
     mutate(
       qual = qual %>%
@@ -592,10 +592,10 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       	as.list %>%
       	set_names(NULL)
     )
-
+  
   rm(cigar.queryspace.var)
   invisible(gc())
-
+  
   #Call base qualities in opposite strand (matched via reference space).
   #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space, or left and right flanking bases if opposite strand query space width = 0. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
   #Set missing values to NA (for example, an SBS across from a deletion).
@@ -610,7 +610,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       keep.extra.columns=TRUE,
       seqinfo=BSgenome_name %>% get %>% seqinfo
     )
-
+  
    #Make GRanges of bam reads parallel to call refspace GRanges, but matching to the opposite strand read from the call
   bam.gr.input.opposite_strand.parallel_to_var_refspace <- bam.gr.input %>%
     select(zm, cigar, qual) %>%
@@ -626,14 +626,14 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         names(.)
       )
     )
-
+  
    #Convert calls from reference space to query space of opposite strand
   vars_queryspace.opposite_strand <- var_refspace.gr %>%
     pmapToAlignments(bam.gr.input.opposite_strand.parallel_to_var_refspace %>% as("GAlignments")) %>%
     setNames(str_c(var_refspace.gr$start_queryspace, var_refspace.gr$end_queryspace,sep="_")) %>%
     (function(x) IRanges(start=start(x), end=end(x), names=names(x), seqnames = seqnames(x) %>% as.character)) %>%
     filter(seqnames != "UNMAPPED")
-
+  
   #For indels, if opposite strand query space width = 0, swap start/end to get flanking bases.
   if(call_class.input == "indel"){
     vars_queryspace.opposite_strand <- vars_queryspace.opposite_strand %>%
@@ -645,10 +645,10 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       ) %>%
       select(-start_tmp,-end_tmp)
   }
-
+  
   vars_queryspace.opposite_strand <- vars_queryspace.opposite_strand %>%
     split(mcols(.)$seqnames)
-
+  
    #Extract qual from opposite strand. Set missing values to NA.
   var_qual.opposite_strand <- extractAt(
     bam.gr.input.opposite_strand.parallel_to_var_refspace %>%
@@ -680,26 +680,26 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         set_names(NULL) %>%
         map_if(~ length(.x) == 0, ~NA_integer_)
     )
-
+  
   rm(var_refspace.gr, bam.gr.input.opposite_strand.parallel_to_var_refspace)
   invisible(gc())
-
-
+  
+  
   #Extract sa/sm/sx tags
   # For insertions, get base qualities of inserted bases in query space, relative to reference plus strand. For deletions, get base qualities of left and right flanking bases in query space, relative to reference plus strand.
   #For insertions, get the base qualities on the opposite strand from the left and right flanking bases in opposite strand query space that correspond to the call in reference space. For deletions, get base qualities from all bases in opposite strand query space that correspond to the call in reference space. For mutations, this temporarily assigns wrong values since for these the correct opposite strand bases to get quality from would be the inserted bases on the opposite strand for insertions and the bases flanking the deletion location for deletions. The issue is that we're going from call strand query space to reference space to opposite strand queryspace, rather than through direct alignment of the two strands to each other, which is too computationally complicated. For mutations, these imperfect values are later corrected to the precise opposite strand data: when we annotate which calls are mutations (i.e., on both strands), we reassign opposite strand data for each call from the call on the opposite strand. For mismatches, this is not possible, so we use the above heuristics for filtering.
-
+  
   #Format sa, sm, sx inputs
   sa.input <- bam.gr.input$sa %>%
   	lapply(as.vector) %>%
   	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
-
+  
   sm.input <- bam.gr.input$sm %>%
   	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
-
+  
   sx.input <- bam.gr.input$sx %>%
   	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
-
+  
   if(call_class.input %in% c("SBS","MDB")){
     #Convert call positions in query space to list for faster retrieval below of sa, sm, sx tags
     var_queryspace.list <- var_queryspace %>%
@@ -708,14 +708,14 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       as.data.table %>%
       split(by="zm_strand",keep.by=F) %>%
       lapply(unlist,use.names=F)
-
+    
     var_queryspace.opposite_strand.list <- vars_queryspace.opposite_strand %>%
       as.data.table %>%
       filter(start==end) %>% #Remove sites whose opposite strand aligned to width = -1, meaning there is no reference-aligned base on the opposite strand. These will then become NA after the final join.
       select(seqnames, start) %>%
       split(by="seqnames",keep.by=F) %>%
       lapply(unlist,use.names=F)
-
+    
     vars_queryspace.coordconversion <- vars_queryspace.opposite_strand %>%
       as.data.table %>%
       as_tibble %>%
@@ -729,7 +729,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         end_queryspace = start_queryspace
       ) %>%
       select(-group,-group_name,-width)
-
+    
     #Define extraction function
     extract_sasmsx <- function(tag.input, tagdata.input, var_queryspace.list.input, vars_queryspace.coordconversion.input=NULL){
       result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ .x[.y] %>% set_names(.y)) %>%
@@ -743,7 +743,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
             end_queryspace = start_queryspace,
             !!tag.input := .data[[tag.input]] %>% as.list %>% set_names(NULL)
           )
-
+      
       #Convert query space coordinate of opposite strand to call strand (if extracting opposite strand data)
       if(!is.null(vars_queryspace.coordconversion.input)){
         result <- result  %>%
@@ -757,23 +757,23 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
           ) %>%
           select(-start,-end)
       }
-
+      
       return(result)
     }
-
+    
     #Extract data
     var_sa <- extract_sasmsx(
       "sa",
       sa.input,
       var_queryspace.list
       )
-
+    
     var_sm <- extract_sasmsx(
       "sm",
       sm.input,
       var_queryspace.list
     )
-
+ 
     var_sx <- extract_sasmsx(
       "sx",
       sx.input,
@@ -786,24 +786,24 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       var_queryspace.opposite_strand.list,
       vars_queryspace.coordconversion
     )
-
+    
     var_sm.opposite_strand <- extract_sasmsx(
       "sm.opposite_strand",
       sm.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
       var_queryspace.opposite_strand.list,
       vars_queryspace.coordconversion
     )
-
+    
     var_sx.opposite_strand <- extract_sasmsx(
       "sx.opposite_strand",
       sx.input %>% setNames(names(.) %>% chartr("+-","-+",.)),
       var_queryspace.opposite_strand.list,
       vars_queryspace.coordconversion
     )
-
+    
     rm(var_queryspace.list, var_queryspace.opposite_strand.list, vars_queryspace.coordconversion)
     invisible(gc())
-
+    
   }else if(call_class.input == "indel"){
     #Convert indel positions in query space to a format for faster retrieval below of sa, sm, sx tags.
     # Flatten indel ranges, annotate with start_end_queryspace, then expand the ranges into the needed query_pos, preserving start_end_queryspace.
@@ -823,7 +823,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       mutate(pos_queryspace = start_queryspace + row_number() - 1) %>%
       select(zm_strand,start_end_queryspace,pos_queryspace) %>%
       as.data.table
-
+    
     indels_queryspace_pos.opposite_strand <- vars_queryspace.opposite_strand %>%
       as.data.frame %>%
       select(-seqnames) %>%
@@ -840,15 +840,15 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       mutate(pos_queryspace = start_queryspace + row_number() - 1) %>%
       select(zm_strand,start_end_queryspace,pos_queryspace) %>%
       as.data.table
-
+    
     setkey(indels_queryspace_pos, zm_strand, start_end_queryspace)
     setkey(indels_queryspace_pos.opposite_strand, zm_strand, start_end_queryspace)
-
+    
     #Extract data
     indels_queryspace_pos[, sa_val := sa.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-
+    
     sa.input.opposite_strand <- sa.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sm.input.opposite_strand <- sm.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sx.input.opposite_strand <- sx.input %>% setNames(names(.) %>% chartr("+-","-+",.))
@@ -856,10 +856,10 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     indels_queryspace_pos.opposite_strand[, sa_val := sa.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-
+    
     rm(cigar.queryspace.var.forqualdata, vars_queryspace.opposite_strand)
     invisible(gc())
-
+    
     #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
     indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
@@ -871,7 +871,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         start_queryspace = as.integer(start_queryspace),
         end_queryspace = as.integer(end_queryspace)
       )
-
+    
     indels_queryspace_pos.opposite_strand <- indels_queryspace_pos.opposite_strand[, .(sa.opposite_strand = list(sa_val), sm.opposite_strand = list(sm_val), sx.opposite_strand = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
       separate(zm_strand,sep="_",into=c("zm","strand")) %>%
@@ -882,14 +882,14 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         start_queryspace = as.integer(start_queryspace),
         end_queryspace = as.integer(end_queryspace)
       )
-
+    
     rm(sa.input.opposite_strand, sm.input.opposite_strand, sx.input.opposite_strand)
     invisible(gc())
   }
-
+  
   rm(sa.input, sm.input, sx.input)
   invisible(gc())
-
+  
   #Combine call info with prior empty initialized tibble and return result
   if(call_class.input %in% c("SBS","MDB")){
     calls.out <- calls.out %>%
@@ -922,7 +922,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
           select(-deletion_width,-insertion_width)
       )
   }
-
+  
   #Replace NA/NULL opposite strand values with list(NA)
   calls.out <- calls.out %>%
     mutate(
@@ -931,7 +931,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
         ~ replace(.x, vapply(.x, function(el) is.null(el) || identical(el, NA), logical(1)), list(NA))
       )
     )
-
+  
   #Annotate barcode tag (bc) from input reads
   calls.out <- calls.out %>%
   	select(-bc) %>%
@@ -949,7 +949,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       call_class = !!call_class.input %>% factor,
       call_type = !!call_type.input %>% factor
       )
-
+  
   return(calls.out)
 }
 
@@ -967,12 +967,12 @@ calls <- list()
 for(i in bam.gr %>% names){
 
   cat("> Processing run:",i,"\n")
-
+  
   ######################
   ### Extract calls
   ######################
   cat("    Extracting single base substitutions...")
-
+  
   #SBS
   calls[[i]] <- extract_calls(
     bam.gr.input = bam.gr[[i]],
@@ -980,12 +980,12 @@ for(i in bam.gr %>% names){
     call_type.input = "SBS",
     cigar.ops.input = "X"
     )
-
+  
   cat("DONE\n")
-
+  
   #Insertions
   cat("    Extracting insertions...")
-
+  
   calls[[i]] <- calls[[i]] %>%
     bind_rows(
       extract_calls(
@@ -997,10 +997,10 @@ for(i in bam.gr %>% names){
     )
 
   cat("DONE\n")
-
+  
   #Deletions
   cat("    Extracting deletions...")
-
+  
   calls[[i]] <- calls[[i]] %>%
     bind_rows(
       extract_calls(
@@ -1010,15 +1010,15 @@ for(i in bam.gr %>% names){
         cigar.ops.input = c("D")
       )
     )
-
+  
   cat("DONE\n")
-
-
+  
+  
   #MDBs
   for(j in seq_len(nrow(call_types_MDB))){
-
+    
     cat("    Extracting",call_types_MDB %>% pluck("call_type",j),"...")
-
+    
     calls[[i]] <- calls[[i]] %>%
       bind_rows(
         extract_calls(
@@ -1029,10 +1029,10 @@ for(i in bam.gr %>% names){
           call_bam_scoretag_min.input = call_types_MDB %>% pluck("call_bam_scoretag_min",j)
         )
       )
-
+    
     cat("DONE\n")
   }
-
+  
 }
 
 ######################
@@ -1073,32 +1073,32 @@ calls <- calls %>%
 			) %>%
 			resize(width=3,fix="center") %>%
 			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
-
+			
 			#Remove trinucleotide contexts that extend past a non-circular chromosome edge (after trim, width < 3) to yield NA tnc value
 			trim %>%
 			filter(width == 3) %>%
-
+			
 			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns. Also calculate trinucleotide context with central pyrimidine
 			mutate(
 				reftnc_plus_strand = getSeq(eval(parse(text=BSgenome_name)),.) %>%
 					as.character %>%
 					factor(levels = trinucleotides_64)
 			) %>%
-
+			
 			#Remove trinucleotide contexts that are NA, which occurs when the trinucleotide sequence contains 'N'
 			filter(!is.na(reftnc_plus_strand)) %>%
-
+			
 			mutate(
 				reftnc_minus_strand = reftnc_plus_strand %>%
 					DNAStringSet %>%
 					reverseComplement %>%
 					as.character %>%
 					factor(levels = trinucleotides_64),
-
+				
 				reftnc_pyr = if_else(str_sub(reftnc_plus_strand,2,2) %in% c("C","T"), reftnc_plus_strand, reftnc_minus_strand) %>%
 					factor(levels = trinucleotides_32_pyr)
 			) %>%
-
+			
 			#Resize back to original start/end, and make tibble
 			resize(width=1,fix="center") %>%
 			as_tibble %>%
@@ -1117,14 +1117,14 @@ calls <- calls %>%
 		ref_minus_strand = ref_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
 		ref_synthesized_strand = if_else(strand=="+",ref_plus_strand,ref_minus_strand),
 		ref_template_strand = if_else(strand=="+",ref_minus_strand,ref_plus_strand),
-
+		
 		alt_minus_strand = alt_plus_strand %>% DNAStringSet %>% reverseComplement %>% as.character,
 		alt_synthesized_strand = if_else(strand=="+",alt_plus_strand,alt_minus_strand),
 		alt_template_strand = if_else(strand=="+",alt_minus_strand,alt_plus_strand),
-
+		
 		reftnc_synthesized_strand = if_else(strand=="+",reftnc_plus_strand,reftnc_minus_strand),
 		reftnc_template_strand = if_else(strand=="+",reftnc_minus_strand,reftnc_plus_strand),
-
+		
 		alttnc_plus_strand = str_c(
 			str_sub(reftnc_plus_strand,1,1),
 			alt_plus_strand,
@@ -1144,10 +1144,10 @@ calls <- calls %>%
 			alttnc_minus_strand
 		) %>%
 			factor(levels = trinucleotides_64),
-
+		
 		alttnc_synthesized_strand = if_else(strand=="+",alttnc_plus_strand,alttnc_minus_strand),
 		alttnc_template_strand = if_else(strand=="+",alttnc_minus_strand,alttnc_plus_strand)
-
+	
 	) %>%
 	select(-c(ref_minus_strand,alt_minus_strand,reftnc_minus_strand,alttnc_minus_strand))
 
@@ -1221,7 +1221,7 @@ s_call_type <- calls.gr.keyed.opposite$call_type[sh]
 s_start_refspace <- calls.gr.keyed.opposite$start_refspace[sh]
 s_end_refspace <- calls.gr.keyed.opposite$end_refspace[sh]
 
-calls.gr.hits.keep <-
+calls.gr.hits.keep <- 
 	(
 		q_call_class %in% c("SBS","MDB") & s_call_type == "SBS" &
 			q_start_refspace == s_start_refspace & q_end_refspace == s_end_refspace
@@ -1261,7 +1261,7 @@ calls.gr$alt_plus_strand.opposite_strand <- calls.gr.keyed.opposite$alt_plus_str
 calls.gr$start_refspace.opposite_strand <- calls.gr.keyed.opposite$start_refspace
 calls.gr$end_refspace.opposite_strand <- calls.gr.keyed.opposite$end_refspace
 
-calls.gr <- calls.gr %>%
+calls.gr <- calls.gr %>% 
 	mutate(
 		deletion.bothstrands.startendmatch = case_when(
 			call_type != "deletion" | call_type.opposite_strand != "deletion" ~ NA,

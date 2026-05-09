@@ -445,7 +445,7 @@ workflow {
     .map { run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, barcode_pair_key, bamFile ->
       tuple(run_id, individual_id, sample_id, "${barcode_ids}.${barcode_ids_round2}", bamFile)
     }
-
+  
   mergeDemuxBams_round2_input_ch = limaDemux_round2_map_ch
     .groupTuple(by: [0,1,2,3])
 
@@ -543,7 +543,7 @@ workflow {
   // installBSgenome
   //******************
   installBSgenome(Channel.value(config_signatures.installBSgenome))
-  BSgenome_name_ch = installBSgenome.out.bsgenome_name_file.map { it.text.trim() }
+  BSgenome_name_ch = installBSgenome.out.map { it.text.trim() }
 
   //******************
   // extractGenomeTrinucleotides
@@ -745,7 +745,7 @@ process ccsChunk {
     time '24h'
     tag { "ccsChunk: chunk ${chunkID}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(run_id), path(bamFile), path(pbiFile), val(chunkID)
 
@@ -791,7 +791,7 @@ process mergeCCSchunks {
     time '6h'
     tag "mergeCCSchunks"
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(run_id), path(bamChunks), path(pbiChunks)
 
@@ -822,10 +822,10 @@ process filterAdapter {
     time '4h'
     tag "filterAdapter"
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(run_id), path(bamFile), path(pbiFile)
-
+    
     output:
       tuple val(run_id), path("${run_id}.ccs.filtered.bam"), path("${run_id}.ccs.filtered.bam.pbi")
 
@@ -835,7 +835,7 @@ process filterAdapter {
         "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
-
+    
     script:
     """
     ${params.samtools_bin} view -b -@ ${task.cpus} -e "[ma]==0" ${bamFile} > ${run_id}.ccs.filtered.bam
@@ -979,10 +979,10 @@ process pbmm2Align {
     time '6h'
     tag { "pbmm2Align: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path(bamFile)
-
+    
     output:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.pbi")
 
@@ -1045,7 +1045,7 @@ process mergeAlignedSampleBAMs {
     time '4h'
     tag { "mergeAlignedSampleBAMs: ${sample_id}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(individual_id), val(sample_id), path(bamFiles), path(pbiFiles)
 
@@ -1074,7 +1074,7 @@ process mergeAlignedSampleBAMs {
     conda activate ${params.conda_pbbioconda_env}
     pbmerge -o \${sample_basename}.unsorted.bam ${bamFiles.join(' ')}
     conda deactivate
-
+    
     ${params.samtools_bin} sort -@ ${task.cpus} -m 4G \${sample_basename}.unsorted.bam > \${sample_basename}.sorted.bam
     ${params.samtools_bin} index -@ ${task.cpus} \${sample_basename}.sorted.bam
 
@@ -1092,15 +1092,15 @@ process countZMWs {
     time '10m'
     tag { "countZMWs: ${bamFile}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple path(bamFile), path(pbiFile), val(outFileSuffix)
-
+    
     output:
       path "*.${outFileSuffix}"
-
+    
     publishDir "${sharedLogsDir}", mode: "copy"
-
+    
     script:
     """
     set -euo pipefail
@@ -1120,10 +1120,10 @@ process splitBAM {
     time '1h'
     tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
-
+    
     output:
       tuple val(individual_id), val(sample_id),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"),
@@ -1153,7 +1153,7 @@ process splitBAM {
     ids_file=\${sample_basename}.zmwIDs.txt
     chunk_ids=\${sample_basename}.chunk${chunkID}.zmwIDs.txt
     chunk_bam=\${sample_basename}.chunk${chunkID}.bam
-
+    
     zmwfilter --show-all ${bamFile} > \$ids_file
 
     total_zmws=\$(wc -l < \$ids_file)
@@ -1192,7 +1192,7 @@ process splitBAM {
 process installBSgenome {
     cpus 1
     memory '16 GB'
-    time '12h'
+    time '8h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
@@ -1201,7 +1201,7 @@ process installBSgenome {
       val(config_sig)
 
     output:
-      path("BSgenome_name.txt"), emit: bsgenome_name_file
+      path("BSgenome_name.txt")
 
     afterScript{
       generateAfterScript(
@@ -1266,7 +1266,7 @@ process processGermlineVCFs {
     time '4h'
     tag { "processGermlineVCFs: ${individual_id}" }
     container "${params.hidefseq_container}"
-
+      
     input:
       tuple val(individual_id), path(germline_bam_file), val(config_sig)
 
@@ -1297,7 +1297,7 @@ process processGermlineBAMs {
     time '24h'
     tag { "processGermlineBAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple path(germline_bam_file), val(germline_bam_type)
 
@@ -1327,7 +1327,7 @@ process processGermlineBAMs {
 
     #Slightly different parameters are used for Illumina vs PacBio germline BAM to match how bcftools mpileup is run later
     #in the call filtering analysis.
-
+    
     set -euo pipefail
 
     if [[ ${germline_bam_type} == Illumina ]]; then
@@ -1358,7 +1358,7 @@ process prepareRegionFilters {
     time '24h'
     tag { "prepareRegionFilters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple path(region_filter_file), val(binsize), val(threshold)
 
@@ -1395,7 +1395,7 @@ process prepareRegionFilters {
     fi
 
     echo "threshold command: \$threshold_command"
-
+    
     ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
       | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
     """
@@ -1417,10 +1417,10 @@ process extractCallsChunk {
     maxRetries params.maxRetries_extractCallsChunk
     tag { "extractCallsChunk: ${sample_id} -> chunk ${chunkID}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(config_sig)
-
+    
     output:
       tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
 
@@ -1461,7 +1461,7 @@ process filterCallsChunkChromgroupFiltergroup {
 
     input:
       tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup), val(config_sig)
-
+    
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
 
@@ -1499,10 +1499,10 @@ process calculateBurdensChromgroupFiltergroup {
     maxRetries params.maxRetries_calculateBurdensChromgroupFiltergroup
     tag { "calculateBurdensChromgroupFiltergroup: ${sample_id} -> ${chromgroup} x ${filtergroup}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
-
+    
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.bed.gz"), path("*.bed.gz.tbi"), emit: coverage_reftnc
@@ -1547,17 +1547,17 @@ process outputResultsSample {
     maxRetries params.maxRetries_outputResultsSample
     tag { "outputResultsSample: ${sample_id}" }
     container "${params.hidefseq_container}"
-
+    
     input:
       tuple val(individual_id), val(sample_id), path(calculateBurdensFiles), val(config_sig)
-
+    
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
       path("${params.analysis_id}.${individual_id}.${sample_id}.outputResults.qs2")
       path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
-
+        
     publishDir path: "${params.analysis_output_dir}",
       mode: 'move',
       saveAs: { filename -> "${sampleBaseDir(individual_id, sample_id)}/${filename}" }

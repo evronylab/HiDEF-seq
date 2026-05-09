@@ -3,17 +3,45 @@
  *****************************************************************/
 
 //Define output directories and related helper functions
-sharedLogsDir = "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
+def sharedLogsDir() {
+  return "${params.analysis_output_dir}/${params.analysis_id}.sharedLogs"
+}
 
-sampleBaseDir = { individual_id, sample_id -> "${params.analysis_id}.${individual_id}.${sample_id}" }
-dirSampleLogs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/logs" }
-dirProcessReads = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/processedReads" }
-dirVerifyBAMID = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/verifyBAMID" }
-dirSplitBAMs = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/splitBAMs" }
-dirExtractCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/extractCalls" }
-dirFilterCalls = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/filterCalls" }
-dirCalculateBurdens = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens" }
-dirCoverage_Reftnc = { individual_id, sample_id -> "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc" }
+def sampleBaseDir(individual_id, sample_id) {
+  return "${params.analysis_id}.${individual_id}.${sample_id}"
+}
+
+def dirSampleLogs(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/logs"
+}
+
+def dirProcessReads(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/processedReads"
+}
+
+def dirVerifyBAMID(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/verifyBAMID"
+}
+
+def dirSplitBAMs(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/splitBAMs"
+}
+
+def dirExtractCalls(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/extractCalls"
+}
+
+def dirFilterCalls(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/filterCalls"
+}
+
+def dirCalculateBurdens(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/calculateBurdens"
+}
+
+def dirCoverage_Reftnc(individual_id, sample_id) {
+  return "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc"
+}
 
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
@@ -28,12 +56,14 @@ def generateAfterScript(logDir, logName) {
   """
 }
 
-signatureYamlOptions = new org.yaml.snakeyaml.DumperOptions()
-signatureYamlOptions.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK)
-signatureYamlOptions.setPrettyFlow(false)
-signatureYamlOptions.setIndent(2)
+def signatureYaml() {
+  def options = new org.yaml.snakeyaml.DumperOptions()
+  options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK)
+  options.setPrettyFlow(false)
+  options.setIndent(2)
 
-signatureYaml = new org.yaml.snakeyaml.Yaml(signatureYamlOptions)
+  return new org.yaml.snakeyaml.Yaml(options)
+}
 
 // Function to calculate a hash for a subset of keys from a parameters file
 def configHash(params_input, keys) {
@@ -44,7 +74,7 @@ def configHash(params_input, keys) {
     }
   }
 
-  def serialized = signatureYaml.dump(subset ?: [:])
+  def serialized = signatureYaml().dump(subset ?: [:])
   def digest = java.security.MessageDigest.getInstance('SHA-256')
   digest.update(serialized.getBytes('UTF-8'))
   digest.digest().encodeHex().toString()
@@ -92,7 +122,7 @@ workflow {
   //******************
 
   // Save copy of parameters file to logs directory
-  logsDir = file("${sharedLogsDir}")
+  logsDir = file("${sharedLogsDir()}")
   logsDir.mkdirs()
 
   options = new org.yaml.snakeyaml.DumperOptions()
@@ -708,11 +738,11 @@ process makeBarcodesFasta {
     output:
       tuple val(run_id), path("${run_id}.${demux_round}.barcodes.fasta"), val(demux_round)
 
-    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.barcodes.fasta"
+    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.barcodes.fasta"
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${params.analysis_id}.${run_id}.${demux_round}.command.log"
       )
     }
@@ -748,12 +778,12 @@ process ccsChunk {
       path "statistics/*.ccs_report.*", emit: report
       path "statistics/*.summary.json", emit: summary
 
-    publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
-    publishDir "${sharedLogsDir}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
+    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "statistics/*.ccs_report.*", saveAs: { filename -> new File(filename).getName() }
+    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "statistics/*.summary.json", saveAs: { filename -> new File(filename).getName() }
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${params.analysis_id}.${run_id}.chunk${chunkID}.command.log"
       )
     }
@@ -794,7 +824,7 @@ process mergeCCSchunks {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
@@ -825,7 +855,7 @@ process filterAdapter {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${params.analysis_id}.${run_id}.command.log"
       )
     }
@@ -857,12 +887,12 @@ process limaDemux {
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
 
-    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.summary"
-    publishDir "${sharedLogsDir}", mode: "copy", pattern: "*.lima.counts"
+    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.lima.summary"
+    publishDir "${sharedLogsDir()}", mode: "copy", pattern: "*.lima.counts"
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${params.analysis_id}.${bamFile.baseName}.command.log"
       )
     }
@@ -1093,7 +1123,7 @@ process countZMWs {
     output:
       path "*.${outFileSuffix}"
     
-    publishDir "${sharedLogsDir}", mode: "copy"
+    publishDir "${sharedLogsDir()}", mode: "copy"
     
     script:
     """
@@ -1199,7 +1229,7 @@ process installBSgenome {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.command.log"
       )
     }
@@ -1228,7 +1258,7 @@ process extractGenomeTrinucleotides {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.command.log"
       )
     }
@@ -1268,7 +1298,7 @@ process processGermlineVCFs {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${individual_id}.command.log"
       )
     }
@@ -1300,7 +1330,7 @@ process processGermlineBAMs {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${germline_bam_file}.command.log"
       )
     }
@@ -1360,7 +1390,7 @@ process prepareRegionFilters {
 
     afterScript{
       generateAfterScript(
-        "${sharedLogsDir}",
+        "${sharedLogsDir()}",
         "${task.process}.${region_filter_file}.bin${binsize}.${threshold}.command.log"
       )
     }

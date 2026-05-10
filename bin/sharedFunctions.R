@@ -2229,11 +2229,11 @@ plot_spectrum_id <- function(spec, lwr, upr, name, max_y, colors, boxes) {
 
 #' Plot template-strand ID (indel) spectrum
 plot_spectrum_id_template <- function(spec, lwr, upr, name, max_y, colors, boxes) {
-    TYPES <- c("1-bp deletion", "1-bp deletion", "1-bp insertion", "1-bp insertion",
+    TYPES <- c("1-bp deletion", "1-bp insertion",
                ">1-bp deletion at repeat\n(deletion length)",
                ">1-bp insertion at repeat\n(insertion length)", "Microhomology\n(deletion length)")
     GROUP_WIDTHS <- c(rep(6, 16), 1, 2, 3, 5)
-    TYPE_WIDTHS <- c(12, 12, 12, 12, 24, 24, 11)
+    TYPE_WIDTHS <- c(24, 24, 24, 24, 11)
     GROUP_LABELS <- c("C", "T", "G", "A", "C", "T", "G", "A",
                       rep(c("2", "3", "4", "5+"), 3))
     GROUP_COLORS <- c("#FCBD6F", "#FE8002", "#F9D6A8", "#C45D00",
@@ -2279,10 +2279,12 @@ plot_spectrum_id_template <- function(spec, lwr, upr, name, max_y, colors, boxes
         else {
             bar_colors <- colors
         }
-        bars <- barplot(spec[i, ], names.arg = colnames(spec),
+        bars <- barplot(spec[i, ], names.arg = colnames(spec), axisnames = FALSE,
                         mgp = c(3, 0.3, 0), col = bar_colors, border = "white",
                         ylim = c(0, samp_max_y), xlim = xlim, yaxt = "n", xaxs = "i",
                         las = 2, cex.names = 1.35, adj = 0.5)
+        axis(side = 1, at = bars, labels = colnames(spec), tick = FALSE,
+             mgp = c(3, 0.3, 0), las = 2, cex.axis = 1.15, gap.axis = -1)
         group_end <- cumsum(GROUP_WIDTHS)
         group_start <- c(1, head(group_end, -1) + 1)
         group_xl <- bars[group_start] - 0.5
@@ -2322,10 +2324,11 @@ plot_spectrum_id_template <- function(spec, lwr, upr, name, max_y, colors, boxes
              ytop = samp_max_y, col = GROUP_COLORS, border = "white")
         mtext(TYPES, side = 3, at = type_xm, line = 2.4, cex = 1.75, xpd = TRUE)
         mtext(GROUP_LABELS, at = group_xm, side = 3, line = 0.35, cex = 1.75)
-        mtext(c(rep("Homopolymer length", 4), rep("Number of repeat units", 2),
+        mtext(c("Homopolymer length", "Homopolymer length",
+                "Number of repeat units", "Number of repeat units",
                 "Microhomology length"),
-              side = 1, at = type_xm + c(0, 0, 0, 0, 0, 0, 0.2), line = 2.8,
-              cex = c(rep(1.55, 6), 1.45))
+              side = 1, at = type_xm + c(0, 0, 0, 0, 0.2), line = 2.8,
+              cex = c(rep(1.55, 4), 1.45))
         # Plot box
         if (boxes) {
             box(lwd = 2)

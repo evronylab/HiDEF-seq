@@ -1067,7 +1067,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		)
 	)
 
-#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for mutations; template-strand spectra are calculated for single-strand call types.
+#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all indel call types; template-strand spectra are calculated for single-strand call types.
 BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
 	get %>%
 	getSeq
@@ -1077,7 +1077,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.refindel_pyr_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
 			function(x,y,z){
-				if(x == "indel" & y == "mutation"){
+				if(x == "indel"){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,

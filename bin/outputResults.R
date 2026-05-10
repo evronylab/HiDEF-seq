@@ -736,7 +736,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
-#Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra for pyrimidine-collapsed mutations and template-strand single-strand call types.
+#Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra for pyrimidine-collapsed indels and template-strand single-strand call types.
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	bind_rows(
 		finalCalls.reftnc_spectra %>%
@@ -793,7 +793,9 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				analysis_id, individual_id, sample_id, chromgroup, call_class,
 				call_type,
 				SBSindel_call_type,
+				finalCalls.refindel_pyr_spectrum,
 				finalCalls.refindel_template_strand_spectrum,
+				finalCalls.refindel_pyr_spectrum.sigfit,
 				finalCalls.refindel_template_strand_spectrum.sigfit
 			) %>%
 
@@ -802,7 +804,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			summarize(
 				#Spectra
 				across(
-					finalCalls.refindel_template_strand_spectrum,
+					c(finalCalls.refindel_pyr_spectrum, finalCalls.refindel_template_strand_spectrum),
 					function(x){
 						reduce(
 							x,
@@ -816,7 +818,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 				#Sigfit matrices, and rename rownames
 				across(
-					finalCalls.refindel_template_strand_spectrum.sigfit,
+					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls.refindel_template_strand_spectrum.sigfit),
 					function(x){
 						result <- x %>%
 							reduce(`+`) %>%

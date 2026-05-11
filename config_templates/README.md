@@ -109,10 +109,12 @@ Barcode uniqueness rules within a run:
 | `genome_fasta` | path | yes | Reference FASTA. |
 | `genome_fai` | path | yes | FASTA index produced by `samtools faidx`. |
 | `genome_mmi` | path | yes | pbmm2 index produced by `pbmm2 index`. |
-| `BSgenome.BSgenome_name` | string | yes | BSgenome package name (for example `BSgenome.Hsapiens.UCSC.hg38`) used by R scripts. Run `BSGenome::available.genomes()` in R to see all publicly available genomes. If the desired reference genome is not available, [create a custom BSgenome package](https://bioconductor.org/packages/devel/bioc/manuals/BSgenomeForge/man/BSgenomeForge.pdf) and set `BSgenome.BSgenome_name` to the custom package's name.<br /><u>Important:</u> The configured `BSgenome` must exactly match the configured `genome_fasta/fai/mmi` (i.e., same contigs, contig lengths, sequence). |
-| `BSgenome.BSgenome_file` | path | optional | Tarball (.tar.gz) file containing a custom BSgenome build. When supplied, `installBSgenome.R` installs it into `cache_dir`. |
+| `genome_organism` | string | yes | Single-word token used in the package name of the BSgenome package created from `genome_fasta`. |
 | `sex_chromosomes` | comma-separated string | yes | Names of sex chromosomes. Used to exclude them from sensitivity analysis. |
 | `mitochondrial_chromosome` | string | yes | Name of the mitochondrial chromosome. Used to exclude it from sensitivity analysis. |
+| `circular_chromosomes` | comma-separated string | optional | Names of circular chromosomes used when creating the BSgenome package. |
+
+The pipeline creates a BSgenome package from `genome_fasta` and installs it in `cache_dir`.
 
 ### Chromosome grouping
 | Key | Type | Required | Description |

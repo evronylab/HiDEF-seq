@@ -23,6 +23,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -58,9 +63,10 @@ chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
 outputFile <- opt$output
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -113,11 +119,6 @@ cat("    filtergroup:",filtergroup_toanalyze,"\n")
 cat("DONE\n")
 
 ######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
-
-######################
 ### Define custom functions
 ######################
 #Order of sbs trinucleotide context labels
@@ -151,11 +152,32 @@ sbs192_labels.sigfit <- c(
 )
 
 #Order of indel context labels
-indel_labels.sigfit <- c(
+indel_pyr_labels.sigfit <- c(
 	"1:Del:C:0","1:Del:C:1","1:Del:C:2","1:Del:C:3","1:Del:C:4","1:Del:C:5",
 	"1:Del:T:0","1:Del:T:1","1:Del:T:2","1:Del:T:3","1:Del:T:4","1:Del:T:5",
 	"1:Ins:C:0","1:Ins:C:1","1:Ins:C:2","1:Ins:C:3","1:Ins:C:4","1:Ins:C:5",
 	"1:Ins:T:0","1:Ins:T:1","1:Ins:T:2","1:Ins:T:3","1:Ins:T:4","1:Ins:T:5",
+	"2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5",
+	"3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5",
+	"4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5",
+	"5:Del:R:0","5:Del:R:1","5:Del:R:2","5:Del:R:3","5:Del:R:4","5:Del:R:5",
+	"2:Ins:R:0","2:Ins:R:1","2:Ins:R:2","2:Ins:R:3","2:Ins:R:4","2:Ins:R:5",
+	"3:Ins:R:0","3:Ins:R:1","3:Ins:R:2","3:Ins:R:3","3:Ins:R:4","3:Ins:R:5",
+	"4:Ins:R:0","4:Ins:R:1","4:Ins:R:2","4:Ins:R:3","4:Ins:R:4","4:Ins:R:5",
+	"5:Ins:R:0","5:Ins:R:1","5:Ins:R:2","5:Ins:R:3","5:Ins:R:4","5:Ins:R:5",
+	"2:Del:M:1","3:Del:M:1","3:Del:M:2","4:Del:M:1","4:Del:M:2","4:Del:M:3",
+	"5:Del:M:1","5:Del:M:2","5:Del:M:3","5:Del:M:4","5:Del:M:5"
+)
+
+indel_template_strand_labels.sigfit <- c(
+	"1:Del:C:0","1:Del:C:1","1:Del:C:2","1:Del:C:3","1:Del:C:4","1:Del:C:5",
+	"1:Del:T:0","1:Del:T:1","1:Del:T:2","1:Del:T:3","1:Del:T:4","1:Del:T:5",
+	"1:Del:G:0","1:Del:G:1","1:Del:G:2","1:Del:G:3","1:Del:G:4","1:Del:G:5",
+	"1:Del:A:0","1:Del:A:1","1:Del:A:2","1:Del:A:3","1:Del:A:4","1:Del:A:5",
+	"1:Ins:C:0","1:Ins:C:1","1:Ins:C:2","1:Ins:C:3","1:Ins:C:4","1:Ins:C:5",
+	"1:Ins:T:0","1:Ins:T:1","1:Ins:T:2","1:Ins:T:3","1:Ins:T:4","1:Ins:T:5",
+	"1:Ins:G:0","1:Ins:G:1","1:Ins:G:2","1:Ins:G:3","1:Ins:G:4","1:Ins:G:5",
+	"1:Ins:A:0","1:Ins:A:1","1:Ins:A:2","1:Ins:A:3","1:Ins:A:4","1:Ins:A:5",
 	"2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5",
 	"3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5",
 	"4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5",
@@ -493,7 +515,7 @@ paste(
 	invisible
 
 #Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz")
 
 paste(
 	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
@@ -688,13 +710,13 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 
 	#Whole genome
 genome.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-	chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames
+	BSgenome_name = BSgenome_name,
+	chroms = BSgenome_name %>% get %>% seqnames
 	)
 
  #genome in the analyzed chromgroup
 genome_chromgroup.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	BSgenome_name = BSgenome_name,
 	chroms = chroms_toanalyze
 )
 
@@ -895,7 +917,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			function(x){
 				x %>% 
 					normalize_indels_for_vcf(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name
+						BSgenome_name = BSgenome_name
 					)
 			}
 		),
@@ -908,7 +930,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 					function(x){
 						x %>% 
 							normalize_indels_for_vcf(
-								BSgenome_name = yaml.config$BSgenome$BSgenome_name
+								BSgenome_name = BSgenome_name
 							)
 					}
 				),
@@ -1046,17 +1068,17 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		)
 	)
 
-#Extract indel spectra (only for mutations)
-BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
+#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all indel call types; template-strand spectra are calculated for single-strand call types.
+BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
 
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
-		finalCalls.refindel_spectrum = pmap(
+		finalCalls.refindel_pyr_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
 			function(x,y,z){
-				if(x == "indel" & y == "mutation"){
+				if(x == "indel"){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
@@ -1064,14 +1086,14 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						) %>%
 						select(CHROM, POS, REF, ALT) %>%
 						as.data.frame %>%
-						indel.spectrum(BSgenome_for_indel.spectrum)
+						indel.spectrum(BSgenome_for_indel.spectrum, spectrum_type = "pyr")
 				}else{
 					NULL
 				}
 			}
 		),
 		
-		finalCalls_unique.refindel_spectrum = pmap(
+		finalCalls_unique.refindel_pyr_spectrum = pmap(
 			list(call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
 			function(x,y,z){
 				if(x == "indel" & y == "mutation"){
@@ -1082,7 +1104,29 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 						) %>%
 						select(CHROM, POS, REF, ALT) %>%
 						as.data.frame %>%
-						indel.spectrum(BSgenome_for_indel.spectrum)
+						indel.spectrum(BSgenome_for_indel.spectrum, spectrum_type = "pyr")
+				}else{
+					NULL
+				}
+			}
+		),
+
+		finalCalls.refindel_template_strand_spectrum = pmap(
+			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
+			function(x,y,z){
+				if(x == "indel" & y != "mutation"){
+					z %>%
+						# Keep REF/ALT plus-strand and VCF-normalized; orient spectra by the template strand, which is opposite the aligned read/synthesized strand.
+						mutate(
+							TEMPLATE_STRAND = if_else(strand == "+", "-", "+")
+						) %>%
+						rename(
+							CHROM = seqnames, POS = start,
+							REF = ref_plus_strand, ALT = alt_plus_strand
+						) %>%
+						select(CHROM, POS, REF, ALT, TEMPLATE_STRAND) %>%
+						as.data.frame %>%
+						indel.spectrum(BSgenome_for_indel.spectrum, spectrum_type = "template")
 				}else{
 					NULL
 				}
@@ -1382,18 +1426,18 @@ finalCalls.burdens <- finalCalls.burdens %>%
 
 #Create sigfit-format finalCalls spectra tables
  #Helper function
-tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("pyr","template","indel"), value_col = NULL){
+tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("sbs_pyr","sbs_template","indel_pyr","indel_template"), value_col = NULL){
 				
 	map2(finalCalls_col, rowname_col, function(x,y){
 		if(is.null(x)){return(NULL)}
 		
 		result <- switch(
 			mode,
-			"pyr" = x %>%
+			"sbs_pyr" = x %>%
 				select(channel, all_of(value_col)) %>%
 				pivot_wider(names_from = channel, values_from = all_of(value_col)),
 			
-			"template" = x %>%
+			"sbs_template" = x %>%
 				mutate(
 					channel = if_else(
 						str_sub(channel, 2, 2) %in% c("C","T"),
@@ -1409,7 +1453,9 @@ tibble_to_sigfit <- function(finalCalls_col, rowname_col, mode = c("pyr","templa
 				select(channel, all_of(value_col)) %>%
 				pivot_wider(names_from = channel, values_from = all_of(value_col)),
 			
-			"indel" = x %>% indelspectrum.to.sigfit
+			"indel_pyr" = x %>% indelspectrum.to.sigfit(spectrum_type = "pyr"),
+
+			"indel_template" = x %>% indelspectrum.to.sigfit(spectrum_type = "template")
 		) %>%
 			mutate(rowname = y) %>%
 			column_to_rownames("rowname")
@@ -1430,19 +1476,19 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		 #Not corrected
 		across(
 			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_pyr", value_col = "count")},
 			.names = "{.col}.sigfit"
 		),
 		 #Genome corrected
 		across(
 			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count_corrected_to_genome")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_pyr", value_col = "count_corrected_to_genome")},
 			.names = "{.col}.corrected_to_genome.sigfit"
 		),
 		 #Genome chromgroup corrected
 		across(
 			c(finalCalls.reftnc_pyr_spectrum, finalCalls_unique.reftnc_pyr_spectrum),
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "pyr", value_col = "count_corrected_to_genome_chromgroup")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_pyr", value_col = "count_corrected_to_genome_chromgroup")},
 			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
 		),
 		
@@ -1450,26 +1496,33 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		 #Not corrected
 		across(
 			finalCalls.reftnc_template_strand_spectrum,
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_template", value_col = "count")},
 			.names = "{.col}.sigfit"
 		),
 		 #Genome corrected
 		across(
 			finalCalls.reftnc_template_strand_spectrum,
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count_corrected_to_genome")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_template", value_col = "count_corrected_to_genome")},
 			.names = "{.col}.corrected_to_genome.sigfit"
 		),
 		 #Genome chromgroup corrected
 		across(
 			finalCalls.reftnc_template_strand_spectrum,
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "template", value_col = "count_corrected_to_genome_chromgroup")},
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "sbs_template", value_col = "count_corrected_to_genome_chromgroup")},
 			.names = "{.col}.corrected_to_genome_chromgroup.sigfit"
 		),
 		
 		# indel spectra (all + unique)
 		across(
-			c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
-			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "indel")},
+			c(finalCalls.refindel_pyr_spectrum, finalCalls_unique.refindel_pyr_spectrum),
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "indel_pyr")},
+			.names = "{.col}.sigfit"
+		),
+
+		# template-strand indel spectra
+		across(
+			finalCalls.refindel_template_strand_spectrum,
+			function(x){tibble_to_sigfit(x, .data[["rowname_col"]], mode = "indel_template")},
 			.names = "{.col}.sigfit"
 		)
 
@@ -1517,7 +1570,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	sensitivity_vcf <- load_vcf(
 		vcf_file = sensitivity_parameters$sensitivity_vcf,
 		genome_fasta = yaml.config$genome_fasta,
-		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		BSgenome_name = BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin
 	) %>%
 		as_tibble
@@ -1617,7 +1670,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 					
 					gr <- x %>%
 						makeGRangesFromDataFrame(
-							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+							seqinfo = BSgenome_name %>% get %>% seqinfo
 						)
 					
 					x %>%

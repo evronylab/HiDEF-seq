@@ -2,6 +2,15 @@
 ### Custom shared functions
 ######################
 
+#Function to derive the BSgenome package name created from the configured FASTA
+get_bsgenome_name <- function(yaml.config){
+	genome_suffix <- yaml.config$genome_fasta %>%
+		basename %>%
+		str_replace_all(pattern = "[^0-9a-zA-Z.]", replacement = "")
+
+	str_c("BSgenome", yaml.config$genome_organism, "user", genome_suffix, sep=".")
+}
+
 #Function to load and format VCF
 # regions: optional tibble with columns: seqnames start_refspace end_refspace
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
@@ -312,7 +321,10 @@ normalize_indels_for_vcf <- function(df, BSgenome_name){
 #Function to import indels for spectrum analysis, modified from INDELWALD package:
 ## Max Stammnitz; maxrupsta@gmail.com; University of Cambridge  ##
 ## Citation: The evolution of two transmissible cancers in Tasmanian devils (Stammnitz et al. 2023, Science 380:6642)
-indel.spectrum <- function(x, reference, context_bp = 1000){
+indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("pyr", "template")){
+
+	spectrum_type <- match.arg(spectrum_type)
+	one_bp_bases <- if(spectrum_type == "pyr") c("C", "T") else c("C", "T", "G", "A")
 	
 	# context_bp: total number of bp extracted around ≥5 bp events (flank on each side ~ context_bp/2)
 	.flank <- as.integer(context_bp / 2L)  # symmetric flank size used in ≥5 bp sections
@@ -368,10 +380,9 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																		dels.1bp.context.start[,7], dels.1bp.context.start[,8], dels.1bp.context.start[,9],
 																		dels.1bp.context.start[,10], sep = '')
 		dels.1bp.context.end <- str_split_fixed(dels.1bp.context, '', 12)[,12,drop=F]
-		dels.1bp[,'TRIPLET'] <- paste(dels.1bp.context.start, dels.1bp.context.middle, dels.1bp.context.end, sep = '')
-		colnames(dels.1bp)[5] <- 'CONTEXT FW' 
+		dels.1bp[,'CONTEXT FW'] <- paste(dels.1bp.context.start, dels.1bp.context.middle, dels.1bp.context.end, sep = '')
 		
-		## need the central base to be pyrimidine-centred, i.e. C or T, hence also run reverseComplements on full contexts
+		## For pyr spectra, pyrimidine-center 1-bp indels; for template spectra, orient by TEMPLATE_STRAND.
 		dels.1bp.context.rc <- as.character(reverseComplement(subseq(x = reference[as.character(dels.1bp[,'CHROM'])], 
 																																 start = as.numeric(dels.1bp[,'POS']) - 9, 
 																																 end = as.numeric(dels.1bp[,'POS']) + 11)))
@@ -382,16 +393,19 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																			 dels.1bp.context.rc.start[,7], dels.1bp.context.rc.start[,8], dels.1bp.context.rc.start[,9],
 																			 dels.1bp.context.rc.start[,10], sep = '')
 		dels.1bp.context.rc.end <- str_split_fixed(dels.1bp.context.rc, '', 12)[,12,drop=F]
-		dels.1bp <- cbind(dels.1bp[,1:5,drop=F], paste(dels.1bp.context.rc.start, dels.1bp.context.rc.middle, dels.1bp.context.rc.end, sep = ''))
-		colnames(dels.1bp)[6] <- 'CONTEXT RC'
+		dels.1bp[,'CONTEXT RC'] <- paste(dels.1bp.context.rc.start, dels.1bp.context.rc.middle, dels.1bp.context.rc.end, sep = '')
 		
 		## summarise 1 bp deletions in matrix format
-		dels.1bp.summary <- matrix(0, ncol = 2, nrow = 6)
-		colnames(dels.1bp.summary) <- c('C', 'T') ## pyrimidine-centred deleted base
+		dels.1bp.summary <- matrix(0, ncol = length(one_bp_bases), nrow = 6)
+		colnames(dels.1bp.summary) <- one_bp_bases
 		rownames(dels.1bp.summary) <- c('0 bp', '1 bp', '2 bp', '3 bp', '4 bp', '5+ bp') ## contextual homopolymer-length
 		fw <- str_split_fixed(str_split_fixed(dels.1bp[,'CONTEXT FW'], '\\[', 2)[,2,drop=F], '\\]', 2)[,1,drop=F]
 		rc <- str_split_fixed(str_split_fixed(dels.1bp[,'CONTEXT RC'], '\\[', 2)[,2,drop=F], '\\]', 2)[,1,drop=F]
-		fw.if <- fw == 'C' | fw == 'T'
+		fw.if <- if(spectrum_type == "pyr"){
+			fw == 'C' | fw == 'T'
+		}else{
+			dels.1bp[,'TEMPLATE_STRAND'] == "+"
+		}
 		for (i in 1:nrow(dels.1bp)){
 			
 			if(fw.if[i] == T){
@@ -556,8 +570,8 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 	}else{
 		
 		## summarise 1 bp deletions in matrix format
-		dels.1bp.summary <- matrix(0, ncol = 2, nrow = 6)
-		colnames(dels.1bp.summary) <- c('C', 'T') ## pyrimidine-centred deleted base
+		dels.1bp.summary <- matrix(0, ncol = length(one_bp_bases), nrow = 6)
+		colnames(dels.1bp.summary) <- one_bp_bases
 		rownames(dels.1bp.summary) <- c('0 bp', '1 bp', '2 bp', '3 bp', '4 bp', '5+ bp') ## contextual homopolymer-length
 		
 	}
@@ -577,10 +591,9 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																	 ins.1bp.context.start[,7], ins.1bp.context.start[,8], ins.1bp.context.start[,9],
 																	 ins.1bp.context.start[,10], sep = '')
 		ins.1bp.context.end <- str_split_fixed(ins.1bp.context, '', 11)[,11,drop=F]
-		ins.1bp[,'TRIPLET'] <- paste(ins.1bp.context.start, ins.1bp.context.middle, ins.1bp.context.end, sep = '')
-		colnames(ins.1bp)[5] <- 'CONTEXT FW'
+		ins.1bp[,'CONTEXT FW'] <- paste(ins.1bp.context.start, ins.1bp.context.middle, ins.1bp.context.end, sep = '')
 		
-		## need the central base to be pyrimidine-centred, i.e. C or T, hence also run reverseComplements on full contexts
+		## For pyr spectra, pyrimidine-center 1-bp indels; for template spectra, orient by TEMPLATE_STRAND.
 		ins.1bp.context.rc <- as.character(reverseComplement(subseq(x = reference[as.character(ins.1bp[,'CHROM'])], 
 																																start = as.numeric(ins.1bp[,'POS']) - 9, 
 																																end = as.numeric(ins.1bp[,'POS']) + 10)))
@@ -591,16 +604,19 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																			ins.1bp.context.rc.start[,7], ins.1bp.context.rc.start[,8], ins.1bp.context.rc.start[,9],
 																			ins.1bp.context.rc.start[,10], sep = '')
 		ins.1bp.context.rc.end <- str_split_fixed(ins.1bp.context.rc, '', 11)[,11,drop=F]
-		ins.1bp <- cbind(ins.1bp[,1:5,drop=F], paste(ins.1bp.context.rc.start, ins.1bp.context.rc.middle, ins.1bp.context.rc.end, sep = ''))
-		colnames(ins.1bp)[6] <- 'CONTEXT RC'
+		ins.1bp[,'CONTEXT RC'] <- paste(ins.1bp.context.rc.start, ins.1bp.context.rc.middle, ins.1bp.context.rc.end, sep = '')
 		
 		## summarise 1 bp insertions in matrix format
-		ins.1bp.summary <- matrix(0, ncol = 2, nrow = 6)
-		colnames(ins.1bp.summary) <- c('C', 'T') ## pyrimidine-centred inserted base
+		ins.1bp.summary <- matrix(0, ncol = length(one_bp_bases), nrow = 6)
+		colnames(ins.1bp.summary) <- one_bp_bases
 		rownames(ins.1bp.summary) <- c('0 bp', '1 bp', '2 bp', '3 bp', '4 bp', '5+ bp') ## contextual homopolymer-length
 		fw <- str_split_fixed(str_split_fixed(ins.1bp[,'CONTEXT FW'], '\\[', 2)[,2,drop=F], '\\]', 2)[,1,drop=F]
 		rc <- str_split_fixed(str_split_fixed(ins.1bp[,'CONTEXT RC'], '\\[', 2)[,2,drop=F], '\\]', 2)[,1,drop=F]
-		fw.if <- fw == 'C' | fw == 'T'
+		fw.if <- if(spectrum_type == "pyr"){
+			fw == 'C' | fw == 'T'
+		}else{
+			ins.1bp[,'TEMPLATE_STRAND'] == "+"
+		}
 		for (i in 1:nrow(ins.1bp)){
 			
 			if(fw.if[i] == T){
@@ -765,8 +781,8 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 	}else{
 		
 		## summarise 1 bp insertions in matrix format
-		ins.1bp.summary <- matrix(0, ncol = 2, nrow = 6)
-		colnames(ins.1bp.summary) <- c('C', 'T') ## pyrimidine-centred inserted base
+		ins.1bp.summary <- matrix(0, ncol = length(one_bp_bases), nrow = 6)
+		colnames(ins.1bp.summary) <- one_bp_bases
 		rownames(ins.1bp.summary) <- c('0 bp', '1 bp', '2 bp', '3 bp', '4 bp', '5+ bp') ## contextual homopolymer-length
 		
 	}
@@ -788,8 +804,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																		dels.2bp.context.start[,7], dels.2bp.context.start[,8], dels.2bp.context.start[,9],
 																		dels.2bp.context.start[,10], sep = '')
 		dels.2bp.context.end <- str_split_fixed(dels.2bp.context, '', 13)[,13,drop=F]
-		dels.2bp[,'TRIPLET'] <- paste(dels.2bp.context.start, dels.2bp.context.middle, dels.2bp.context.end, sep = '')
-		colnames(dels.2bp)[5] <- 'CONTEXT' 
+		dels.2bp[,'CONTEXT'] <- paste(dels.2bp.context.start, dels.2bp.context.middle, dels.2bp.context.end, sep = '')
 		
 	}
 	
@@ -809,8 +824,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																		dels.3bp.context.start[,10], dels.3bp.context.start[,11], dels.3bp.context.start[,12], 
 																		dels.3bp.context.start[,13], dels.3bp.context.start[,14], dels.3bp.context.start[,15], sep = '')
 		dels.3bp.context.end <- str_split_fixed(dels.3bp.context, '', 19)[,19,drop=F]
-		dels.3bp[,'TRIPLET'] <- paste(dels.3bp.context.start, dels.3bp.context.middle, dels.3bp.context.end, sep = '')
-		colnames(dels.3bp)[5] <- 'CONTEXT' 
+		dels.3bp[,'CONTEXT'] <- paste(dels.3bp.context.start, dels.3bp.context.middle, dels.3bp.context.end, sep = '')
 		
 	}
 	
@@ -835,8 +849,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																		dels.4bp.context.start[,16], dels.4bp.context.start[,17], dels.4bp.context.start[,18], 
 																		dels.4bp.context.start[,19], dels.4bp.context.start[,20], sep = '')
 		dels.4bp.context.end <- str_split_fixed(dels.4bp.context, '', 25)[,25,drop=F]
-		dels.4bp[,'TRIPLET'] <- paste(dels.4bp.context.start, dels.4bp.context.middle, dels.4bp.context.end, sep = '')
-		colnames(dels.4bp)[5] <- 'CONTEXT' 
+		dels.4bp[,'CONTEXT'] <- paste(dels.4bp.context.start, dels.4bp.context.middle, dels.4bp.context.end, sep = '')
 		
 	}
 	
@@ -882,8 +895,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 			dels.5bp.context.end[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
 		
-		dels.5bp[,'TRIPLET'] <- paste(dels.5bp.context.start, dels.5bp.context.middle, dels.5bp.context.end, sep = '')
-		colnames(dels.5bp)[5] <- 'CONTEXT'
+		dels.5bp[,'CONTEXT'] <- paste(dels.5bp.context.start, dels.5bp.context.middle, dels.5bp.context.end, sep = '')
 		
 	}
 	
@@ -1426,8 +1438,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																	 ins.2bp.context.start[,7], ins.2bp.context.start[,8], ins.2bp.context.start[,9],
 																	 ins.2bp.context.start[,10], sep = '')
 		ins.2bp.context.end <- str_split_fixed(ins.2bp.context, '', 11)[,11,drop=F]
-		ins.2bp[,'TRIPLET'] <- paste(ins.2bp.context.start, ins.2bp.context.middle, ins.2bp.context.end, sep = '')
-		colnames(ins.2bp)[5] <- 'CONTEXT' 
+		ins.2bp[,'CONTEXT'] <- paste(ins.2bp.context.start, ins.2bp.context.middle, ins.2bp.context.end, sep = '')
 		
 	}
 	
@@ -1446,8 +1457,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																	 ins.3bp.context.start[,10], ins.3bp.context.start[,11], ins.3bp.context.start[,12], 
 																	 ins.3bp.context.start[,13], ins.3bp.context.start[,14], ins.3bp.context.start[,15], sep = '')
 		ins.3bp.context.end <- str_split_fixed(ins.3bp.context, '', 16)[,16,drop=F]
-		ins.3bp[,'TRIPLET'] <- paste(ins.3bp.context.start, ins.3bp.context.middle, ins.3bp.context.end, sep = '')
-		colnames(ins.3bp)[5] <- 'CONTEXT' 
+		ins.3bp[,'CONTEXT'] <- paste(ins.3bp.context.start, ins.3bp.context.middle, ins.3bp.context.end, sep = '')
 		
 	}
 	
@@ -1468,8 +1478,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 																	 ins.4bp.context.start[,16], ins.4bp.context.start[,17], ins.4bp.context.start[,18], 
 																	 ins.4bp.context.start[,19], ins.4bp.context.start[,20], sep = '')
 		ins.4bp.context.end <- str_split_fixed(ins.4bp.context, '', 21)[,21,drop=F]
-		ins.4bp[,'TRIPLET'] <- paste(ins.4bp.context.start, ins.4bp.context.middle, ins.4bp.context.end, sep = '')
-		colnames(ins.4bp)[5] <- 'CONTEXT' 
+		ins.4bp[,'CONTEXT'] <- paste(ins.4bp.context.start, ins.4bp.context.middle, ins.4bp.context.end, sep = '')
 		
 	}
 	
@@ -1510,8 +1519,7 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 			ins.5bp.context.end[i] <- paste(s[, i1:i2, drop=FALSE], collapse='')
 		}
 		
-		ins.5bp[,'TRIPLET'] <- paste(ins.5bp.context.start, ins.5bp.context.middle, ins.5bp.context.end, sep = '')
-		colnames(ins.5bp)[5] <- 'CONTEXT'
+		ins.5bp[,'CONTEXT'] <- paste(ins.5bp.context.start, ins.5bp.context.middle, ins.5bp.context.end, sep = '')
 		
 	}
 	
@@ -1807,7 +1815,10 @@ indel.spectrum <- function(x, reference, context_bp = 1000){
 }
 
 #Function to convert indel spectrum produced by indel.spectrum() to sigfit format
-indelspectrum.to.sigfit <- function(indelspectrum){
+indelspectrum.to.sigfit <- function(indelspectrum, spectrum_type = c("pyr", "template")){
+
+	spectrum_type <- match.arg(spectrum_type)
+	indel_levels <- if(spectrum_type == "pyr") indel_pyr_labels.sigfit else indel_template_strand_labels.sigfit
 	
 	#Helpers to convert from indelwald to sigfit labels
 	map_1bp_rep  <- function(x){
@@ -1847,7 +1858,7 @@ indelspectrum.to.sigfit <- function(indelspectrum){
 				group == ">2bp ins" ~ str_c(map_sz(colname), "Ins", "R", map_R_ins(rowname), sep=":"),
 				group == "MH dels" ~ str_c(map_sz(colname), "Del", "M", map_MH_len(rowname), sep=":")
 			) %>%
-				factor(level = indel_labels.sigfit)
+				factor(levels = indel_levels)
 		)%>%
 		select(label, count) %>%
 		arrange(label) %>%
@@ -1862,7 +1873,7 @@ indelspectrum.to.sigfit <- function(indelspectrum){
 # Citation: Gori K, Baez-Ortega A. sigfit: flexible Bayesian inference of
 # mutational signatures. bioRxiv 372896 (2018). doi: 10.1101/372896.
 # HiDEF-seq uses sigfit-style plots for SBS (96), strand-wise SBS (192), and
-# indel (83) spectra, so the DBS helper that depends on sigfit package data is
+# indel (83/107) spectra, so the DBS helper that depends on sigfit package data is
 # intentionally not copied.
 
 #' Initial coercion to matrix for signatures/exposures/counts
@@ -1921,7 +1932,7 @@ plot_spectrum <- function(spectra, pdf_path = NULL, pdf_width = 24, pdf_height =
         rownames(spec) <- paste("Sample", 1:nrow(spec))
     }
 
-    NTYPES <- c("SBS"=96, "TSW"=192, "ID"=83)  # number of categories per spectrum type
+    NTYPES <- c("SBS"=96, "TSW"=192, "ID"=83, "IDT"=107)  # number of categories per spectrum type
     NCAT <- ncol(spec)                          # number of categories in spectrum
 
     # Initialise PDF
@@ -1951,6 +1962,10 @@ plot_spectrum <- function(spectra, pdf_path = NULL, pdf_width = 24, pdf_height =
         # Indel spectrum (NCAT=83)
         if (NCAT == NTYPES["ID"]) {
             plot_spectrum_id(spec, lwr, upr, name, max_y, colors, boxes)
+        }
+        # Template-strand indel spectrum (NCAT=107)
+        if (NCAT == NTYPES["IDT"]) {
+            plot_spectrum_id_template(spec, lwr, upr, name, max_y, colors, boxes)
         }
     }
     if (!is.null(pdf_path)) {
@@ -2213,6 +2228,116 @@ plot_spectrum_id <- function(spec, lwr, upr, name, max_y, colors, boxes) {
         mtext(c(rep(c("Homopolymer length", "Number of repeat units"), each = 2),
                 "Microhomology length"),
               side = 1, at = XM + c(0, 0, 0, 0, 0.2), line = 2.8, cex = c(rep(1.95, 4), 1.85))
+        # Plot box
+        if (boxes) {
+            box(lwd = 2)
+        }
+    }
+}
+
+
+#' Plot template-strand ID (indel) spectrum
+plot_spectrum_id_template <- function(spec, lwr, upr, name, max_y, colors, boxes) {
+    TYPES <- c("1-bp deletion", "1-bp insertion",
+               ">1-bp deletion at repeat\n(deletion length)",
+               ">1-bp insertion at repeat\n(insertion length)", "Microhomology\n(deletion length)")
+    GROUP_WIDTHS <- c(rep(6, 16), 1, 2, 3, 5)
+    TYPE_WIDTHS <- c(24, 24, 24, 24, 11)
+    GROUP_LABELS <- c("C", "T", "G", "A", "C", "T", "G", "A",
+                      rep(c("2", "3", "4", "5+"), 3))
+    GROUP_COLORS <- c("#FCBD6F", "#FE8002", "#F9D6A8", "#C45D00",
+                      "#AFDC8A", "#36A02E", "#D3EFB8", "#177D22",
+                      "#FCC9B4", "#FB896A", "#F04432", "#BB191A",
+                      "#CFE0F1", "#93C3DE", "#4A97C8", "#1764AA",
+                      "#E1E1EE", "#B5B5D7", "#8582BC", "#62409A")
+    COLORS <- c(rep(GROUP_COLORS[1:16], each = 6), GROUP_COLORS[17],
+                rep(GROUP_COLORS[18], 2), rep(GROUP_COLORS[19], 3),
+                rep(GROUP_COLORS[20], 5))
+    LINECOL <- "gray60"
+    FACTOR <- 1.095
+    NCAT <- ncol(spec)   # number of categories
+    NSAMP <- nrow(spec)  # number of samples
+    colnames(spec) <- c(rep(c(paste0(1:5, "  "), "6+"), 4),
+                        rep(c(paste0(0:4, "  "), "5+"), 4),
+                        rep(c(paste0(1:5, "  "), "6+"), 4),
+                        rep(c(paste0(0:4, "  "), "5+"), 4),
+                        paste0(c(1, 1:2, 1:3, 1:4), "  "), "5+")
+    par(mar = c(5.5, 7, 11, 2))
+    for (i in 1:NSAMP) {
+        if (is.null(max_y)) {
+            samp_max_y <- max(0.05,
+                              ifelse(is.null(upr), max(spec[i,]) * FACTOR, max(upr[i,]) * FACTOR))
+        }
+        else {
+            samp_max_y <- max_y
+        }
+        bars_template <- barplot(spec[i, ], plot = FALSE)
+        if (boxes) {
+            xlim <- c(min(bars_template) - 0.805, max(bars_template) + 0.8)
+        }
+        else {
+            xlim <- c(min(bars_template) - 1.7, max(bars_template) + 1.1)
+        }
+        # Plot spectrum bars
+        if (is.null(colors)) {
+            bar_colors <- COLORS
+        }
+        else if ((length(colors) > 1) & (length(colors) != NCAT)) {
+            stop("'colors' must contain either a single value, or one value per mutation type.")
+        }
+        else {
+            bar_colors <- colors
+        }
+        bars <- barplot(spec[i, ], names.arg = colnames(spec), axisnames = FALSE,
+                        mgp = c(3, 0.3, 0), col = bar_colors, border = "white",
+                        ylim = c(0, samp_max_y), xlim = xlim, yaxt = "n", xaxs = "i",
+                        las = 2, cex.names = 1.35, adj = 0.5)
+        axis(side = 1, at = bars, labels = colnames(spec), tick = FALSE,
+             mgp = c(3, 0.3, 0), las = 2, cex.axis = 1.15, gap.axis = -1)
+        group_end <- cumsum(GROUP_WIDTHS)
+        group_start <- c(1, head(group_end, -1) + 1)
+        group_xl <- bars[group_start] - 0.5
+        group_xr <- bars[group_end] + 0.5
+        group_xm <- (group_xl + group_xr) / 2
+        type_end <- cumsum(TYPE_WIDTHS)
+        type_start <- c(1, head(type_end, -1) + 1)
+        type_xm <- ((bars[type_start] - 0.5) + (bars[type_end] + 0.5)) / 2
+        # Plot axis
+        if (any(spec > 1)) {
+            axis(side = 2, cex.axis = 1.9, lwd = 2)
+            label <- "Mutations"
+            n_text <- paste0(" (", prettyNum(sum(spec[i,]), big.mark = ","), " mutations)")
+        }
+        else {
+            axis(side = 2, at = seq(0, samp_max_y, ifelse(samp_max_y > 0.25, 0.1, 0.05)),
+                 cex.axis = 1.9, lwd = 2)
+            label <- "Mutation probability"
+            n_text <- ""
+        }
+        if (is.null(name)) {
+            nme <- rownames(spec)[i]
+        }
+        else {
+            nme <- name
+        }
+        mtext(label, side = 2, cex = 2.4, line = 3.5)
+        title(paste0(nme, n_text), line = 7.8, cex.main = 2.5)
+        # Plot HPD intervals
+        if (!is.null(lwr)) {
+            arrows(bars, upr[i,],
+                   bars, lwr[i,],
+                   length = 0, lwd = 3, col = LINECOL)
+        }
+        # Plot mutation type labels
+        rect(xleft = group_xl, xright = group_xr, ybottom = 0.945 * samp_max_y,
+             ytop = samp_max_y, col = GROUP_COLORS, border = "white")
+        mtext(TYPES, side = 3, at = type_xm, line = 2.4, cex = 1.75, xpd = TRUE)
+        mtext(GROUP_LABELS, at = group_xm, side = 3, line = 0.35, cex = 1.75)
+        mtext(c("Homopolymer length", "Homopolymer length",
+                "Number of repeat units", "Number of repeat units",
+                "Microhomology length"),
+              side = 1, at = type_xm + c(0, 0, 0, 0, 0.2), line = 2.8,
+              cex = c(rep(1.55, 4), 1.45))
         # Plot box
         if (boxes) {
             box(lwd = 2)

@@ -124,11 +124,10 @@ output_intermediate_files: true  # true or false
 genome_fasta: 
 genome_fai: 
 genome_mmi: 
-BSgenome:
-  BSgenome_name: # run BSGenome available.genomes() function to see all available, or set to the BSgenome_name of below BSGenome_file
-  BSgenome_file:  # optional tar.gz of custom BSgenome that is not in available.genomes()
+genome_organism: # single-word token used in the package name of the created BSgenome package
 sex_chromosomes: # comma-delimited
 mitochondrial_chromosome: 
+circular_chromosomes: # comma-delimited
 chromgroups: 
   - chromgroup: 
     chroms:  #comma-delimited

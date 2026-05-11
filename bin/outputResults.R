@@ -22,6 +22,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -51,9 +56,10 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #analysis_id
@@ -107,11 +113,6 @@ cat("    individual_id:",individual_id,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 
 cat(" DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -569,7 +570,7 @@ finalCalls.bytype %>%
 				mutate(finalCalls_for_vcf = list(x$finalCalls_for_vcf)) %>%
 				unnest(finalCalls_for_vcf) %>%
 				write_vcf_from_calls(
-					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+					BSgenome_name = BSgenome_name,
 					out_vcf = str_c(output_basename_full,".finalCalls.vcf")
 				)
 			
@@ -579,7 +580,7 @@ finalCalls.bytype %>%
 					mutate(finalCalls_unique_for_vcf = list(x$finalCalls_unique_for_vcf)) %>%
 					unnest(finalCalls_unique_for_vcf) %>%
 					write_vcf_from_calls(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+						BSgenome_name = BSgenome_name,
 						out_vcf = str_c(output_basename_full,".finalCalls_unique.vcf")
 					)
 			}
@@ -714,12 +715,12 @@ for(i in chromgroups){
 				end = end_refspace
 			) %>%
 			normalize_indels_for_vcf(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name
+				BSgenome_name = BSgenome_name
 			) %>%
 			#Rename back columns for greater clarity in final output
 			rename(start_refspace = start) %>%
 			write_vcf_from_calls(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+				BSgenome_name = BSgenome_name,
 				out_vcf = str_c(output_basename_full,".germlineVariantCalls.vcf")
 			)
 		
@@ -736,7 +737,7 @@ cat("DONE\n")
 ######################
 cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
-#Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra.
+#Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra for pyrimidine-collapsed indels and template-strand single-strand call types.
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	bind_rows(
 		finalCalls.reftnc_spectra %>%
@@ -745,10 +746,10 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				analysis_id, individual_id, sample_id, chromgroup, call_class,
 				call_type,
 				SBSindel_call_type,
-				finalCalls.refindel_spectrum,
-				finalCalls_unique.refindel_spectrum,
-				finalCalls.refindel_spectrum.sigfit,
-				finalCalls_unique.refindel_spectrum.sigfit
+				finalCalls.refindel_pyr_spectrum,
+				finalCalls_unique.refindel_pyr_spectrum,
+				finalCalls.refindel_pyr_spectrum.sigfit,
+				finalCalls_unique.refindel_pyr_spectrum.sigfit
 			) %>%
 			
 			#Sum insertion and deletion matrices (not grouping by call_type)
@@ -756,7 +757,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			summarize(
 				#Spectra
 				across(
-					c(finalCalls.refindel_spectrum, finalCalls_unique.refindel_spectrum),
+					c(finalCalls.refindel_pyr_spectrum, finalCalls_unique.refindel_pyr_spectrum),
 					function(x){
 						reduce(
 							x,
@@ -770,7 +771,55 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				
 				#Sigfit matrices, and rename rownames
 				across(
-					c(finalCalls.refindel_spectrum.sigfit, finalCalls_unique.refindel_spectrum.sigfit),
+					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls_unique.refindel_pyr_spectrum.sigfit),
+					function(x){
+						result <- x %>%
+							reduce(`+`) %>%
+							list %>%
+							map(
+								function(y){
+									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
+									return(y)
+								}
+							)
+					}
+				),
+
+				.groups = "drop"
+			)
+		,
+		finalCalls.reftnc_spectra %>%
+			filter(call_class=="indel", SBSindel_call_type != "mutation") %>%
+			select(
+				analysis_id, individual_id, sample_id, chromgroup, call_class,
+				call_type,
+				SBSindel_call_type,
+				finalCalls.refindel_pyr_spectrum,
+				finalCalls.refindel_template_strand_spectrum,
+				finalCalls.refindel_pyr_spectrum.sigfit,
+				finalCalls.refindel_template_strand_spectrum.sigfit
+			) %>%
+
+			#Sum insertion and deletion matrices (not grouping by call_type)
+			group_by(analysis_id, individual_id, sample_id, chromgroup, call_class, SBSindel_call_type) %>%
+			summarize(
+				#Spectra
+				across(
+					c(finalCalls.refindel_pyr_spectrum, finalCalls.refindel_template_strand_spectrum),
+					function(x){
+						reduce(
+							x,
+							function(a,b){
+								map2(a, b, ~ .x + .y)
+							}
+						) %>%
+							list
+					}
+				),
+
+				#Sigfit matrices, and rename rownames
+				across(
+					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls.refindel_template_strand_spectrum.sigfit),
 					function(x){
 						result <- x %>%
 							reduce(`+`) %>%
@@ -857,8 +906,9 @@ finalCalls.reftnc_spectra %>%
 			)
 			
 			indel_tables_to_output <- c(
-				"finalCalls.refindel_spectrum.sigfit",
-				"finalCalls_unique.refindel_spectrum.sigfit"
+				"finalCalls.refindel_pyr_spectrum.sigfit",
+				"finalCalls_unique.refindel_pyr_spectrum.sigfit",
+				"finalCalls.refindel_template_strand_spectrum.sigfit"
 			)
 			
 			plots_to_output <- c(
@@ -871,8 +921,9 @@ finalCalls.reftnc_spectra %>%
 				"finalCalls.reftnc_template_strand_spectrum.sigfit",
 				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome.sigfit",
 				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome_chromgroup.sigfit",
-				"finalCalls.refindel_spectrum.sigfit",
-				"finalCalls_unique.refindel_spectrum.sigfit"
+				"finalCalls.refindel_pyr_spectrum.sigfit",
+				"finalCalls_unique.refindel_pyr_spectrum.sigfit",
+				"finalCalls.refindel_template_strand_spectrum.sigfit"
 			)
 			
 			sbs_tables_to_output %>%

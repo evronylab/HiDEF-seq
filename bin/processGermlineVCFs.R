@@ -52,9 +52,10 @@ individual_id_toprocess <- opt$individual_id
 outputFile <- opt$output
 
 cache_dir <- yaml.config$cache_dir
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 cat("DONE\n")
 
@@ -88,7 +89,7 @@ for(i in 1:nrow(vcf_files_individual)){
   germline_vcf_variants[[i]] <- load_vcf(
 	  	vcf_file = germline_vcf_file,
 	  	genome_fasta = yaml.config$genome_fasta,
-	  	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		  BSgenome_name = BSgenome_name,
 	  	bcftools_bin = yaml.config$bcftools_bin
   	) %>%
   	mutate(

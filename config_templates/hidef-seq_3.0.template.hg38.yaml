@@ -124,11 +124,10 @@ output_intermediate_files: true  # true or false
 genome_fasta: hg38.fa
 genome_fai: hg38.fa.fai
 genome_mmi: hg38.mmi
-BSgenome:
-  BSgenome_name: BSgenome.Hsapiens.UCSC.hg38 # run BSGenome available.genomes() function to see all available, or set to the BSgenome_name of below BSGenome_file
-  BSgenome_file:  # optional tar.gz of custom BSgenome that is not in available.genomes()
+genome_organism: Hsapiens
 sex_chromosomes: chrX,chrY # comma-delimited
 mitochondrial_chromosome: chrM
+circular_chromosomes: chrM
 chromgroups: 
   - chromgroup: 1-22X
     chroms: chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX #comma-delimited

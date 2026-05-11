@@ -1266,11 +1266,12 @@ process extractGenomeTrinucleotides {
 
     script:
     """
-    #Extract sequences for all bases (except contig edges) from genome with seqkit,
-    #convert to upper case, convert to BED format (column 2 of trinucleotides is start position of trinucleotide position),
+    #Convert to upper case, replace unsupported bases with N's, extract sequences for all bases
+    #(except contig edges), convert to BED format (column 2 is start position of trinucleotide position),
     #and bgzip + tabix index
-    ${params.seqkit_bin} sliding -S '' -s1 -W3 ${params.genome_fasta} | \
-      ${params.seqkit_bin} seq -u | \
+    ${params.seqkit_bin} seq -u ${params.genome_fasta} | \
+      ${params.seqkit_bin} replace -s -p '[^ACGTN]' -r N | \
+      ${params.seqkit_bin} sliding -S '' -s1 -W3 | \
       ${params.seqkit_bin} fx2tab -Q | \
       awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
       ${params.bgzip_bin} -c > ${file(params.genome_fasta).name}.bed.gz

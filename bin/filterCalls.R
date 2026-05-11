@@ -23,6 +23,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -58,9 +63,10 @@ sample_id_toanalyze <- opt$sample_id_toanalyze
 chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 outputFile <- opt$output
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -73,7 +79,7 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 	str_trim
 
  #GRanges of chroms to analyze, required as input for some analyses
-genome_chromgroup.gr <- yaml.config$BSgenome$BSgenome_name %>%
+genome_chromgroup.gr <- BSgenome_name %>%
 	get %>%
 	seqinfo %>%
 	GRanges %>%
@@ -145,11 +151,6 @@ cat("    chromgroup:",chromgroup_toanalyze,"\n")
 cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -426,7 +427,7 @@ molecule_stats <- extractedCalls %>%
 	filter(chromgroup %in% c(chromgroup_toanalyze,"all_chromgroups","all_chroms"))
 
 #Create tibble to track genome region filter stats and initialize with stats for whole genome and for chromgroup.
-genome_numbases <- yaml.config$BSgenome$BSgenome_name %>%
+genome_numbases <- BSgenome_name %>%
 	get %>%
 	seqinfo %>%
 	GRanges %>%
@@ -836,7 +837,7 @@ bam.gr.filtertrack <- bam %>%
 	select(run_id, zm, seqnames, start, end, strand) %>%
 	makeGRangesFromDataFrame(
 		keep.extra.columns = TRUE,
-		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+		seqinfo=BSgenome_name %>% get %>% seqinfo
 	)
 
 #Create genome GRanges of selected chroms_toanalyze to track genome region filtering
@@ -846,7 +847,7 @@ genome_chromgroup.gr.filtertrack <- genome_chromgroup.gr
 calls.gr <- calls %>%
 	makeGRangesFromDataFrame(
 		keep.extra.columns=TRUE,
-		seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+		seqinfo=BSgenome_name %>% get %>% seqinfo
 	) %>%
 	select(run_id, zm, call_class, call_type, SBSindel_call_type, ref_plus_strand, alt_plus_strand)
 
@@ -860,7 +861,7 @@ cat("## Applying genome 'N' base sequence filter...")
 passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
 #Extract 'N' base sequence ranges
-region_genome_filter <- yaml.config$BSgenome$BSgenome_name %>%
+region_genome_filter <- BSgenome_name %>%
 	get %>%
 	vmatchPattern("N",.) %>%
 	GenomicRanges::reduce(ignore.strand=TRUE)
@@ -928,7 +929,7 @@ min_qual.fail.gr <- bam %>%
 			IRangesList()
 		}
 	} %>%
-	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = BSgenome_name)
 
 #Subtract bases below min_qual threshold from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -976,7 +977,7 @@ bam.gr.onlyranges <- bam %>%
   select(seqnames, start, end, strand, run_id, zm) %>%
   makeGRangesFromDataFrame(
     keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    seqinfo=BSgenome_name %>% get %>% seqinfo
   )
 
 bam.gr.trim <- c(
@@ -1325,7 +1326,7 @@ germline_bam_bcftools_mpileup_filter <- load_vcf(
 	vcf_file = germline_bam_bcftools_mpileup_file,
 	regions = variant_regions_bcftools_mpileup,
 	genome_fasta = yaml.config$genome_fasta,
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	BSgenome_name = BSgenome_name,
 	bcftools_bin = yaml.config$bcftools_bin
 )
 
@@ -1373,7 +1374,7 @@ frac_subreads_cvg.fail.gr <- bam %>%
 				}
 		) %>%
 		IRangesList %>%
-		convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
+		convert_query_to_refspace(bam.input = bam, BSgenome_name.input = BSgenome_name)
 
  #min_num_subreads_match (sm)
 num_subreads_match.fail.gr <- bam %>%
@@ -1386,7 +1387,7 @@ num_subreads_match.fail.gr <- bam %>%
 		}
 	) %>%
 	IRangesList %>%
-	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = BSgenome_name)
 
  #min_frac_subreads_match (sm / [sm+sx])
 frac_subreads_match.fail.gr <- map2(
@@ -1401,7 +1402,7 @@ frac_subreads_match.fail.gr <- map2(
 			}
 	) %>%
 	IRangesList %>%
-	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = yaml.config$BSgenome$BSgenome_name)
+	convert_query_to_refspace(bam.input = bam, BSgenome_name.input = BSgenome_name)
 
 #Subtract bases below filter thresholds from bam reads filter tracker, joining on run_id and zm. Set ignore.strand = TRUE so that if a position is filtered in one strand, also filter the same reference space position on the opposite strand, since that is how calls are filtered.
 bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%
@@ -1718,7 +1719,7 @@ for(i in names(germline_vcf_variants)){
 	#Combine insertion and deletion GRanges with configured padding
 	germline_vcf_indel_region_filter <- bind_rows(germline_vcf_ins_region_filter, germline_vcf_del_region_filter) %>%
 		makeGRangesFromDataFrame(
-			seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+			seqinfo=BSgenome_name %>% get %>% seqinfo
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
@@ -1829,7 +1830,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 				select(seqnames, start, end, strand, run_id, zm) %>%
 				makeGRangesFromDataFrame(
 					keep.extra.columns=TRUE,
-					seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+					seqinfo=BSgenome_name %>% get %>% seqinfo
 				) %>%
 				
 				#Calculate fraction of coverage by the region read filter

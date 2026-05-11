@@ -22,6 +22,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -51,9 +56,10 @@ yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
 calculateBurdensFiles <- opt$files %>% str_split_1(",") %>% str_trim
 output_basename <- opt$output_basename
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #analysis_id
@@ -107,11 +113,6 @@ cat("    individual_id:",individual_id,"\n")
 cat("    sample_id:",sample_id_toanalyze,"\n")
 
 cat(" DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -569,7 +570,7 @@ finalCalls.bytype %>%
 				mutate(finalCalls_for_vcf = list(x$finalCalls_for_vcf)) %>%
 				unnest(finalCalls_for_vcf) %>%
 				write_vcf_from_calls(
-					BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+					BSgenome_name = BSgenome_name,
 					out_vcf = str_c(output_basename_full,".finalCalls.vcf")
 				)
 			
@@ -579,7 +580,7 @@ finalCalls.bytype %>%
 					mutate(finalCalls_unique_for_vcf = list(x$finalCalls_unique_for_vcf)) %>%
 					unnest(finalCalls_unique_for_vcf) %>%
 					write_vcf_from_calls(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+						BSgenome_name = BSgenome_name,
 						out_vcf = str_c(output_basename_full,".finalCalls_unique.vcf")
 					)
 			}
@@ -714,12 +715,12 @@ for(i in chromgroups){
 				end = end_refspace
 			) %>%
 			normalize_indels_for_vcf(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name
+				BSgenome_name = BSgenome_name
 			) %>%
 			#Rename back columns for greater clarity in final output
 			rename(start_refspace = start) %>%
 			write_vcf_from_calls(
-				BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+				BSgenome_name = BSgenome_name,
 				out_vcf = str_c(output_basename_full,".germlineVariantCalls.vcf")
 			)
 		

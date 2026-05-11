@@ -159,12 +159,12 @@ workflow {
     .toString()
   paramsWithSharedFunctionsHash = params + [sharedFunctionsHash: sharedFunctionsHash]
   config_signatures = [
-    installBSgenome: configHash(params, ['cache_dir', 'BSgenome']),
-    processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'individuals', 'genome_fasta', 'bcftools_bin', 'sharedFunctionsHash']),
-    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'BSgenome', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap', 'sharedFunctionsHash']),
-    filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'genome_fai', 'genome_fasta', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'genome_fai', 'genome_fasta', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
-    outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['BSgenome', 'analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'filtergroups', 'region_filters', 'samples', 'sharedFunctionsHash'])
+    installBSgenome: configHash(params, ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes']),
+    processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'sharedFunctionsHash']),
+    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'min_strand_overlap', 'sharedFunctionsHash']),
+    filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
+    outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'sharedFunctionsHash'])
   ]
 
   // Validate barcodes section and build barcode map
@@ -568,6 +568,7 @@ workflow {
   // installBSgenome
   //******************
   installBSgenome(channel.value(config_signatures.installBSgenome))
+  BSgenome_name_ch = installBSgenome.out.map { bsgenomeNameFile -> bsgenomeNameFile.text.trim() }
 
   //******************
   // extractGenomeTrinucleotides
@@ -582,8 +583,8 @@ workflow {
   processGermlineVCFs_input_ch = channel
     .from(params.individuals)
     .map { individual -> tuple(individual.individual_id, file(individual.germline_bam_file)) }
-    .combine(installBSgenome.out)
-    .map { individual_id, germline_bam_file, bsgenome_done -> 
+    .combine(BSgenome_name_ch)
+    .map { individual_id, germline_bam_file, BSgenome_name ->
       tuple(individual_id, germline_bam_file, config_signatures.processGermlineVCFs)
     }
 
@@ -632,7 +633,7 @@ workflow {
   //******************
 
   // Create a completion signal for all filter-related processes by collecting all outputs
-  prepareFilters_done = installBSgenome.out
+  prepareFilters_done = BSgenome_name_ch
     .mix(
       extractGenomeTrinucleotides.out,
       processGermlineVCFs.out,
@@ -1215,8 +1216,8 @@ process splitBAM {
 */
 process installBSgenome {
     cpus 1
-    memory '4 GB'
-    time '2h'
+    memory '16 GB'
+    time '8h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
@@ -1232,7 +1233,7 @@ process installBSgenome {
       val(config_sig)
 
     output:
-      val(true)
+      path("BSgenome_name.txt")
 
     script:
     """
@@ -1260,21 +1261,22 @@ process extractGenomeTrinucleotides {
     }
 
     output:
-      path("${params.BSgenome.BSgenome_name}.bed.gz")
-      path("${params.BSgenome.BSgenome_name}.bed.gz.tbi")
+      path("${file(params.genome_fasta).name}.bed.gz")
+      path("${file(params.genome_fasta).name}.bed.gz.tbi")
 
     script:
     """
-    #Extract sequences for all bases (except contig edges) from genome with seqkit,
-    #convert to upper case, convert to BED format (column 2 of trinucleotides is start position of trinucleotide position),
+    #Convert to upper case, replace unsupported bases with N's, extract sequences for all bases
+    #(except contig edges), convert to BED format (column 2 is start position of trinucleotide position),
     #and bgzip + tabix index
-    ${params.seqkit_bin} sliding -S '' -s1 -W3 ${params.genome_fasta} | \
-      ${params.seqkit_bin} seq -u | \
+    ${params.seqkit_bin} seq -u ${params.genome_fasta} | \
+      ${params.seqkit_bin} replace -s -p '[^ACGTN]' -r N | \
+      ${params.seqkit_bin} sliding -S '' -s1 -W3 | \
       ${params.seqkit_bin} fx2tab -Q | \
       awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
-      ${params.bgzip_bin} -c > ${params.BSgenome.BSgenome_name}.bed.gz
+      ${params.bgzip_bin} -c > ${file(params.genome_fasta).name}.bed.gz
 
-    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${params.BSgenome.BSgenome_name}.bed.gz
+    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${file(params.genome_fasta).name}.bed.gz
     """
 }
 

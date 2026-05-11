@@ -22,6 +22,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...")
@@ -49,9 +54,10 @@ if(is.null(opt$config) | is.null(opt$bam) | is.null(opt$output)){
 yaml.config <- suppressWarnings(read.config(opt$config))
 bamFile <- opt$bam
 outputFile <- opt$output
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #General parameters
 strand_levels <- c("+","-")
@@ -84,16 +90,11 @@ chroms_toanalyze <- yaml.config$chromgroups %>%
 		),
 		tibble(
 			chromgroup = "all_chroms",
-			chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames %>% list
+			chroms = BSgenome_name %>% get %>% seqnames %>% list
 		)
 	)
 
 cat("DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -248,7 +249,7 @@ bam.gr <- bam.df %>%
     end.field="end",
     strand.field="strand",
     keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    seqinfo=BSgenome_name %>% get %>% seqinfo
   )
 
 rm(bam.df)
@@ -508,9 +509,9 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       start.field="start_refspace",
       end.field="end_refspace",
       strand.field="strand",
-      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+      seqinfo=BSgenome_name %>% get %>% seqinfo
     ) %>%
-    getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+    getSeq(eval(parse(text=BSgenome_name)),.) %>%
     as.character
   
   #Call ALT base sequences, relative to reference plus strand
@@ -607,7 +608,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       end.field="end_refspace",
       strand.field="strand",
       keep.extra.columns=TRUE,
-      seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+      seqinfo=BSgenome_name %>% get %>% seqinfo
     )
   
    #Make GRanges of bam reads parallel to call refspace GRanges, but matching to the opposite strand read from the call
@@ -1068,7 +1069,7 @@ calls <- calls %>%
 				start.field="start_refspace",
 				end.field="end_refspace",
 				keep.extra.columns=TRUE,
-				seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+				seqinfo=BSgenome_name %>% get %>% seqinfo
 			) %>%
 			resize(width=3,fix="center") %>%
 			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
@@ -1079,7 +1080,7 @@ calls <- calls %>%
 			
 			#Get trinucleotide context sequence for the reference plus and minus strands. The latter is calculated here to avoid error when calculating it for NA values, and it is used for later assignment to synthesized and template strand trinucleotide columns. Also calculate trinucleotide context with central pyrimidine
 			mutate(
-				reftnc_plus_strand = getSeq(eval(parse(text=yaml.config$BSgenome$BSgenome_name)),.) %>%
+				reftnc_plus_strand = getSeq(eval(parse(text=BSgenome_name)),.) %>%
 					as.character %>%
 					factor(levels = trinucleotides_64)
 			) %>%
@@ -1169,7 +1170,7 @@ calls.gr <- calls %>%
     end.field="end",
     strand.field="strand",
     keep.extra.columns=TRUE,
-    seqinfo=yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+    seqinfo=BSgenome_name %>% get %>% seqinfo
   )
 
  #Initialize new opposite strand columns

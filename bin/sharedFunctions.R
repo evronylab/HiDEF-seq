@@ -2,6 +2,15 @@
 ### Custom shared functions
 ######################
 
+#Function to derive the BSgenome package name created from the configured FASTA
+get_bsgenome_name <- function(yaml.config){
+	genome_suffix <- yaml.config$genome_fasta %>%
+		basename %>%
+		str_replace_all(pattern = "[^0-9a-zA-Z.]", replacement = "")
+
+	str_c("BSgenome", yaml.config$genome_organism, "user", genome_suffix, sep=".")
+}
+
 #Function to load and format VCF
 # regions: optional tibble with columns: seqnames start_refspace end_refspace
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){

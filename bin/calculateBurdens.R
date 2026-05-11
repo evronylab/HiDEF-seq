@@ -23,6 +23,11 @@ suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
+### Load custom shared functions
+######################
+source(Sys.which("sharedFunctions.R"))
+
+######################
 ### Load configuration
 ######################
 cat("## Loading configuration...\n")
@@ -58,9 +63,10 @@ chromgroup_toanalyze <- opt$chromgroup_toanalyze
 filtergroup_toanalyze <- opt$filtergroup_toanalyze
 filterCallsFiles <- opt$files %>% str_split_1(",") %>% str_trim
 outputFile <- opt$output
+BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(yaml.config$BSgenome$BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -111,11 +117,6 @@ cat("    chromgroup:",chromgroup_toanalyze,"\n")
 cat("    filtergroup:",filtergroup_toanalyze,"\n")
 
 cat("DONE\n")
-
-######################
-### Load custom shared functions
-######################
-source(Sys.which("sharedFunctions.R"))
 
 ######################
 ### Define custom functions
@@ -514,7 +515,7 @@ paste(
 	invisible
 
 #Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",yaml.config$BSgenome$BSgenome_name, ".bed.gz")
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz")
 
 paste(
 	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
@@ -709,13 +710,13 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 
 	#Whole genome
 genome.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
-	chroms = yaml.config$BSgenome$BSgenome_name %>% get %>% seqnames
+	BSgenome_name = BSgenome_name,
+	chroms = BSgenome_name %>% get %>% seqnames
 	)
 
  #genome in the analyzed chromgroup
 genome_chromgroup.reftnc <- get_genome_reftnc(
-	BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+	BSgenome_name = BSgenome_name,
 	chroms = chroms_toanalyze
 )
 
@@ -916,7 +917,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 			function(x){
 				x %>% 
 					normalize_indels_for_vcf(
-						BSgenome_name = yaml.config$BSgenome$BSgenome_name
+						BSgenome_name = BSgenome_name
 					)
 			}
 		),
@@ -929,7 +930,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 					function(x){
 						x %>% 
 							normalize_indels_for_vcf(
-								BSgenome_name = yaml.config$BSgenome$BSgenome_name
+								BSgenome_name = BSgenome_name
 							)
 					}
 				),
@@ -1068,7 +1069,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	)
 
 #Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all indel call types; template-strand spectra are calculated for single-strand call types.
-BSgenome_for_indel.spectrum <- yaml.config$BSgenome$BSgenome_name %>%
+BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
 
@@ -1569,7 +1570,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	sensitivity_vcf <- load_vcf(
 		vcf_file = sensitivity_parameters$sensitivity_vcf,
 		genome_fasta = yaml.config$genome_fasta,
-		BSgenome_name = yaml.config$BSgenome$BSgenome_name,
+		BSgenome_name = BSgenome_name,
 		bcftools_bin = yaml.config$bcftools_bin
 	) %>%
 		as_tibble
@@ -1669,7 +1670,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 					
 					gr <- x %>%
 						makeGRangesFromDataFrame(
-							seqinfo = yaml.config$BSgenome$BSgenome_name %>% get %>% seqinfo
+							seqinfo = BSgenome_name %>% get %>% seqinfo
 						)
 					
 					x %>%

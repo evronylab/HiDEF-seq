@@ -79,10 +79,13 @@ if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
 	}
 
 	twobit_path <- tempfile(tmpdir=getwd(), pattern=str_c(genome_part, "."), fileext=".2bit")
+	# Allow fastaTo2bit to warn, rather than stop, when it replaces unsupported bases with N's.
+	options(warn=1)
 	BSgenomeForge::fastaTo2bit(
 		origfile = yaml.config$genome_fasta,
 		destfile = twobit_path
 	)
+	options(warn=2)
 
 	pkg_dir <- BSgenomeForge::forgeBSgenomeDataPkgFromTwobitFile(
 		filepath = twobit_path,

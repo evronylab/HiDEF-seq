@@ -107,9 +107,12 @@ if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
 		), call.=FALSE)
 	}
 
+	cat("> Building BSgenome package\n")
 	pkg_tarball <- devtools::build(pkg_dir, path=getwd(), vignettes=FALSE, manual=FALSE, quiet=FALSE)
+	cat("> Checking BSgenome package\n")
 	devtools::check_built(pkg_tarball, cran=FALSE, force_suggests=FALSE, manual=FALSE, error_on="error", quiet=FALSE)
 
+	cat("> Installing BSgenome package:", cache_dir, "\n")
 	devtools::install_local(pkg_tarball, dependencies=FALSE, upgrade="never", build=FALSE, quiet=FALSE)
 
 	if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){

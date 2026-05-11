@@ -573,7 +573,7 @@ workflow {
   //******************
   // extractGenomeTrinucleotides
   //******************
-  extractGenomeTrinucleotides(BSgenome_name_ch)
+  extractGenomeTrinucleotides()
 
   //******************
   // processGermlineVCFs
@@ -1260,12 +1260,9 @@ process extractGenomeTrinucleotides {
       )
     }
 
-    input:
-      val(BSgenome_name)
-
     output:
-      path("${BSgenome_name}.bed.gz")
-      path("${BSgenome_name}.bed.gz.tbi")
+      path("${file(params.genome_fasta).name}.bed.gz")
+      path("${file(params.genome_fasta).name}.bed.gz.tbi")
 
     script:
     """
@@ -1276,9 +1273,9 @@ process extractGenomeTrinucleotides {
       ${params.seqkit_bin} seq -u | \
       ${params.seqkit_bin} fx2tab -Q | \
       awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
-      ${params.bgzip_bin} -c > ${BSgenome_name}.bed.gz
+      ${params.bgzip_bin} -c > ${file(params.genome_fasta).name}.bed.gz
 
-    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${BSgenome_name}.bed.gz
+    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${file(params.genome_fasta).name}.bed.gz
     """
 }
 

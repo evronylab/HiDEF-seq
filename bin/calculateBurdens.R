@@ -515,7 +515,7 @@ paste(
 	invisible
 
 #Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",BSgenome_name, ".bed.gz")
+genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz")
 
 paste(
 	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",

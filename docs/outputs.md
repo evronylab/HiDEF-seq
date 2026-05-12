@@ -165,6 +165,10 @@ For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, th
 
 These files originate from `bin/calculateBurdens.R` and are placed alongside the other per-chromgroup summaries within each sample directory by the `calculateBurdensChromgroupFiltergroup` process.
 
+When the final demultiplexing round for a sample is asymmetric (`bc1 != bc2`), non-mutation call types also receive per-barcode-strand coverage files in `coverage_reftnc/[chromgroup]/by_bc/` named:
+`[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[bc1-bc2].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`.
+These files contain strand-level coverage for reads with that ordered final-round `bc` value; the fourth BED column keeps the same `duplex_coverage` column name as the pooled files for schema consistency. Symmetric final barcodes such as `bc2001-bc2001` do not produce `by_bc` coverage files.
+
 ### Filter statistics
 
 Each combination of chromgroup and filter group yields three TSV tables named:
@@ -221,7 +225,7 @@ The pipeline produces two files:
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
-The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
+The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. `bc = all_bc` denotes the pooled sample-level rows. When the final demultiplexing round is asymmetric, non-mutation call types also include rows for each ordered asymmetric barcode configuration; mutation and unique-mutation spectra remain `all_bc` only.
 
 - **SBS** `call_class` files:
 
@@ -233,7 +237,7 @@ The pipeline produces several files per per below, and each table contains metad
 
   - `.finalCalls.reftnc_template_strand_spectrum.tsv` (reference>call trinucleotide spectra of the strand replicated by the sequencer polymerase, of all calls, for single-strand call types): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
   
-  - Each of the above `_spectrum.tsv` files is paired with `.sigfit.pdf` spectra plots as follows: `_spectrum.sigfit.pdf` (uncorrected), `_spectrum.corrected_to_genome.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome), and `_spectrum.corrected_to_genome_chromgroup.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome chromgroup chromosomes). In `.finalCalls.reftnc_template_strand_spectrum*.sigfit.pdf` plots, "Central pyrimidine" and "Central purine" bars correspond to central pyrimidine (e.g., ACA>ATA) and central purine (e.g., TGT>TAT) calls, respectively.
+  - Each of the above `_spectrum.tsv` files is paired with `.sigfit.pdf` spectra plots as follows: `_spectrum.sigfit.pdf` (uncorrected), `_spectrum.corrected_to_genome.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome), and `_spectrum.corrected_to_genome_chromgroup.sigfit.pdf` (corrected for the trinucleotide distribution of interrogated bases relative to the genome chromgroup chromosomes). In `.finalCalls.reftnc_template_strand_spectrum*.sigfit.pdf` plots, "Central pyrimidine" and "Central purine" bars correspond to central pyrimidine (e.g., ACA>ATA) and central purine (e.g., TGT>TAT) calls, respectively. Per-barcode-strand plots for asymmetric non-mutation rows are written under `finalCalls.spectra/[chromgroup]/by_bc/`, with `[bc1-bc2]` placed after `filtergroup` in filenames.
 
 
 - **indel** `call_class` files:
@@ -247,7 +251,7 @@ The pipeline produces several files per per below, and each table contains metad
 Trinucleotide distributions of interrogated bases are output to `interrogatedBases.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
-The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields:
+The pipeline produces several files per per below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. `bc = all_bc` denotes the pooled sample-level rows. When the final demultiplexing round is asymmetric, non-mutation call types also include rows for each ordered asymmetric barcode configuration; symmetric final barcodes do not add per-bc rows.
 
 - `.bam.gr.filtertrack.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated base pairs (i.e., duplex coverage) together with ratios of the interrogated-base trinucleotide fractions to the whole-genome and chromgroup-restricted fractions.
 - `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases across both strands and the corresponding genome/chromgroup fraction ratios.
@@ -279,7 +283,7 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
 Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].finalCalls.burdens.tsv`, with one row per type of burden calculation (see below), with columns:
 
-- Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
+- Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`. `bc = all_bc` denotes pooled sample-level rows. When the final demultiplexing round is asymmetric, additional non-mutation burden rows are emitted for each ordered asymmetric barcode configuration; mutation and unique-mutation burden rows remain `all_bc` only.
 - Annotations for type of burden calculation:
   - Unique calls (boolean TRUE/FALSE for mutations, NA otherwise): `unique_calls`
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`
@@ -363,9 +367,9 @@ Same format as `germlineVariantCalls.tsv` described above.
 
 #### finalCalls.reftnc_spectra
 
-Table containing trinucleotide distributions and spectra of final calls, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. Additionally, there is one additional row for each `analysis_id`, `individual_id`, `sample_id`, `chromgroup` combination that contains the combined spectra of insertion and deletion mutations, and analogous additional rows for combined insertion and deletion template-strand indel spectra; for these rows, `call_class` = `indel`, and `filtergroup` and `call_type` = `NA`.
+Table containing trinucleotide distributions and spectra of final calls, split into one row for each combination of `bc`, `call_class`, `call_type`, and `SBSindel_call_type`. `bc = all_bc` denotes pooled rows; asymmetric final-round barcode configurations add non-mutation rows only. Additionally, there is one additional row for each `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `bc` combination that contains the combined spectra of insertion and deletion mutations, and analogous additional rows for combined insertion and deletion template-strand indel spectra; for these rows, `call_class` = `indel`, and `filtergroup` and `call_type` = `NA`.
 
-For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables (`reftnc` tables for SBS and MDB calls; and `refindel` tables for indel calls):
+For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables (`reftnc` tables for SBS and MDB calls; and `refindel` tables for indel calls):
 
 | Column | Description |
 | --- | --- |
@@ -378,7 +382,7 @@ For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `s
 
 #### bam.gr.filtertrack.bytype.coverage_tnc
 
-Table containing genome coverage by interrogated base pairs (i.e., duplex coverage) and trinucleotide distributions of interrogated bases, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables:
+Table containing genome coverage by interrogated base pairs (i.e., duplex coverage) and trinucleotide distributions of interrogated bases, split into one row for each combination of `bc`, `call_class`, `call_type`, and `SBSindel_call_type`. For `bc = all_bc`, coverage is pooled duplex coverage. For asymmetric per-bc non-mutation rows, coverage is strand-level coverage for reads with that ordered final-round barcode configuration. For each row, there are metadata identifiers (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and the following tables:
 
 | Column | Description |
 | --- | --- |
@@ -402,7 +406,7 @@ Table containing genome coverage by interrogated base pairs (i.e., duplex covera
 
 #### finalCalls.burdens
 
-Columns as per `.finalCalls.burdens.tsv` described above, in one table for all call types.
+Columns as per `.finalCalls.burdens.tsv` described above, in one table for all call types and available `bc` groupings.
 
 #### estimatedSBSMutationErrorProbability
 

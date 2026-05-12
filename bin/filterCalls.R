@@ -834,7 +834,7 @@ cat("## Creating filter trackers...")
 #Create bam read GRanges to track genome region filtering, containing only molecules that have passed all filters so far
 bam.gr.filtertrack <- bam %>%
 	filter(if_all(matches("passfilter$"), ~ .x == TRUE)) %>%
-	select(run_id, zm, seqnames, start, end, strand) %>%
+	select(run_id, zm, bc, seqnames, start, end, strand) %>%
 	makeGRangesFromDataFrame(
 		keep.extra.columns = TRUE,
 		seqinfo=BSgenome_name %>% get %>% seqinfo

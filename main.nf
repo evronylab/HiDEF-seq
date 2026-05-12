@@ -1527,6 +1527,11 @@ process calculateBurdensChromgroupFiltergroup {
 
     publishDir path: "${params.analysis_output_dir}",
       mode: 'move',
+      pattern: "by_bc/*.bed.gz*",
+      saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/by_bc/${new File(filename).getName()}" }
+
+    publishDir path: "${params.analysis_output_dir}",
+      mode: 'move',
       pattern: "*.bed.gz*",
       saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/${filename}" }
 
@@ -1543,6 +1548,7 @@ process calculateBurdensChromgroupFiltergroup {
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("*.bed.gz"), path("*.bed.gz.tbi"), emit: coverage_reftnc
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("by_bc/*.bed.gz"), path("by_bc/*.bed.gz.tbi"), emit: coverage_reftnc_by_bc, optional: true
 
     script:
     """

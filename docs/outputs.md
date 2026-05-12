@@ -357,6 +357,10 @@ Contains final calls split into one row for each combination of `call_class`, `c
 
 Germline variant calls with the same schema as the unified finalCalls table.
 
+#### germlineVariantCalls_for_tsv
+
+Same format as `germlineVariantCalls.tsv` described above.
+
 #### finalCalls.reftnc_spectra
 
 Table containing trinucleotide distributions and spectra of final calls, split into one row for each combination of `call_class`, `call_type`, and `SBSindel_call_type`. Additionally, there is one additional row for each `analysis_id`, `individual_id`, `sample_id`, `chromgroup` combination that contains the combined spectra of insertion and deletion mutations, and analogous additional rows for combined insertion and deletion template-strand indel spectra; for these rows, `call_class` = `indel`, and `filtergroup` and `call_type` = `NA`.

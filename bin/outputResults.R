@@ -601,6 +601,8 @@ cat("DONE\n")
 
 cat("## Outputting germline variant calls...")
 
+germlineVariantCalls_for_tsv <- list()
+
 #Define columns that are identical between strands to either '_keep' or '_discard' in the subsequent pivot_wider.
 strand_identical_cols_keep <- c(
 	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
@@ -703,6 +705,8 @@ for(i in chromgroups){
 	      names_expand = TRUE
 			)
 		
+		germlineVariantCalls_for_tsv[[length(germlineVariantCalls_for_tsv) + 1]] <- germlineVariantCalls.out
+
 		#tsv
 		germlineVariantCalls.out %>%
 			write_tsv(str_c(output_basename_full,".germlineVariantCalls.tsv"))
@@ -729,6 +733,8 @@ for(i in chromgroups){
 		
 	}
 }
+
+germlineVariantCalls_for_tsv <- germlineVariantCalls_for_tsv %>% bind_rows
 
 cat("DONE\n")
 
@@ -1217,6 +1223,7 @@ qs_save(
 		finalCalls,
 		finalCalls.bytype,
 		germlineVariantCalls,
+		germlineVariantCalls_for_tsv,
 		finalCalls.reftnc_spectra,
 		bam.gr.filtertrack.bytype.coverage_tnc,
 		genome.reftnc,

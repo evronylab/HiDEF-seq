@@ -41,13 +41,15 @@ option_list = list(
               help="path to YAML configuration file"),
   make_option(c("-b", "--bam"), type = "character", default=NULL,
               help="path to BAM file"),
+  make_option(c("-s", "--sample_id"), type = "character", default=NULL,
+              help="sample_id being processed"),
   make_option(c("-o", "--output"), type = "character", default=NULL,
   						help="output qs2 file")
 )
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-if(is.null(opt$config) | is.null(opt$bam) | is.null(opt$output)){
+if(is.null(opt$config) | is.null(opt$bam) | is.null(opt$sample_id) | is.null(opt$output)){
   stop("Missing input parameter(s)!")
 }
 
@@ -61,6 +63,42 @@ suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc
 
 #General parameters
 strand_levels <- c("+","-")
+
+sample_uses_round2 <- yaml.config$runs %>%
+  map_lgl(function(run){
+    run$samples %>%
+      map_lgl(function(sample){
+        sample$sample_id == opt$sample_id && !is.null(sample$barcode_ids_round2)
+      }) %>%
+      any
+  }) %>%
+  any
+
+#Map 0-based BAM bc tag indices to barcode_id values from the run-specific lima barcode FASTA.
+barcode_ids_by_run <- yaml.config$runs %>%
+  map_df(function(run){
+    run$samples %>%
+      map_df(function(sample){
+        tibble(
+          run_id = run$run_id,
+          sample_id = sample$sample_id,
+          barcode_ids = sample$barcode_ids,
+          barcode_ids_round2 = if(is.null(sample$barcode_ids_round2)) NA_character_ else sample$barcode_ids_round2
+        )
+      })
+  }) %>%
+  mutate(
+    barcode_id = if(sample_uses_round2) barcode_ids_round2 else barcode_ids
+  ) %>%
+  filter(!is.na(barcode_id)) %>%
+  separate_rows(barcode_id, sep = "-") %>%
+  group_by(run_id) %>%
+  # Match makeBarcodesFasta: barcode IDs keep first YAML/sample occurrence, with duplicates removed.
+  summarize(
+    barcode_ids = list(unique(barcode_id)),
+    .groups = "drop"
+  ) %>%
+  deframe
 
 #Load call types, and filter to make a table only for MDB call types
 call_types <- yaml.config$call_types %>%
@@ -199,9 +237,10 @@ invisible(gc())
 bam.df <- bam.df %>%
 	cbind(run_metadata[match(bam.df$RG, run_metadata$rg_id),c("movie_id","run_id")])
 
-#Convert bc tag from uint16[2] list to comma-separated string (factor) (forward,reverse barcode FASTA indices)
-bam.df$bc <- bam.df$bc %>%
-	map_chr(function(x){str_c(x, collapse = ",")}) %>%
+#Convert bc tag from uint16[2] list to hyphen-separated barcode_id string (factor) (forward-reverse)
+bam.df$bc <- map2_chr(bam.df$bc, bam.df$run_id, function(bc_tag, run_id){
+    str_c(barcode_ids_by_run[[run_id]][bc_tag + 1L], collapse = "-")
+  }) %>%
 	factor
 
 #Extract ccs strand
@@ -938,6 +977,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     left_join(
       bam.gr.input %>%
         as_tibble %>%
+        mutate(strand = fct_drop(strand)) %>%
         distinct(zm, strand, bc),
       by = join_by(zm, strand)
     ) %>%

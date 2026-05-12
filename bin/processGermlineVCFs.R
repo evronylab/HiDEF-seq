@@ -87,11 +87,11 @@ for(i in 1:nrow(vcf_files_individual)){
   cat(">> Processing VCF file:",germline_vcf_file,"...")
   
   germline_vcf_variants[[i]] <- load_vcf(
-	  	vcf_file = germline_vcf_file,
-	  	genome_fasta = yaml.config$genome_fasta,
-	  	BSgenome_name = BSgenome_name,
-	  	bcftools_bin = yaml.config$bcftools_bin
-  	) %>%
+    vcf_file = germline_vcf_file,
+    genome_fasta = yaml.config$genome_fasta,
+    BSgenome_name = BSgenome_name,
+    bcftools_bin = yaml.config$bcftools_bin
+  ) %>%
   	mutate(
   		germline_vcf_file = factor(!!germline_vcf_file),
   		germline_vcf_type = factor(!!germline_vcf_type)

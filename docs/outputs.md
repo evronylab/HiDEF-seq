@@ -108,7 +108,7 @@ The table below summarises tags present in the aligned CCS BAM. See references f
 | `ma` | Barcode/adapter | Adapter detection status (`0` both sides detected, `1` missing left, `2` missing right). |
 | `qs` | Barcode/adapter | Query start position after barcode trimming. |
 | `qe` | Barcode/adapter | Query end position before barcode trimming. |
-| `bc` | Barcode/adapter | Comma-separated barcode pair indices (`forward,reverse`) stored from the `uint16[2]` barcode call; values are 0-based offsets within the barcode FASTA. |
+| `bc` | Barcode/adapter | Comma-separated barcode pair indices (`forward,reverse`) stored from the `uint16[2]` barcode call; values are 0-based offsets within the barcode FASTA. Downstream extracted call tables translate these indices to hyphen-separated configured `barcode_id` values. |
 | `bq` | Barcode/adapter | Quality of the barcode call. |
 | `cx` | Barcode/adapter | Sum of subread local context flags (adapter/barcode presence, pass orientation, etc.); CCS BAMs downstream of pbmm2 set `cx=12`. |
 | `bl` | Barcode/adapter | Barcode sequence clipped from the leading end. |
@@ -185,7 +185,7 @@ The pipeline emits four artefacts per call subtype:
   - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`, `analysis_chunk`.
   - Molecule identifiers and coordinates in reference space: `run_id`, `zm`, `seqnames`, `start_refspace`, `end_refspace`.
   - Alleles: `ref_plus_strand`, `alt_plus_strand`
-  - Strand-specific coordinates in query space (i.e., read coordinates), quality metrics, and additional sequence information: `bc` (comma-separated `forward,reverse` barcode indices), `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`. Measurements for multi-base calls, such as `qual` are stored as comma-delimited values for every base. SBS and indel mutation call tables are pivoted to one row per mutation with these strand-specific columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation (i.e., single-strand) call types remain one row per call with a `refstrand` column annotating to which reference strand the call's read aligned.
+  - Strand-specific coordinates in query space (i.e., read coordinates), quality metrics, and additional sequence information: `bc` (hyphen-separated `forward-reverse` barcode IDs), `start_queryspace`, `end_queryspace`, `qual`, `sa`, `sm`, `sx`, `ref_synthesized_strand`, `ref_template_strand`, `alt_synthesized_strand`, `alt_template_strand`. Measurements for multi-base calls, such as `qual` are stored as comma-delimited values for every base. SBS and indel mutation call tables are pivoted to one row per mutation with these strand-specific columns suffixed with `_refstrand_plus_read` and `_refstrand_minus_read`. Non-mutation (i.e., single-strand) call types remain one row per call with a `refstrand` column annotating to which reference strand the call's read aligned.
   - Trinucleotide context (SBS and MDB tables only):
     - `reftnc_plus_strand` and `alttnc_plus_strand` — reference and call trinucleotide sequence at the call position on the reference genome plus strand.
     - `reftnc_pyr` and `alttnc_pyr`— reference and call trinucleotide sequences collapsed to central pyrimidine trinucleotide sequences.
@@ -332,7 +332,7 @@ Unified table of all call types across all chromgroups and filtergroups, with on
 | --- | --- |
 | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type` | Call metadata. |
 | `analysis_chunk`, `run_id`, `zm` | Chunk identifier, sequencing run ID, and ZMW hole number. |
-| `bc`, `seqnames`, `refstrand` | Barcode pair indices from the last round of demultplexing (encoded as a comma-separated `forward,reverse` index pair), reference contig, and reference genome strand that the read aligned to which supplied the call (`+` or `-`). |
+| `bc`, `seqnames`, `refstrand` | Barcode pair IDs from the last round of demultiplexing (encoded as a hyphen-separated `forward-reverse` `barcode_id` pair), reference contig, and reference genome strand that the read aligned to which supplied the call (`+` or `-`). |
 | `start_refspace`, `end_refspace` | Reference space 1-based coordinates. |
 | `ref_plus_strand`, `alt_plus_strand` | Reference genome forward strand reference and alternate allele sequences. |
 | `start_queryspace`, `end_queryspace` | Query-space 1-based coordinates. |
@@ -356,6 +356,10 @@ Contains final calls split into one row for each combination of `call_class`, `c
 #### germlineVariantCalls
 
 Germline variant calls with the same schema as the unified finalCalls table.
+
+#### germlineVariantCalls_for_tsv
+
+Same format as `germlineVariantCalls.tsv` described above.
 
 #### finalCalls.reftnc_spectra
 

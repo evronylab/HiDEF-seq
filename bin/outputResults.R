@@ -747,6 +747,44 @@ cat("DONE\n")
 ######################
 cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
+is_output_object <- function(x){
+	!is.null(x) && !(length(x) == 1 && is.na(x))
+}
+
+sum_spectrum_objects <- function(x){
+	x <- x[map_lgl(x, is_output_object)]
+
+	if(length(x) == 0){
+		return(list(NULL))
+	}
+
+	reduce(
+		x,
+		function(a,b){
+			map2(a, b, ~ .x + .y)
+		}
+	) %>%
+		list
+}
+
+sum_sigfit_objects <- function(x){
+	x <- x[map_lgl(x, is_output_object)]
+
+	if(length(x) == 0){
+		return(list(NULL))
+	}
+
+	x %>%
+		reduce(`+`) %>%
+		list %>%
+		map(
+			function(y){
+				rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
+				return(y)
+			}
+		)
+}
+
 #Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra for pyrimidine-collapsed indels and template-strand single-strand call types.
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	bind_rows(
@@ -768,31 +806,13 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				#Spectra
 				across(
 					c(finalCalls.refindel_pyr_spectrum, finalCalls_unique.refindel_pyr_spectrum),
-					function(x){
-						reduce(
-							x,
-							function(a,b){
-								map2(a, b, ~ .x + .y)
-							}
-						) %>%
-							list
-					}
+					sum_spectrum_objects
 				),
 				
 				#Sigfit matrices, and rename rownames
 				across(
 					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls_unique.refindel_pyr_spectrum.sigfit),
-					function(x){
-						result <- x %>%
-							reduce(`+`) %>%
-							list %>%
-							map(
-								function(y){
-									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
-									return(y)
-								}
-							)
-					}
+					sum_sigfit_objects
 				),
 
 				.groups = "drop"
@@ -816,31 +836,13 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				#Spectra
 				across(
 					c(finalCalls.refindel_pyr_spectrum, finalCalls.refindel_template_strand_spectrum),
-					function(x){
-						reduce(
-							x,
-							function(a,b){
-								map2(a, b, ~ .x + .y)
-							}
-						) %>%
-							list
-					}
+					sum_spectrum_objects
 				),
 
 				#Sigfit matrices, and rename rownames
 				across(
 					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls.refindel_template_strand_spectrum.sigfit),
-					function(x){
-						result <- x %>%
-							reduce(`+`) %>%
-							list %>%
-							map(
-								function(y){
-									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
-									return(y)
-								}
-							)
-					}
+					sum_sigfit_objects
 				),
 				
 				.groups = "drop"
@@ -873,10 +875,6 @@ plot_col <- function(df.input, col_name.input, output_basename_full.input){
 			pdf_path = str_c(output_name, ".pdf"),
 			name = str_c(output_name %>% basename, "\n(", round(sum_counts,2), " calls)")
 			)
-}
-
-is_output_object <- function(x){
-	!is.null(x) && !(length(x) == 1 && is.na(x))
 }
 
 #Output spectra of finalCalls for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type, as well as the added combined insertion+deletion mutation spectra.
@@ -1023,10 +1021,15 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 			
 			sbs_tables_to_output %>%
 				walk(function(y){
-					x$data %>%
+					output_table <- x$data %>%
+						filter(map_lgl(.data[[y]], is_output_object)) %>%
 						select(any_of(spectra_metadata_cols), all_of(y)) %>%
-						unnest(all_of(y)) %>%
-						write_tsv(str_c(output_basename_full, ".", y, ".tsv"))
+						unnest(all_of(y))
+
+					if(nrow(output_table) > 0){
+						output_table %>%
+							write_tsv(str_c(output_basename_full, ".", y, ".tsv"))
+					}
 				})
 			
 		}

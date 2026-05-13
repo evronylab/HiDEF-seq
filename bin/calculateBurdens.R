@@ -529,7 +529,7 @@ coverage_rows <- bind_rows(
 	bam.gr.filtertrack.bytype %>%
 		mutate(
 			bc = "all_bc",
-			publish_by_bc = FALSE
+			is_per_bc = FALSE
 		),
 	bam.gr.filtertrack.bytype %>%
 		semi_join(
@@ -540,7 +540,7 @@ coverage_rows <- bind_rows(
 		mutate(per_bc_coverage = bam.gr.filtertrack.by_bc_strand.coverage %>% map(make_per_bc_coverage)) %>%
 		select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_strand.coverage) %>%
 		unnest(per_bc_coverage) %>%
-		mutate(publish_by_bc = TRUE)
+		mutate(is_per_bc = TRUE)
 ) %>%
 	mutate(row_id = row_number())
 
@@ -563,10 +563,6 @@ strand_annotation_rows <- coverage_rows %>%
 
 coverage_annotation_rows <- bind_rows(total_annotation_rows, strand_annotation_rows) %>%
 	mutate(annotation_row_id = row_number())
-
-if(any(coverage_rows$publish_by_bc)){
-	dir.create("by_bc", showWarnings = FALSE)
-}
 
 coverage_annotation_rows %>%
 	pwalk(
@@ -649,33 +645,29 @@ paste(
 
 file.remove("all.bed") %>% invisible
 
-#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output: 1) final per-base BED output (bgzipped, tabix indexed): seqnames, start, end, duplex_coverage, reftnc_plus_strand; 2) counts for every reftnc_plus_strand trinucleotide context
+#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output pooled final per-base BEDs (bgzipped, tabix indexed): seqnames, start, end, duplex_coverage, reftnc_plus_strand. For both pooled and internal per-bc rows, write counts for every reftnc_plus_strand trinucleotide context.
 coverage_annotation_rows %>%
 	pwalk(
 		function(...){
 			x <- list(...)
 			
-			cov_output_file <- str_c(
-				if_else(x$publish_by_bc, "by_bc/", ""),
-				str_c(
+			if(x$annotation_type == "total" && !x$is_per_bc){
+				cov_output_file <- str_c(
 					c(
-					yaml.config$analysis_id,
-					individual_id,
-					sample_id_toanalyze,
-					chromgroup_toanalyze,
-					filtergroup_toanalyze,
-					if(x$publish_by_bc){x$bc},
-					x$call_class,
-					x$call_type,
-					x$SBSindel_call_type,
-					"coverage_reftnc",
-					"bed.gz"
-					) %>% discard(is.null),
+						yaml.config$analysis_id,
+						individual_id,
+						sample_id_toanalyze,
+						chromgroup_toanalyze,
+						filtergroup_toanalyze,
+						x$call_class,
+						x$call_type,
+						x$SBSindel_call_type,
+						"coverage_reftnc",
+						"bed.gz"
+					),
 					collapse="."
 				)
-			)
-			
-			if(x$annotation_type == "total"){
+
 				paste(
 					yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
 					"-a", str_c(x$annotation_row_id,".bed"), "-b all.trinuc.bed",
@@ -844,14 +836,18 @@ coverage_rows <- coverage_rows %>%
 		bam.gr.filtertrack.reftnc_pyr = pmap(
 			list(bc, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_both_strands),
 			function(bc, plus, both){
-				if(bc == "all_bc"){plus}else{both} %>%
-					trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-					rename(reftnc_pyr = reftnc) %>%
-					mutate(fraction = count / sum(count))
+				if(bc == "all_bc"){
+					plus %>%
+						trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+						rename(reftnc_pyr = reftnc) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NULL
+				}
 			}
 		)
 	) %>%
-	select(-row_id, -publish_by_bc, -bam.gr.filtertrack.by_bc_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand, -bam.gr.filtertrack.reftnc_template_strand)
+	select(-row_id, -is_per_bc, -bam.gr.filtertrack.by_bc_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand, -bam.gr.filtertrack.reftnc_template_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
  #Function to extract trinucleotide distribution for selected chromosomes
@@ -918,6 +914,8 @@ bam.gr.filtertrack.bytype.with_bc <- coverage_rows %>%
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_pyr %>%
 			map(
 				function(x){
+					if(is.null(x)){return(NULL)}
+
 					x %>%
 						left_join(
 							genome.reftnc$reftnc_pyr,
@@ -1167,14 +1165,14 @@ finalCalls.bytype.with_bc <- bind_rows(
 ) %>%
 	relocate(bc, .after = filtergroup)
 
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all call types (including SBS/mismatch-ss even if not in call_types_toanalyze, for downstream SBS mutation error calculation), calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For `bc = all_bc` call types (including SBS/mismatch-ss even if not in call_types_toanalyze, for downstream SBS mutation error calculation), calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", also calculate reftnc_pyr for unique calls, and for all other call types, calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc %>%
 	mutate(
 		
 		finalCalls.reftnc_pyr = pmap(
-			list(call_class, finalCalls_for_tsv),
-			function(x,z){
-				if(x %in% c("SBS","MDB")){
+			list(bc, call_class, finalCalls_for_tsv),
+			function(bc,x,z){
+				if(bc == "all_bc" & x %in% c("SBS","MDB")){
 					z %>%
 						count(reftnc_pyr, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
@@ -1188,9 +1186,9 @@ finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc %>%
 		),
 		
 		finalCalls_unique.reftnc_pyr = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
-			function(x,y,z){
-				if(x == "SBS" & y == "mutation"){
+			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(bc,x,y,z){
+				if(bc == "all_bc" & x == "SBS" & y == "mutation"){
 					z %>%
 						count(reftnc_pyr, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
@@ -1231,9 +1229,9 @@ finalCalls.bytype <- finalCalls.bytype %>%
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
 		finalCalls.reftnc_pyr_spectrum = pmap(
-			list(call_class, finalCalls_for_tsv),
-			function(x,z){
-				if(x == "SBS"){
+			list(bc, call_class, finalCalls_for_tsv),
+			function(bc,x,z){
+				if(bc == "all_bc" & x == "SBS"){
 					z %>%
 						mutate(
 							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
@@ -1251,9 +1249,9 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		),
 		
 		finalCalls_unique.reftnc_pyr_spectrum = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
-			function(x,y,z){
-				if(x == "SBS" & y == "mutation"){
+			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(bc,x,y,z){
+				if(bc == "all_bc" & x == "SBS" & y == "mutation"){
 					z %>%
 						mutate(
 							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
@@ -1291,7 +1289,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		)
 	)
 
-#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all indel call types; template-strand spectra are calculated for single-strand call types.
+#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-bc indel call types; template-strand spectra are calculated for single-strand call types.
 BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
@@ -1299,9 +1297,9 @@ BSgenome_for_indel.spectrum <- BSgenome_name %>%
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
 		finalCalls.refindel_pyr_spectrum = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_for_vcf),
-			function(x,y,z){
-				if(x == "indel"){
+			list(bc, call_class, SBSindel_call_type, finalCalls_for_vcf),
+			function(bc,x,y,z){
+				if(bc == "all_bc" & x == "indel"){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
@@ -1317,9 +1315,9 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		),
 		
 		finalCalls_unique.refindel_pyr_spectrum = pmap(
-			list(call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
-			function(x,y,z){
-				if(x == "indel" & y == "mutation"){
+			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
+			function(bc,x,y,z){
+				if(bc == "all_bc" & x == "indel" & y == "mutation"){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,

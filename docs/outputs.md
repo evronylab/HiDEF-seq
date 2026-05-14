@@ -221,7 +221,7 @@ The pipeline produces two files:
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
-The pipeline produces several files described below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. Rows with `bc = all_bc` contain data from both strands (i.e. both final-round barcode orientations). When the final demultiplexing round is asymmetric, `.finalCalls.reftnc_template_strand.tsv`, `.finalCalls.reftnc_template_strand_spectrum.tsv`, and `.finalCalls.refindel_template_strand_spectrum.sigfit.tsv` tables for single-strand call types also contain rows whose data is limited to strands with the specified `bc` value.
+The pipeline produces several files described below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. Rows with `bc = all_bc` contain pooled sample-level data. When the final demultiplexing round is asymmetric, spectra tables for single-strand call types also contain rows whose data is limited to strands with the specified `bc` value; mutation and unique-mutation spectra remain `all_bc` only.
 
 - **SBS** `call_class` files:
 
@@ -229,7 +229,7 @@ The pipeline produces several files described below, and each table contains met
 
   - `.finalCalls.reftnc_template_strand.tsv` (trinucelotide distributions of reference sequences in the strand replicated by the sequencer polymerase, at positions of all calls, for single-strand call types): `reftnc_template_strand`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
 
-  - `.finalCalls.reftnc_pyr_spectrum.tsv` / `.finalCalls_unique.reftnc_pyr_spectrum.tsv` (reference>call trinucleotide spectra, collapsed to central pyrmidine contexts, of all and unique calls, respectively): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
+  - `.finalCalls.reftnc_pyr_spectrum.tsv` / `.finalCalls_unique.reftnc_pyr_spectrum.tsv` (reference>call trinucleotide spectra, collapsed to central pyrmidine contexts, of all and unique calls, respectively): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`. For asymmetric final-round barcodes, single-strand non-mutation rows are also emitted for individual `bc` values.
 
   - `.finalCalls.reftnc_template_strand_spectrum.tsv` (reference>call trinucleotide spectra of the strand replicated by the sequencer polymerase, of all calls, for single-strand call types): `channel`, `count`, `fraction`, plus the same fraction ratios and corrected count/fraction columns described above for `.finalCalls.reftnc_pyr.tsv`.
   
@@ -237,8 +237,8 @@ The pipeline produces several files described below, and each table contains met
 
 
 - **indel** `call_class` files:
-  - `.finalCalls.refindel_pyr_spectrum.sigfit.tsv` (indel spectra of all calls per pyrimidine-collapsed sigfit-style channel labels): `channel`, `count`, `fraction`.
-  - `.finalCalls_unique.refindel_pyr_spectrum.sigfit.tsv` (indel spectra of unique mutation calls per pyrimidine-collapsed sigfit-style channel labels): `channel`, `count`, `fraction`.
+  - `.finalCalls.refindel_pyr_spectrum.sigfit.tsv` (indel spectra of all calls per pyrimidine-collapsed sigfit-style channel labels): `channel`, `count`, `fraction`. Per-`bc` pyrimidine-collapsed indel spectra are emitted for single-strand non-mutation rows.
+  - `.finalCalls_unique.refindel_pyr_spectrum.sigfit.tsv` (indel spectra of unique mutation calls per pyrimidine-collapsed sigfit-style channel labels): `channel`, `count`, `fraction`. Unique mutation spectra remain `all_bc` only.
   - `.finalCalls.refindel_template_strand_spectrum.sigfit.tsv` (template-strand indel spectra for single-strand call types, preserving separate 1-bp deletion/insertion C, T, G, and A channels): `channel`, `count`, `fraction`.
   - Each of the above `_spectrum.sigfit.tsv` files is paired with a `.sigfit.pdf` spectrum plot.
   - Additional spectra tsv and pdf files named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.[SBSindel_call_type].finalCalls.refindel_pyr_spectrum.sigfit.{tsv,pdf}` are produced that combine insertion and deletion spectra within each chromgroup (i.e., even if insertions and deletions were called in different filtergroups). For mutation calls, analogous unique-call combined spectra are named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.mutation.finalCalls_unique.refindel_pyr_spectrum.sigfit.{tsv,pdf}`. Combined template-strand indel spectra for single-strand call types are named `[analysis_id].[individual_id].[sample_id].[chromgroup].indel.[SBSindel_call_type].finalCalls.refindel_template_strand_spectrum.sigfit.{tsv,pdf}`.
@@ -249,10 +249,11 @@ For template-strand spectra rows with individual-strand `bc` values, plots are w
 Trinucleotide distributions of interrogated bases are output to `interrogatedBases.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
 
-The pipeline produces several files described below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. Rows with `bc = all_bc` contain data from both strands (i.e. both final-round barcode orientations). When the final demultiplexing round is asymmetric, `.bam.gr.filtertrack.reftnc_both_strands.tsv` tables for single-strand call types also contain rows whose data is limited to strands with the specified `bc` value.
+The pipeline produces several files described below, and each table contains metadata columns (`analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`) and additional fields. Rows with `bc = all_bc` contain pooled sample-level data. When the final demultiplexing round is asymmetric, single-strand call types also contain rows for each ordered asymmetric barcode configuration; those rows are limited to strands with the specified `bc` value. Symmetric final barcodes do not add per-`bc` rows.
 
-- `.bam.gr.filtertrack.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated base pairs (i.e., duplex coverage) together with ratios of the interrogated-base trinucleotide fractions to the whole-genome and chromgroup-restricted fractions.
-- `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases and the corresponding genome/chromgroup fraction ratios.
+- `.bam.gr.filtertrack.reftnc_pyr.tsv`: `reftnc_pyr`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated contexts collapsed to central pyrimidine trinucleotides together with ratios of the interrogated-base trinucleotide fractions to the whole-genome and chromgroup-restricted fractions. Rows with `bc = all_bc` summarize interrogated base pairs; rows with individual `bc` values summarize interrogated bases from the specified barcode strand.
+- `.bam.gr.filtertrack.reftnc_both_strands.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases after counting both reference-strand trinucleotide contexts at each interrogated position.
+- `.bam.gr.filtertrack.reftnc_template_strand.tsv`: `reftnc`, `count`, `fraction`, `fraction_ratio_to_genome`, `fraction_ratio_to_genome_chromgroup` summarizing counts of interrogated bases using the reference trinucleotide context corresponding to the sequencer-polymerase template strand. For individual `bc` rows, this is the denominator used for per-strand template-strand spectra and burden correction.
 
 ### Genome spectra
 Trinucleotide distributions of the genome are output to `genome.spectra/[chromgroup]/` and are named:
@@ -281,7 +282,7 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
 Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].finalCalls.burdens.tsv`, with one row per type of burden calculation (see below), with columns:
 
-- Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`. Rows with `bc = all_bc` contain data from both strands (i.e. both final-round barcode orientations). When the final demultiplexing round is asymmetric, the tables also contain rows for single-strand call types whose data is limited to strands with the specified `bc` value.
+- Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `bc`, `call_class`, `call_type`, `SBSindel_call_type`. Rows with `bc = all_bc` contain pooled sample-level data. When the final demultiplexing round is asymmetric, the tables also contain rows for single-strand call types whose data is limited to strands with the specified `bc` value. For pooled single-strand rows, `interrogated_bases_or_bp` is `2 * cov_sum`; for individual `bc` rows, `interrogated_bases_or_bp` is `cov_sum` because the per-`bc` coverage is already strand-level coverage. Mutation and unique-mutation burden rows remain `all_bc` only.
 - Annotations for type of burden calculation:
   - Unique calls (boolean TRUE/FALSE for mutations, NA otherwise): `unique_calls`
   - Corrected for the ratio of the trinucleotide distribution of interrogated bases or base pairs to the trinucleotide distribution of the whole genome (boolean TRUE/FALSE for `call_class` SBS and MDB when `unique_calls` is FALSE and for `call_class` SBS when `unique_calls` is TRUE, NA otherwise): `reftnc_corrected`

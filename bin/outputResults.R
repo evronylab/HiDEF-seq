@@ -1016,7 +1016,8 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 			
 			sbs_tables_to_output <- c(
 				"bam.gr.filtertrack.reftnc_pyr",
-				"bam.gr.filtertrack.reftnc_both_strands"
+				"bam.gr.filtertrack.reftnc_both_strands",
+				"bam.gr.filtertrack.reftnc_template_strand"
 			)
 			
 			sbs_tables_to_output %>%

@@ -153,14 +153,14 @@ If any of the `verifybamid_*` configuration parameters are left blank in the con
 Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/coverage_reftnc/[chromgroup]/`
 
 For every combination of `call_class`, `call_type`, and `SBSindel_call_type`, the `calculateBurdensChromgroupFiltergroup` process that is run for each `sample_id`, `chromgroup`, and `filtergroup` writes a bgzipped BED file named:
- `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`, with a companion Tabix index (`.tbi`) that contains genome-wide per-base HiDEF-seq duplex coverage (final interrogated bases) and reference trincucleotide sequences for all non-zero coverage positions:
+ `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz` for `bc = all_bc` files, and when the final demultiplexing round is asymmetric it also writes barcode-specific files for single-strand call types named `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[bc].[call_class].[call_type].[SBSindel_call_type].coverage_reftnc.bed.gz`. Each file has a companion Tabix index (`.tbi`) and contains genome-wide per-base HiDEF-seq coverage (see definition in below table) together with reference trincucleotide sequences for all non-zero coverage positions:
 
 | Column               | Description                                                  |
 | -------------------- | ------------------------------------------------------------ |
 | `seqnames`           | Reference sequence name.                                     |
 | `start`              | Zero-based inclusive start position.                         |
 | `end`                | Zero-based exclusive end position.                           |
-| `duplex_coverage`    | Number of final interrogated duplex base pairs at the position (i.e., coverage by each duplex molecule is counted as 1). |
+| `coverage`           | Number of final interrogated units at the position. For `bc = all_bc` files, this is duplex coverage in base pairs (i.e., coverage by each duplex molecule is counted as 1). For barcode-specific files, this is interrogated base coverage limited to the specified asymmetric `bc` value. |
 | `reftnc_plus_strand` | Reference trinucleotide context of the plus strand at the position. |
 
 These files originate from `bin/calculateBurdens.R` and are placed alongside the other per-chromgroup summaries within each sample directory by the `calculateBurdensChromgroupFiltergroup` process.

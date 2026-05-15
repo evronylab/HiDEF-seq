@@ -227,16 +227,10 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			mutate(
 				plus_minus_identical = bam.gr.filtertrack %>%
 					map_lgl(function(x){
-						x_plus <- x %>% filter(strand == "+")
-						x_minus <- x %>% filter(strand == "-")
+						x_plus <- x %>% filter(strand == "+") %>% select(-bc)
+						x_minus <- x %>% filter(strand == "-") %>% select(-bc)
 						
-						return(
-							identical(ranges(x_plus), ranges(x_minus)) &
-								identical(
-									mcols(x_plus) %>% as_tibble %>% select(-any_of("bc")),
-									mcols(x_minus) %>% as_tibble %>% select(-any_of("bc"))
-								)
-						)
+						return(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))
 					})
 			) %>%
 			pull(plus_minus_identical) %>%
@@ -512,7 +506,7 @@ cat("## Calculating trinucleotide distributions of interrogated bases and the ge
 
 chunk_runs <- 1e7 #Size of blocks to write to disk. Lower number takes longer, but decreases peak RAM.
 
-#Build coverage rows to annotate. Pooled rows retain current duplex coverage, while per-bc rows keep strand-level coverage and are only created for analyzed non-mutation call types with asymmetric bc values.
+#Build coverage rows to annotate. All-barcode aggregate rows retain current duplex coverage, while per-bc rows retain barcode-specific total coverage plus the aligned-strand split needed to orient template-strand summaries.
 make_per_bc_coverage <- function(x){
 	x %>%
 		filter(bc_is_asymmetric(bc)) %>%
@@ -527,10 +521,7 @@ make_per_bc_coverage <- function(x){
 
 coverage_rows <- bind_rows(
 	bam.gr.filtertrack.bytype %>%
-		mutate(
-			bc = "all_bc",
-			is_per_bc = FALSE
-		),
+		mutate(bc = "all_bc"),
 	bam.gr.filtertrack.bytype %>%
 		semi_join(
 			call_types_toanalyze,
@@ -539,8 +530,7 @@ coverage_rows <- bind_rows(
 		filter(SBSindel_call_type != "mutation") %>%
 		mutate(per_bc_coverage = bam.gr.filtertrack.by_bc_strand.coverage %>% map(make_per_bc_coverage)) %>%
 		select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_strand.coverage) %>%
-		unnest(per_bc_coverage) %>%
-		mutate(is_per_bc = TRUE)
+		unnest(per_bc_coverage)
 ) %>%
 	mutate(row_id = row_number())
 
@@ -563,6 +553,48 @@ strand_annotation_rows <- coverage_rows %>%
 
 coverage_annotation_rows <- bind_rows(total_annotation_rows, strand_annotation_rows) %>%
 	mutate(annotation_row_id = row_number())
+
+get_coverage_reftnc_output_file <- function(bc, call_class, call_type, SBSindel_call_type){
+	bc <- bc %>% as.character
+	call_class <- call_class %>% as.character
+	call_type <- call_type %>% as.character
+	SBSindel_call_type <- SBSindel_call_type %>% as.character
+	
+	if(bc == "all_bc"){
+		str_c(
+			c(
+				yaml.config$analysis_id,
+				individual_id,
+				sample_id_toanalyze,
+				chromgroup_toanalyze,
+				filtergroup_toanalyze,
+				call_class,
+				call_type,
+				SBSindel_call_type,
+				"coverage_reftnc",
+				"bed.gz"
+			),
+			collapse="."
+		)
+	}else{
+		str_c(
+			c(
+				yaml.config$analysis_id,
+				individual_id,
+				sample_id_toanalyze,
+				chromgroup_toanalyze,
+				filtergroup_toanalyze,
+				bc,
+				call_class,
+				call_type,
+				SBSindel_call_type,
+				"coverage_reftnc",
+				"bed.gz"
+			),
+			collapse="."
+		)
+	}
+}
 
 coverage_annotation_rows %>%
 	pwalk(
@@ -645,29 +677,20 @@ paste(
 
 file.remove("all.bed") %>% invisible
 
-#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output pooled final per-base BEDs (bgzipped, tabix indexed): seqnames, start, end, duplex_coverage, reftnc_plus_strand. For both pooled and internal per-bc rows, write counts for every reftnc_plus_strand trinucleotide context.
+#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output final per-base BEDs (bgzipped, tabix indexed) for total rows: seqnames, start, end, coverage, reftnc_plus_strand. Strand rows remain internal and only write trinucleotide counts.
 coverage_annotation_rows %>%
 	pwalk(
 		function(...){
 			x <- list(...)
 			
-			if(x$annotation_type == "total" && !x$is_per_bc){
-				cov_output_file <- str_c(
-					c(
-						yaml.config$analysis_id,
-						individual_id,
-						sample_id_toanalyze,
-						chromgroup_toanalyze,
-						filtergroup_toanalyze,
-						x$call_class,
-						x$call_type,
-						x$SBSindel_call_type,
-						"coverage_reftnc",
-						"bed.gz"
-					),
-					collapse="."
+			if(x$annotation_type == "total"){
+				cov_output_file <- get_coverage_reftnc_output_file(
+					bc = x$bc,
+					call_class = x$call_class,
+					call_type = x$call_type,
+					SBSindel_call_type = x$SBSindel_call_type
 				)
-
+				
 				paste(
 					yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
 					"-a", str_c(x$annotation_row_id,".bed"), "-b all.trinuc.bed",
@@ -997,7 +1020,7 @@ bam.gr.filtertrack.bytype.with_bc <- coverage_rows %>%
 
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype.with_bc %>%
 	filter(bc == "all_bc") %>%
-	select(-bc, -is_per_bc)
+	select(-bc)
 
 ######################
 ### Calculate trinucleotide distributions of calls (SBS and MDB) and spectra of calls (SBS and indel)
@@ -1166,7 +1189,7 @@ finalCalls <- finalCalls %>%
 	filter(call_toanalyze == TRUE) %>%
 	select(-call_toanalyze)
 
-#Add bc-specific list rows for non-mutation call types. Mutation rows remain pooled only.
+#Add bc-specific list rows for single-strand call types. Mutation rows remain all-barcode aggregate only.
 per_bc_finalCall_groups <- bam.gr.filtertrack.bytype.with_bc %>%
 	filter(bc != "all_bc", SBSindel_call_type != "mutation") %>%
 	semi_join(
@@ -1195,7 +1218,7 @@ finalCalls.bytype.with_bc <- bind_rows(
 ) %>%
 	relocate(bc, .after = filtergroup)
 
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For pooled rows and per-bc non-mutation rows, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc. For non-mutation rows, also calculate reftnc_template_strand.
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all-barcode aggregate rows and per-bc single-strand rows, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc. For single-strand rows, also calculate reftnc_template_strand.
 finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc %>%
 	mutate(
 		
@@ -1319,7 +1342,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		)
 	)
 
-#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for pooled rows and per-bc non-mutation rows; template-strand spectra are calculated for single-strand call types.
+#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-barcode aggregate rows and per-bc single-strand rows; template-strand spectra are calculated for single-strand call types.
 BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
@@ -1450,7 +1473,7 @@ annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_ty
  #Annotate corrected counts and fractions
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	left_join(
-		bam.gr.filtertrack.bytype.with_bc %>% select(-bam.gr.filtertrack.coverage, -is_per_bc),
+		bam.gr.filtertrack.bytype.with_bc %>% select(-bam.gr.filtertrack.coverage),
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc)
 	) %>%
 	annotate_corrected_counts_fractions(
@@ -1501,14 +1524,11 @@ finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc %>%
 		
 		interrogated_bases_or_bp = case_when(
 			SBSindel_call_type == "mutation" ~ cov_sum,
-			is_per_bc ~ cov_sum,
-			SBSindel_call_type != "mutation" & !is_per_bc ~ cov_sum * 2
+			bc != "all_bc" ~ cov_sum,
+			SBSindel_call_type != "mutation" & bc == "all_bc" ~ cov_sum * 2
 		)
 	) %>%
-	select(-cov_sum, -is_per_bc, -starts_with("bam.gr.filtertrack"))
-
-bam.gr.filtertrack.bytype.with_bc <- bam.gr.filtertrack.bytype.with_bc %>%
-	select(-is_per_bc)
+	select(-cov_sum, -starts_with("bam.gr.filtertrack"))
 
 #Calculate number of calls for each call_type to analyze.
 finalCalls.burdens <- finalCalls.burdens %>%

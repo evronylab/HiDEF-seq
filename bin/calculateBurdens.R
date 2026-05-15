@@ -1507,6 +1507,9 @@ finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc %>%
 	) %>%
 	select(-cov_sum, -is_per_bc, -starts_with("bam.gr.filtertrack"))
 
+bam.gr.filtertrack.bytype.with_bc <- bam.gr.filtertrack.bytype.with_bc %>%
+	select(-is_per_bc)
+
 #Calculate number of calls for each call_type to analyze.
 finalCalls.burdens <- finalCalls.burdens %>%
 	left_join(

@@ -107,10 +107,6 @@ for(i in c(filterStats_dir, finalCalls_dir, germlineVariantCalls_dir, finalCalls
 	}
 }
 
-for(j in chromgroups){
-	fs::dir_create(str_c(finalCalls.spectra_dir, j, "/by_bc"))
-}
-
 #Display basic configuration parameters
 cat("> Processing:\n")
 cat("    individual_id:",individual_id,"\n")
@@ -752,12 +748,6 @@ is_output_object <- function(x){
 }
 
 sum_spectrum_objects <- function(x){
-	x <- x[map_lgl(x, is_output_object)]
-
-	if(length(x) == 0){
-		return(list(NULL))
-	}
-
 	reduce(
 		x,
 		function(a,b){
@@ -768,12 +758,6 @@ sum_spectrum_objects <- function(x){
 }
 
 sum_sigfit_objects <- function(x){
-	x <- x[map_lgl(x, is_output_object)]
-
-	if(length(x) == 0){
-		return(list(NULL))
-	}
-
 	x %>%
 		reduce(`+`) %>%
 		list %>%
@@ -849,14 +833,6 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			)
 	)
 
-#Helper function: write TSV for a given tibble col_name
-write_col <- function(df.input, col_name.input, metadata.input, output_basename_full.input) {
-	metadata.input %>%
-		mutate(!!sym(col_name.input) := list(df.input)) %>%
-		unnest(all_of(col_name.input)) %>%
-		write_tsv(str_c(output_basename_full.input, ".", col_name.input, ".tsv"))
-}
-
 #Helper function: plots spectrum for a given sigfit col_name
 plot_col <- function(df.input, col_name.input, output_basename_full.input){
 	#Output name
@@ -916,18 +892,17 @@ plots_to_output <- c(
 	"finalCalls.refindel_template_strand_spectrum.sigfit"
 )
 
-make_finalCalls_spectra_basename <- function(x, by_bc = FALSE){
+make_finalCalls_spectra_basename <- function(x, include_bc = FALSE){
 	str_c(
 		c(
-			str_c(finalCalls.spectra_dir, x$chromgroup, "/", if_else(by_bc, "by_bc/", ""), output_basename),
+			str_c(finalCalls.spectra_dir, x$chromgroup, "/", output_basename),
 			x$chromgroup %>% as.character,
 			x$filtergroup %>% as.character,
-			if(by_bc){x$bc %>% as.character},
+			if(include_bc){x$bc %>% as.character},
 			x$call_class %>% as.character,
 			x$call_type %>% as.character,
 			x$SBSindel_call_type %>% as.character
 		) %>%
-			discard(is.null) %>%
 			discard(is.na),
 		collapse="."
 	)
@@ -977,12 +952,12 @@ finalCalls.reftnc_spectra %>%
 		}
 	)
 
-#Output pooled plots in the existing location and per-bc plots under by_bc.
+#Output plots in the finalCalls spectra directory, adding bc to filenames for per-bc rows.
 finalCalls.reftnc_spectra %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			output_basename_full <- make_finalCalls_spectra_basename(x, by_bc = x$bc != "all_bc")
+			output_basename_full <- make_finalCalls_spectra_basename(x, include_bc = x$bc != "all_bc")
 			
 			plots_to_output %>%
 				walk(function(y){

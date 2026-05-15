@@ -862,13 +862,19 @@ spectra_metadata_cols <- c(
 
 spectra_group_cols <- c("chromgroup", "filtergroup", "call_class", "call_type", "SBSindel_call_type")
 
-sbs_tables_to_output <- c(
+finalCalls_sbs_tables_to_output <- c(
 	"finalCalls.reftnc_pyr",
 	"finalCalls_unique.reftnc_pyr",
 	"finalCalls.reftnc_template_strand",
 	"finalCalls.reftnc_pyr_spectrum",
 	"finalCalls_unique.reftnc_pyr_spectrum",
 	"finalCalls.reftnc_template_strand_spectrum"
+)
+
+interrogatedBases_sbs_tables_to_output <- c(
+	"bam.gr.filtertrack.reftnc_pyr",
+	"bam.gr.filtertrack.reftnc_both_strands",
+	"bam.gr.filtertrack.reftnc_template_strand"
 )
 
 indel_tables_to_output <- c(
@@ -908,6 +914,24 @@ make_finalCalls_spectra_basename <- function(x, include_bc = FALSE){
 	)
 }
 
+write_nested_spectra_table <- function(data.input, col_name.input, metadata_cols.input, output_basename_full.input, transform_object.input = identity){
+	has_output <- map_lgl(data.input[[col_name.input]], is_output_object)
+	
+	if(any(has_output)){
+		output_table <- data.input %>%
+			filter(has_output) %>%
+			mutate(
+				!!sym(col_name.input) := .data[[col_name.input]] %>%
+					map(transform_object.input)
+			) %>%
+			select(any_of(metadata_cols.input), all_of(col_name.input)) %>%
+			unnest(all_of(col_name.input))
+		
+		output_table %>%
+			write_tsv(str_c(output_basename_full.input, ".", col_name.input, ".tsv"))
+	}
+}
+
 #Output spectra TSVs with all_bc and any asymmetric per-bc rows in the same tidy table.
 finalCalls.reftnc_spectra %>%
 	group_by(across(all_of(spectra_group_cols))) %>%
@@ -917,37 +941,30 @@ finalCalls.reftnc_spectra %>%
 			x <- list(...)
 			output_basename_full <- make_finalCalls_spectra_basename(x)
 			
-			sbs_tables_to_output %>%
+			finalCalls_sbs_tables_to_output %>%
 				walk(function(y){
-					output_table <- x$data %>%
-						filter(map_lgl(.data[[y]], is_output_object)) %>%
-						select(any_of(spectra_metadata_cols), all_of(y)) %>%
-						unnest(all_of(y))
-
-					if(nrow(output_table) > 0){
-						output_table %>% write_tsv(str_c(output_basename_full, ".", y, ".tsv"))
-					}
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full
+					)
 				})
 			
 			indel_tables_to_output %>%
 				walk(function(y){
-					output_table <- x$data %>%
-						filter(map_lgl(.data[[y]], is_output_object)) %>%
-						mutate(
-							!!sym(y) := .data[[y]] %>%
-								map(function(z){
-									z %>%
-										as_tibble %>%
-										pivot_longer(cols=everything(), names_to = "channel", values_to = "count") %>%
-										mutate(fraction = count / sum(count))
-								})
-						) %>%
-						select(any_of(spectra_metadata_cols), all_of(y)) %>%
-						unnest(all_of(y))
-
-					if(nrow(output_table) > 0){
-						output_table %>% write_tsv(str_c(output_basename_full, ".", y, ".tsv"))
-					}
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full,
+						transform_object.input = function(z){
+							z %>%
+								as_tibble %>%
+								pivot_longer(cols=everything(), names_to = "channel", values_to = "count") %>%
+								mutate(fraction = count / sum(count))
+						}
+					)
 				})
 		}
 	)
@@ -989,23 +1006,14 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 				sep="."
 			)
 			
-			sbs_tables_to_output <- c(
-				"bam.gr.filtertrack.reftnc_pyr",
-				"bam.gr.filtertrack.reftnc_both_strands",
-				"bam.gr.filtertrack.reftnc_template_strand"
-			)
-			
-			sbs_tables_to_output %>%
+			interrogatedBases_sbs_tables_to_output %>%
 				walk(function(y){
-					output_table <- x$data %>%
-						filter(map_lgl(.data[[y]], is_output_object)) %>%
-						select(any_of(spectra_metadata_cols), all_of(y)) %>%
-						unnest(all_of(y))
-
-					if(nrow(output_table) > 0){
-						output_table %>%
-							write_tsv(str_c(output_basename_full, ".", y, ".tsv"))
-					}
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full
+					)
 				})
 			
 		}

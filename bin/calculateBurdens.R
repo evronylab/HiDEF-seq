@@ -1198,16 +1198,17 @@ finalCalls <- finalCalls %>%
 	filter(call_toanalyze == TRUE) %>%
 	select(-call_toanalyze)
 
-#Add barcode-orientation-specific list rows for single-strand call types. Mutation rows remain all-barcode-orientation aggregate only.
+#Add barcode-orientation-specific list rows for single-strand call types and calculate trinucleotide counts and fractions. Mutation rows remain all-barcode-orientation aggregate only.
 per_bc_orientation_finalCall_groups <- bam.gr.filtertrack.bytype %>%
+	select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation) %>%
 	filter(bc_orientation != "all_bc_orientations", SBSindel_call_type != "mutation") %>%
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-	) %>%
-	select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
+	)
 
-finalCalls.bytype.with_bc_orientation <- bind_rows(
+#For call_class = "SBS" and "MDB", calculate reftnc_pyr for all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc_orientations. For single-strand rows, also calculate reftnc_template_strand.
+finalCalls.reftnc_spectra <- bind_rows(
 	finalCalls.bytype %>%
 		mutate(bc_orientation = "all_bc_orientations"),
 	finalCalls.bytype %>%
@@ -1225,10 +1226,7 @@ finalCalls.bytype.with_bc_orientation <- bind_rows(
 			finalCalls_for_vcf = map2(finalCalls_for_vcf, bc_orientation, function(x,y){x %>% filter(bc_orientation == y)})
 		)
 ) %>%
-	relocate(bc_orientation, .after = filtergroup)
-
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc_orientations. For single-strand rows, also calculate reftnc_template_strand.
-finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc_orientation %>%
+	relocate(bc_orientation, .after = filtergroup) %>%
 	mutate(
 		
 		finalCalls.reftnc_pyr = pmap(
@@ -1556,7 +1554,8 @@ finalCalls.burdens <- finalCalls.burdens %>%
 	left_join(
 		bind_rows(
 			#Not unique calls
-			finalCalls.bytype.with_bc_orientation %>%
+			finalCalls.reftnc_spectra %>%
+				select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, finalCalls_for_tsv) %>%
 				semi_join(
 					call_types_toanalyze,
 					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
@@ -1571,7 +1570,8 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				),
 		
 			#Unique calls (only mutations)
-			finalCalls.bytype.with_bc_orientation %>%
+			finalCalls.reftnc_spectra %>%
+				select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, finalCalls_unique_for_tsv) %>%
 				semi_join(
 					call_types_toanalyze,
 					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)

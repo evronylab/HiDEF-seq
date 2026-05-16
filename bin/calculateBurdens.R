@@ -949,7 +949,7 @@ genome_chromgroup.reftnc <- get_genome_reftnc(
 cat("DONE\n")
 
 #Calculate ratio of trinucleotide fractions of final interrogated genome bases to the trinucleotide fractions of the whole genome and the genome in the analyzed chromgroup
-bam.gr.filtertrack.bytype.with_bc_orientation <- coverage_rows %>%
+bam.gr.filtertrack.bytype <- coverage_rows %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_pyr %>%
 			map(
@@ -1028,9 +1028,6 @@ bam.gr.filtertrack.bytype.with_bc_orientation <- coverage_rows %>%
 		)
 	)
 
-bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
-	filter(bc_orientation == "all_bc_orientations") %>%
-	select(-bc_orientation)
 rm(coverage_rows)
 invisible(gc())
 
@@ -1202,7 +1199,7 @@ finalCalls <- finalCalls %>%
 	select(-call_toanalyze)
 
 #Add barcode-orientation-specific list rows for single-strand call types. Mutation rows remain all-barcode-orientation aggregate only.
-per_bc_orientation_finalCall_groups <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
+per_bc_orientation_finalCall_groups <- bam.gr.filtertrack.bytype %>%
 	filter(bc_orientation != "all_bc_orientations", SBSindel_call_type != "mutation") %>%
 	semi_join(
 		call_types_toanalyze,
@@ -1485,7 +1482,7 @@ annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_ty
  #Annotate corrected counts and fractions
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	left_join(
-		bam.gr.filtertrack.bytype.with_bc_orientation %>% select(-bam.gr.filtertrack.coverage),
+		bam.gr.filtertrack.bytype %>% select(-bam.gr.filtertrack.coverage),
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
 	) %>%
 	mutate(
@@ -1532,7 +1529,7 @@ cat("## Calculating call burdens...")
 #A. Call burdens not corrected for interrogated vs genome trinucleotide distributions
 
 #Calculate number of interrogated base pairs (SBSindel_call_type = mutation) or bases (mismatch-ss, mismatch-ds, mismatch-os, match), for each call_type to analyze. Note, for mismatch-ds, each mismatch-ds is counted as 2 mismatches so burdens use interrogated bases rather than base pairs.
-finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
+finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
 	
 	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
 	semi_join(
@@ -2090,7 +2087,7 @@ estimatedSBSMutationErrorProbability_by_channel <- left_join(
 
 	#Interrogated bases spectrum
 	bam.gr.filtertrack.bytype %>%
-		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+		filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
 		pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
 		select(reftnc, count),
 	
@@ -2106,12 +2103,6 @@ estimatedSBSMutationErrorProbability_by_channel <- left_join(
 
 #Remove SBS/mismatch-ss from bam.gr.filtertrack.bytype if it is not part of call_types_toanalyze, since it was only retained until here in order to calculate SBS mutation error probability.
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
-	semi_join(
-		call_types_toanalyze,
-		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-	)
-
-bam.gr.filtertrack.bytype.with_bc_orientation <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
@@ -2180,7 +2171,7 @@ qs_save(
 		molecule_stats.by_run_id,
 		molecule_stats.by_analysis_id,
 		region_genome_filter_stats,
-		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype.with_bc_orientation,
+		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype,
 		finalCalls,
 		finalCalls.bytype,
 		germlineVariantCalls,

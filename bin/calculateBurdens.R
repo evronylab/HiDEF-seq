@@ -553,6 +553,8 @@ strand_annotation_rows <- coverage_rows %>%
 
 coverage_annotation_rows <- bind_rows(total_annotation_rows, strand_annotation_rows) %>%
 	mutate(annotation_row_id = row_number())
+rm(total_annotation_rows, strand_annotation_rows)
+invisible(gc())
 
 get_coverage_reftnc_output_file <- function(bc_orientation, call_class, call_type, SBSindel_call_type){
 	bc_orientation <- bc_orientation %>% as.character
@@ -838,52 +840,54 @@ file.remove(
 	str_c(coverage_annotation_rows$annotation_row_id, ".reftnc_plus_strand.tsv")
 ) %>%
 	invisible
+rm(coverage_annotation_rows, reftnc_plus_strand_by_annotation_row, reftnc_plus_strand_by_row, reftnc_template_strand_by_row)
+invisible(gc())
 
-	#Annotate trinucleotide summaries. all_bc_orientations rows retain both-strand reference context; per-barcode-orientation rows retain template-strand context.
-	coverage_rows <- coverage_rows %>%
-		mutate(
-			bam.gr.filtertrack.reftnc_both_strands = pmap(
-				list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_minus_strand, bam.gr.filtertrack.reftnc_template_strand),
-				function(bc_orientation, plus, minus, template){
-					if(bc_orientation == "all_bc_orientations"){
-						bind_rows(plus, minus) %>%
-							group_by(reftnc) %>%
-							summarize(count = sum(count), .groups = "drop") %>%
-							arrange(reftnc) %>%
-							mutate(fraction = count / sum(count))
-					}else{
-						NULL
-					}
+#Annotate trinucleotide summaries. all_bc_orientations rows retain both-strand reference context; per-barcode-orientation rows retain template-strand context.
+coverage_rows <- coverage_rows %>%
+	mutate(
+		bam.gr.filtertrack.reftnc_both_strands = pmap(
+			list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_minus_strand, bam.gr.filtertrack.reftnc_template_strand),
+			function(bc_orientation, plus, minus, template){
+				if(bc_orientation == "all_bc_orientations"){
+					bind_rows(plus, minus) %>%
+						group_by(reftnc) %>%
+						summarize(count = sum(count), .groups = "drop") %>%
+						arrange(reftnc) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					NULL
 				}
-			),
-			bam.gr.filtertrack.reftnc_template_strand = pmap(
-				list(bc_orientation, bam.gr.filtertrack.reftnc_template_strand),
-				function(bc_orientation, template){
-					if(bc_orientation == "all_bc_orientations"){
-						NULL
-					}else{
-						template
-					}
+			}
+		),
+		bam.gr.filtertrack.reftnc_template_strand = pmap(
+			list(bc_orientation, bam.gr.filtertrack.reftnc_template_strand),
+			function(bc_orientation, template){
+				if(bc_orientation == "all_bc_orientations"){
+					NULL
+				}else{
+					template
 				}
-			),
-			bam.gr.filtertrack.reftnc_pyr = pmap(
-				list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_template_strand),
-				function(bc_orientation, plus, template){
-					if(bc_orientation == "all_bc_orientations"){
-						plus %>%
-							trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-							rename(reftnc_pyr = reftnc) %>%
-							mutate(fraction = count / sum(count))
-					}else{
-						template %>%
-							trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
-							rename(reftnc_pyr = reftnc) %>%
-							mutate(fraction = count / sum(count))
-					}
+			}
+		),
+		bam.gr.filtertrack.reftnc_pyr = pmap(
+			list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_template_strand),
+			function(bc_orientation, plus, template){
+				if(bc_orientation == "all_bc_orientations"){
+					plus %>%
+						trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+						rename(reftnc_pyr = reftnc) %>%
+						mutate(fraction = count / sum(count))
+				}else{
+					template %>%
+						trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
+						rename(reftnc_pyr = reftnc) %>%
+						mutate(fraction = count / sum(count))
 				}
-			)
-		) %>%
-		select(-row_id, -bam.gr.filtertrack.by_bc_orientation_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
+			}
+		)
+	) %>%
+	select(-row_id, -bam.gr.filtertrack.by_bc_orientation_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
  #Function to extract trinucleotide distribution for selected chromosomes
@@ -1027,6 +1031,8 @@ bam.gr.filtertrack.bytype.with_bc_orientation <- coverage_rows %>%
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
 	filter(bc_orientation == "all_bc_orientations") %>%
 	select(-bc_orientation)
+rm(coverage_rows)
+invisible(gc())
 
 ######################
 ### Calculate trinucleotide distributions of calls (SBS and MDB) and spectra of calls (SBS and indel)

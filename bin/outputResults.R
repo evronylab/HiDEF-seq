@@ -317,7 +317,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, bc, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
 	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile %>%
@@ -328,7 +328,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, bc, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
 	#Whole genome trinucleotide counts and fractions
 	genome.reftnc[[i]] <- calculateBurdensFile %>%
@@ -368,7 +368,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, bc, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 		
 	#estimated SBS mutation error probability
 	if(! calculateBurdensFile %>% pluck("estimatedSBSMutationErrorProbability") %>% is.null){
@@ -614,7 +614,7 @@ strand_identical_cols_keep <- c(
 )
 
 strand_identical_cols_discard <- c(
-	"bc", "refstrand",
+	"bc_orientation", "refstrand",
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand",
 	"deletion.bothstrands.startendmatch", "MDB_score"
@@ -775,7 +775,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.reftnc_spectra %>%
 			filter(call_class=="indel", SBSindel_call_type == "mutation") %>%
 			select(
-				analysis_id, individual_id, sample_id, chromgroup, bc, call_class,
+				analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class,
 				call_type,
 				SBSindel_call_type,
 				finalCalls.refindel_pyr_spectrum,
@@ -785,7 +785,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			) %>%
 			
 			#Sum insertion and deletion matrices (not grouping by call_type)
-			group_by(analysis_id, individual_id, sample_id, chromgroup, bc, call_class, SBSindel_call_type) %>%
+			group_by(analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class, SBSindel_call_type) %>%
 			summarize(
 				#Spectra
 				across(
@@ -805,7 +805,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.reftnc_spectra %>%
 			filter(call_class=="indel", SBSindel_call_type != "mutation") %>%
 			select(
-				analysis_id, individual_id, sample_id, chromgroup, bc, call_class,
+				analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class,
 				call_type,
 				SBSindel_call_type,
 				finalCalls.refindel_pyr_spectrum,
@@ -815,7 +815,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			) %>%
 
 			#Sum insertion and deletion matrices (not grouping by call_type)
-			group_by(analysis_id, individual_id, sample_id, chromgroup, bc, call_class, SBSindel_call_type) %>%
+			group_by(analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class, SBSindel_call_type) %>%
 			summarize(
 				#Spectra
 				across(
@@ -857,7 +857,7 @@ plot_col <- function(df.input, col_name.input, output_basename_full.input){
 #Note: this outputs SBS/mismatch-ss trinucleotide distributions that were retained in finalCalls.reftnc_spectra from upstream calculateBurdens for every chromgroup/filtergroup, even if not configured to call SBS/mismatch-ss in a chromgroup/filtergroup. This aids assessment of mismatch patterns for every chromgroup/filtergroup for the purpose of evaluating SBS mutation error probability (which is also later calculated directly).
 spectra_metadata_cols <- c(
 	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
-	"bc", "call_class", "call_type", "SBSindel_call_type"
+	"bc_orientation", "call_class", "call_type", "SBSindel_call_type"
 )
 
 spectra_group_cols <- c("chromgroup", "filtergroup", "call_class", "call_type", "SBSindel_call_type")
@@ -898,13 +898,13 @@ plots_to_output <- c(
 	"finalCalls.refindel_template_strand_spectrum.sigfit"
 )
 
-make_finalCalls_spectra_basename <- function(x, include_bc = FALSE){
+make_finalCalls_spectra_basename <- function(x, include_bc_orientation = FALSE){
 	str_c(
 		c(
 			str_c(finalCalls.spectra_dir, x$chromgroup, "/", output_basename),
 			x$chromgroup %>% as.character,
 			x$filtergroup %>% as.character,
-			if(include_bc){x$bc %>% as.character},
+			if(include_bc_orientation){x$bc_orientation %>% as.character},
 			x$call_class %>% as.character,
 			x$call_type %>% as.character,
 			x$SBSindel_call_type %>% as.character
@@ -932,7 +932,7 @@ write_nested_spectra_table <- function(data.input, col_name.input, metadata_cols
 	}
 }
 
-#Output spectra TSVs with all_bc and any asymmetric per-bc rows in the same tidy table.
+#Output spectra TSVs with all_bc_orientations and any asymmetric per-barcode-orientation rows in the same tidy table.
 finalCalls.reftnc_spectra %>%
 	group_by(across(all_of(spectra_group_cols))) %>%
 	nest %>%
@@ -969,12 +969,12 @@ finalCalls.reftnc_spectra %>%
 		}
 	)
 
-#Output plots in the finalCalls spectra directory, adding bc to filenames for per-bc rows.
+#Output plots in the finalCalls spectra directory, adding bc_orientation to filenames for per-barcode-orientation rows.
 finalCalls.reftnc_spectra %>%
 	pwalk(
 		function(...){
 			x <- list(...)
-			output_basename_full <- make_finalCalls_spectra_basename(x, include_bc = x$bc != "all_bc")
+			output_basename_full <- make_finalCalls_spectra_basename(x, include_bc_orientation = x$bc_orientation != "all_bc_orientations")
 			
 			plots_to_output %>%
 				walk(function(y){

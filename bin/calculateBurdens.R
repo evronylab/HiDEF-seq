@@ -211,8 +211,8 @@ sum_RleList <- function(a, b) {
 }
 
 #Function identifying asymmetric final-round barcode configurations.
-bc_is_asymmetric <- function(bc){
-	bc %>%
+bc_orientation_is_asymmetric <- function(bc_orientation){
+	bc_orientation %>%
 		as.character %>%
 		str_split("-") %>%
 		map_lgl(function(x){length(x) == 2 && x[1] != x[2]})
@@ -227,8 +227,8 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			mutate(
 				plus_minus_identical = bam.gr.filtertrack %>%
 					map_lgl(function(x){
-						x_plus <- x %>% filter(strand == "+") %>% select(-bc)
-						x_minus <- x %>% filter(strand == "-") %>% select(-bc)
+						x_plus <- x %>% filter(strand == "+") %>% select(-bc_orientation)
+						x_minus <- x %>% filter(strand == "-") %>% select(-bc_orientation)
 						
 						return(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))
 					})
@@ -250,17 +250,17 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 
 	#Helper function to calculate strand-level coverage for each barcode configuration and aligned read strand.
-	calc_by_bc_strand_coverage <- function(gr){
+	calc_by_bc_orientation_strand_coverage <- function(gr){
 		gr %>%
 			as_tibble %>%
-			distinct(bc, strand) %>%
+			distinct(bc_orientation, strand) %>%
 			mutate(
 				bam.gr.filtertrack.coverage = map2(
-					bc,
+					bc_orientation,
 					strand,
 					function(x,y){
 						gr %>%
-							filter(bc == x, strand == y) %>%
+							filter(bc_orientation == x, strand == y) %>%
 							coverage
 					}
 				)
@@ -268,11 +268,11 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 	}
 
 	#Helper function to sum strand-level coverage across analysis chunks.
-	sum_by_bc_strand_coverage <- function(a, b){
+	sum_by_bc_orientation_strand_coverage <- function(a, b){
 		full_join(
 			a,
 			b,
-			by = join_by(bc, strand),
+			by = join_by(bc_orientation, strand),
 			suffix = c("", ".2")
 		) %>%
 			mutate(
@@ -302,8 +302,8 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			mutate(
 				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
 					map(function(x){x %>% calc_duplex_coverage}),
-				bam.gr.filtertrack.by_bc_strand.coverage = bam.gr.filtertrack %>%
-					map(function(x){x %>% calc_by_bc_strand_coverage})
+				bam.gr.filtertrack.by_bc_orientation_strand.coverage = bam.gr.filtertrack %>%
+					map(function(x){x %>% calc_by_bc_orientation_strand_coverage})
 			) %>%
 			select(-bam.gr.filtertrack)
 		
@@ -318,11 +318,11 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 					mutate(
 						bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
 							map(function(x){x %>% calc_duplex_coverage}),
-						bam.gr.filtertrack.by_bc_strand.coverage = bam.gr.filtertrack %>%
-							map(function(x){x %>% calc_by_bc_strand_coverage})
+						bam.gr.filtertrack.by_bc_orientation_strand.coverage = bam.gr.filtertrack %>%
+							map(function(x){x %>% calc_by_bc_orientation_strand_coverage})
 					) %>%
 					select(-bam.gr.filtertrack),
-				by = names(.) %>% setdiff(c("bam.gr.filtertrack.coverage", "bam.gr.filtertrack.by_bc_strand.coverage")),
+				by = names(.) %>% setdiff(c("bam.gr.filtertrack.coverage", "bam.gr.filtertrack.by_bc_orientation_strand.coverage")),
 				suffix = c("",".2")
 			) %>%
 			mutate(
@@ -331,13 +331,13 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 					bam.gr.filtertrack.coverage.2,
 					function(x,y){sum_RleList(x,y)}
 				),
-				bam.gr.filtertrack.by_bc_strand.coverage = map2(
-					bam.gr.filtertrack.by_bc_strand.coverage,
-					bam.gr.filtertrack.by_bc_strand.coverage.2,
-					function(x,y){sum_by_bc_strand_coverage(x,y)}
+				bam.gr.filtertrack.by_bc_orientation_strand.coverage = map2(
+					bam.gr.filtertrack.by_bc_orientation_strand.coverage,
+					bam.gr.filtertrack.by_bc_orientation_strand.coverage.2,
+					function(x,y){sum_by_bc_orientation_strand_coverage(x,y)}
 				)
 			) %>%
-			select(-bam.gr.filtertrack.coverage.2, -bam.gr.filtertrack.by_bc_strand.coverage.2)
+			select(-bam.gr.filtertrack.coverage.2, -bam.gr.filtertrack.by_bc_orientation_strand.coverage.2)
 	}
 }
 
@@ -506,31 +506,31 @@ cat("## Calculating trinucleotide distributions of interrogated bases and the ge
 
 chunk_runs <- 1e7 #Size of blocks to write to disk. Lower number takes longer, but decreases peak RAM.
 
-#Build coverage rows to annotate. All-barcode aggregate rows retain current duplex coverage, while per-bc rows retain barcode-specific total coverage plus the aligned-strand split needed to orient template-strand summaries.
-make_per_bc_coverage <- function(x){
+#Build coverage rows to annotate. All-barcode-orientation aggregate rows retain current duplex coverage, while per-barcode-orientation rows retain barcode-orientation-specific total coverage plus the aligned-strand split needed to orient template-strand summaries.
+make_per_bc_orientation_coverage <- function(x){
 	x %>%
-		filter(bc_is_asymmetric(bc)) %>%
-		nest_by(bc) %>%
+		filter(bc_orientation_is_asymmetric(bc_orientation)) %>%
+		nest(.by = bc_orientation) %>%
 		mutate(
-			bam.gr.filtertrack.coverage = list(reduce(data$bam.gr.filtertrack.coverage, sum_RleList)),
-			bam.gr.filtertrack.by_bc_strand.coverage = list(data)
+			bam.gr.filtertrack.coverage = data %>%
+				map(function(y){reduce(y$bam.gr.filtertrack.coverage, sum_RleList)}),
+			bam.gr.filtertrack.by_bc_orientation_strand.coverage = data
 		) %>%
-		ungroup %>%
 		select(-data)
 }
 
 coverage_rows <- bind_rows(
 	bam.gr.filtertrack.bytype %>%
-		mutate(bc = "all_bc"),
+		mutate(bc_orientation = "all_bc_orientations"),
 	bam.gr.filtertrack.bytype %>%
 		semi_join(
 			call_types_toanalyze,
 			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		) %>%
 		filter(SBSindel_call_type != "mutation") %>%
-		mutate(per_bc_coverage = bam.gr.filtertrack.by_bc_strand.coverage %>% map(make_per_bc_coverage)) %>%
-		select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_strand.coverage) %>%
-		unnest(per_bc_coverage)
+		mutate(per_bc_orientation_coverage = bam.gr.filtertrack.by_bc_orientation_strand.coverage %>% map(make_per_bc_orientation_coverage)) %>%
+		select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_orientation_strand.coverage) %>%
+		unnest(per_bc_orientation_coverage)
 ) %>%
 	mutate(row_id = row_number())
 
@@ -542,25 +542,25 @@ total_annotation_rows <- coverage_rows %>%
 	)
 
 strand_annotation_rows <- coverage_rows %>%
-	filter(bc != "all_bc") %>%
+	filter(bc_orientation != "all_bc_orientations") %>%
 	select(
-		-bc,
+		-bc_orientation,
 		-bam.gr.filtertrack.coverage
 	) %>%
 	rename(parent_row_id = row_id) %>%
-	unnest(bam.gr.filtertrack.by_bc_strand.coverage) %>%
+	unnest(bam.gr.filtertrack.by_bc_orientation_strand.coverage) %>%
 	mutate(annotation_type = "strand")
 
 coverage_annotation_rows <- bind_rows(total_annotation_rows, strand_annotation_rows) %>%
 	mutate(annotation_row_id = row_number())
 
-get_coverage_reftnc_output_file <- function(bc, call_class, call_type, SBSindel_call_type){
-	bc <- bc %>% as.character
+get_coverage_reftnc_output_file <- function(bc_orientation, call_class, call_type, SBSindel_call_type){
+	bc_orientation <- bc_orientation %>% as.character
 	call_class <- call_class %>% as.character
 	call_type <- call_type %>% as.character
 	SBSindel_call_type <- SBSindel_call_type %>% as.character
 	
-	if(bc == "all_bc"){
+	if(bc_orientation == "all_bc_orientations"){
 		str_c(
 			c(
 				yaml.config$analysis_id,
@@ -584,7 +584,7 @@ get_coverage_reftnc_output_file <- function(bc, call_class, call_type, SBSindel_
 				sample_id_toanalyze,
 				chromgroup_toanalyze,
 				filtergroup_toanalyze,
-				bc,
+				bc_orientation,
 				call_class,
 				call_type,
 				SBSindel_call_type,
@@ -685,7 +685,7 @@ coverage_annotation_rows %>%
 			
 			if(x$annotation_type == "total"){
 				cov_output_file <- get_coverage_reftnc_output_file(
-					bc = x$bc,
+					bc_orientation = x$bc_orientation,
 					call_class = x$call_class,
 					call_type = x$call_type,
 					SBSindel_call_type = x$SBSindel_call_type
@@ -843,9 +843,9 @@ file.remove(
 coverage_rows <- coverage_rows %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_both_strands = pmap(
-			list(bc, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_minus_strand, bam.gr.filtertrack.reftnc_template_strand),
-			function(bc, plus, minus, template){
-				if(bc == "all_bc"){
+			list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_minus_strand, bam.gr.filtertrack.reftnc_template_strand),
+			function(bc_orientation, plus, minus, template){
+				if(bc_orientation == "all_bc_orientations"){
 					bind_rows(plus, minus) %>%
 						group_by(reftnc) %>%
 						summarize(count = sum(count), .groups = "drop") %>%
@@ -857,9 +857,9 @@ coverage_rows <- coverage_rows %>%
 			}
 		),
 		bam.gr.filtertrack.reftnc_template_strand = pmap(
-			list(bc, bam.gr.filtertrack.reftnc_template_strand, bam.gr.filtertrack.reftnc_both_strands),
-			function(bc, template, both){
-				if(bc == "all_bc"){
+			list(bc_orientation, bam.gr.filtertrack.reftnc_template_strand, bam.gr.filtertrack.reftnc_both_strands),
+			function(bc_orientation, template, both){
+				if(bc_orientation == "all_bc_orientations"){
 					both
 				}else{
 					template
@@ -867,9 +867,9 @@ coverage_rows <- coverage_rows %>%
 			}
 		),
 		bam.gr.filtertrack.reftnc_pyr = pmap(
-			list(bc, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_template_strand),
-			function(bc, plus, template){
-				if(bc == "all_bc"){
+			list(bc_orientation, bam.gr.filtertrack.reftnc_plus_strand, bam.gr.filtertrack.reftnc_template_strand),
+			function(bc_orientation, plus, template){
+				if(bc_orientation == "all_bc_orientations"){
 					plus %>%
 						trinucleotides_64to32(tri_column = "reftnc", count_column = "count") %>%
 						rename(reftnc_pyr = reftnc) %>%
@@ -883,7 +883,7 @@ coverage_rows <- coverage_rows %>%
 			}
 		)
 	) %>%
-	select(-row_id, -bam.gr.filtertrack.by_bc_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
+	select(-row_id, -bam.gr.filtertrack.by_bc_orientation_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
  #Function to extract trinucleotide distribution for selected chromosomes
@@ -945,7 +945,7 @@ genome_chromgroup.reftnc <- get_genome_reftnc(
 cat("DONE\n")
 
 #Calculate ratio of trinucleotide fractions of final interrogated genome bases to the trinucleotide fractions of the whole genome and the genome in the analyzed chromgroup
-bam.gr.filtertrack.bytype.with_bc <- coverage_rows %>%
+bam.gr.filtertrack.bytype.with_bc_orientation <- coverage_rows %>%
 	mutate(
 		bam.gr.filtertrack.reftnc_pyr = bam.gr.filtertrack.reftnc_pyr %>%
 			map(
@@ -1018,9 +1018,9 @@ bam.gr.filtertrack.bytype.with_bc <- coverage_rows %>%
 		)
 	)
 
-bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype.with_bc %>%
-	filter(bc == "all_bc") %>%
-	select(-bc)
+bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
+	filter(bc_orientation == "all_bc_orientations") %>%
+	select(-bc_orientation)
 
 ######################
 ### Calculate trinucleotide distributions of calls (SBS and MDB) and spectra of calls (SBS and indel)
@@ -1053,7 +1053,7 @@ strand_identical_cols_keep <- c(
 )
 
 strand_identical_cols_discard <- c(
-	"bc", "strand",
+	"bc_orientation", "strand",
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand"
 )
@@ -1189,18 +1189,18 @@ finalCalls <- finalCalls %>%
 	filter(call_toanalyze == TRUE) %>%
 	select(-call_toanalyze)
 
-#Add bc-specific list rows for single-strand call types. Mutation rows remain all-barcode aggregate only.
-per_bc_finalCall_groups <- bam.gr.filtertrack.bytype.with_bc %>%
-	filter(bc != "all_bc", SBSindel_call_type != "mutation") %>%
+#Add barcode-orientation-specific list rows for single-strand call types. Mutation rows remain all-barcode-orientation aggregate only.
+per_bc_orientation_finalCall_groups <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
+	filter(bc_orientation != "all_bc_orientations", SBSindel_call_type != "mutation") %>%
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
-	select(call_type, call_class, SBSindel_call_type, filtergroup, bc)
+	select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
 
-finalCalls.bytype.with_bc <- bind_rows(
+finalCalls.bytype.with_bc_orientation <- bind_rows(
 	finalCalls.bytype %>%
-		mutate(bc = "all_bc"),
+		mutate(bc_orientation = "all_bc_orientations"),
 	finalCalls.bytype %>%
 		semi_join(
 			call_types_toanalyze,
@@ -1208,24 +1208,24 @@ finalCalls.bytype.with_bc <- bind_rows(
 		) %>%
 		filter(SBSindel_call_type != "mutation") %>%
 		inner_join(
-			per_bc_finalCall_groups,
+			per_bc_orientation_finalCall_groups,
 			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		) %>%
 		mutate(
-			finalCalls_for_tsv = map2(finalCalls_for_tsv, bc, function(x,y){x %>% filter(bc == y)}),
-			finalCalls_for_vcf = map2(finalCalls_for_vcf, bc, function(x,y){x %>% filter(bc == y)})
+			finalCalls_for_tsv = map2(finalCalls_for_tsv, bc_orientation, function(x,y){x %>% filter(bc_orientation == y)}),
+			finalCalls_for_vcf = map2(finalCalls_for_vcf, bc_orientation, function(x,y){x %>% filter(bc_orientation == y)})
 		)
 ) %>%
-	relocate(bc, .after = filtergroup)
+	relocate(bc_orientation, .after = filtergroup)
 
-#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all-barcode aggregate rows and per-bc single-strand rows, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc. For single-strand rows, also calculate reftnc_template_strand.
-finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc %>%
+#Calculate trinucleotide counts and fractions for call_class = "SBS" and "MDB". For all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows, calculate reftnc_pyr. For call_class "SBS" with SBSindel_call_type = "mutation", calculate unique-call reftnc_pyr only for all_bc_orientations. For single-strand rows, also calculate reftnc_template_strand.
+finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc_orientation %>%
 	mutate(
 		
 		finalCalls.reftnc_pyr = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_for_tsv),
-			function(bc,x,y,z){
-				if(x %in% c("SBS","MDB") & (bc == "all_bc" | y != "mutation")){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_tsv),
+			function(bc_orientation,x,y,z){
+				if(x %in% c("SBS","MDB") & (bc_orientation == "all_bc_orientations" | y != "mutation")){
 					z %>%
 						count(reftnc_pyr, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
@@ -1239,9 +1239,9 @@ finalCalls.reftnc_spectra <- finalCalls.bytype.with_bc %>%
 		),
 		
 		finalCalls_unique.reftnc_pyr = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
-			function(bc,x,y,z){
-				if(bc == "all_bc" & x == "SBS" & y == "mutation"){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(bc_orientation,x,y,z){
+				if(bc_orientation == "all_bc_orientations" & x == "SBS" & y == "mutation"){
 					z %>%
 						count(reftnc_pyr, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
@@ -1282,9 +1282,9 @@ finalCalls.bytype <- finalCalls.bytype %>%
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
 		finalCalls.reftnc_pyr_spectrum = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_for_tsv),
-			function(bc,x,y,z){
-				if(x == "SBS" & (bc == "all_bc" | y != "mutation")){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_tsv),
+			function(bc_orientation,x,y,z){
+				if(x == "SBS" & (bc_orientation == "all_bc_orientations" | y != "mutation")){
 					z %>%
 						mutate(
 							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
@@ -1302,9 +1302,9 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		),
 		
 		finalCalls_unique.reftnc_pyr_spectrum = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
-			function(bc,x,y,z){
-				if(bc == "all_bc" & x == "SBS" & y == "mutation"){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_unique_for_tsv),
+			function(bc_orientation,x,y,z){
+				if(bc_orientation == "all_bc_orientations" & x == "SBS" & y == "mutation"){
 					z %>%
 						mutate(
 							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
@@ -1342,7 +1342,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		)
 	)
 
-#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-barcode aggregate rows and per-bc single-strand rows; template-strand spectra are calculated for single-strand call types.
+#Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows; template-strand spectra are calculated for single-strand call types.
 BSgenome_for_indel.spectrum <- BSgenome_name %>%
 	get %>%
 	getSeq
@@ -1350,9 +1350,9 @@ BSgenome_for_indel.spectrum <- BSgenome_name %>%
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
 		finalCalls.refindel_pyr_spectrum = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_for_vcf),
-			function(bc,x,y,z){
-				if(x == "indel" & (bc == "all_bc" | y != "mutation")){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_vcf),
+			function(bc_orientation,x,y,z){
+				if(x == "indel" & (bc_orientation == "all_bc_orientations" | y != "mutation")){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
@@ -1368,9 +1368,9 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		),
 		
 		finalCalls_unique.refindel_pyr_spectrum = pmap(
-			list(bc, call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
-			function(bc,x,y,z){
-				if(bc == "all_bc" & x == "indel" & y == "mutation"){
+			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_unique_for_vcf),
+			function(bc_orientation,x,y,z){
+				if(bc_orientation == "all_bc_orientations" & x == "indel" & y == "mutation"){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
@@ -1473,8 +1473,8 @@ annotate_corrected_counts_fractions <- function(df, cols, ref_col, annotation_ty
  #Annotate corrected counts and fractions
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	left_join(
-		bam.gr.filtertrack.bytype.with_bc %>% select(-bam.gr.filtertrack.coverage),
-		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc)
+		bam.gr.filtertrack.bytype.with_bc_orientation %>% select(-bam.gr.filtertrack.coverage),
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
 	) %>%
 	annotate_corrected_counts_fractions(
 		cols = c("finalCalls.reftnc_pyr", "finalCalls_unique.reftnc_pyr"),
@@ -1508,7 +1508,7 @@ cat("## Calculating call burdens...")
 #A. Call burdens not corrected for interrogated vs genome trinucleotide distributions
 
 #Calculate number of interrogated base pairs (SBSindel_call_type = mutation) or bases (mismatch-ss, mismatch-ds, mismatch-os, match), for each call_type to analyze. Note, for mismatch-ds, each mismatch-ds is counted as 2 mismatches so burdens use interrogated bases rather than base pairs.
-finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc %>%
+finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
 	
 	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
 	semi_join(
@@ -1524,8 +1524,8 @@ finalCalls.burdens <- bam.gr.filtertrack.bytype.with_bc %>%
 		
 		interrogated_bases_or_bp = case_when(
 			SBSindel_call_type == "mutation" ~ cov_sum,
-			bc != "all_bc" ~ cov_sum,
-			SBSindel_call_type != "mutation" & bc == "all_bc" ~ cov_sum * 2
+			bc_orientation != "all_bc_orientations" ~ cov_sum,
+			SBSindel_call_type != "mutation" & bc_orientation == "all_bc_orientations" ~ cov_sum * 2
 		)
 	) %>%
 	select(-cov_sum, -starts_with("bam.gr.filtertrack"))
@@ -1535,7 +1535,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 	left_join(
 		bind_rows(
 			#Not unique calls
-			finalCalls.bytype.with_bc %>%
+			finalCalls.bytype.with_bc_orientation %>%
 				semi_join(
 					call_types_toanalyze,
 					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
@@ -1550,12 +1550,12 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				),
 		
 			#Unique calls (only mutations)
-			finalCalls.bytype.with_bc %>%
+			finalCalls.bytype.with_bc_orientation %>%
 				semi_join(
 					call_types_toanalyze,
 					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 				) %>%
-				filter(bc == "all_bc", !map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
+				filter(bc_orientation == "all_bc_orientations", !map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
 					num_calls = finalCalls_unique_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
@@ -1565,7 +1565,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					sensitivity_corrected = FALSE
 				)
 		),
-		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc)
+		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
 	) %>%
 	select(-starts_with("finalCalls"))
 
@@ -1601,7 +1601,7 @@ finalCalls.reftnc_spectra.genome_correction.SBSmutations <- finalCalls.reftnc_sp
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
-	filter(bc == "all_bc", call_class == "SBS" & SBSindel_call_type == "mutation")
+	filter(bc_orientation == "all_bc_orientations", call_class == "SBS" & SBSindel_call_type == "mutation")
 
 finalCalls.burdens <- finalCalls.burdens %>%
 	bind_rows(
@@ -1647,7 +1647,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					)
 				)
 		) %>%
-		select(call_type, call_class, SBSindel_call_type, filtergroup, bc, burden_data) %>%
+		select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, burden_data) %>%
 		unnest_wider(burden_data)
 	)
 
@@ -1685,7 +1685,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 					)
 				)
 		) %>%
-		select(call_type, call_class, SBSindel_call_type, filtergroup, bc, burden_data) %>%
+		select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, burden_data) %>%
 		unnest_wider(burden_data)
 	)
 
@@ -1705,7 +1705,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
 	) %>%
 	select(-ci) %>%
-	relocate(bc, .after = filtergroup)
+	relocate(bc_orientation, .after = filtergroup)
 
 #Create sigfit-format finalCalls spectra tables
  #Helper function
@@ -1751,7 +1751,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		rowname_col = str_c(
 			yaml.config$analysis_id, sample_id_toanalyze,
 			chromgroup_toanalyze, filtergroup_toanalyze,
-			bc, call_class, call_type, SBSindel_call_type,
+			bc_orientation, call_class, call_type, SBSindel_call_type,
 			sep="."
 		),
 		
@@ -2060,7 +2060,7 @@ estimatedSBSMutationErrorProbability <- list()
 estimatedSBSMutationErrorProbability_by_channel <- left_join(
 	#SBS mismatch-ss calls template_strand spectrum
 	finalCalls.reftnc_spectra %>%
-		filter(bc == "all_bc", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+		filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
 		pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
 		mutate(reftnc = channel %>% str_sub(1,3)),
 
@@ -2087,7 +2087,7 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	)
 
-bam.gr.filtertrack.bytype.with_bc <- bam.gr.filtertrack.bytype.with_bc %>%
+bam.gr.filtertrack.bytype.with_bc_orientation <- bam.gr.filtertrack.bytype.with_bc_orientation %>%
 	semi_join(
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
@@ -2156,7 +2156,7 @@ qs_save(
 		molecule_stats.by_run_id,
 		molecule_stats.by_analysis_id,
 		region_genome_filter_stats,
-		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype.with_bc,
+		bam.gr.filtertrack.bytype.coverage_tnc = bam.gr.filtertrack.bytype.with_bc_orientation,
 		finalCalls,
 		finalCalls.bytype,
 		germlineVariantCalls,

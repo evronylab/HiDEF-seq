@@ -1986,7 +1986,7 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	sensitivity <- sensitivity %>%
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
-				select(-bam.gr.filtertrack.coverage),
+				select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_orientation_strand.coverage),
 			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		)
 	

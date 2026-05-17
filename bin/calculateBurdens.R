@@ -1232,7 +1232,7 @@ finalCalls.reftnc_spectra <- bind_rows(
 		finalCalls.reftnc_pyr = pmap(
 			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_tsv),
 			function(bc_orientation,x,y,z){
-				if(x %in% c("SBS","MDB") & (bc_orientation == "all_bc_orientations" | y != "mutation")){
+				if(x %in% c("SBS","MDB") & (bc_orientation == "all_bc_orientations" | (bc_orientation != "all_bc_orientations" & y != "mutation"))){
 					z %>%
 						count(reftnc_pyr, name = "count") %>%
 						complete(reftnc_pyr, fill = list(count = 0)) %>%
@@ -1291,7 +1291,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.reftnc_pyr_spectrum = pmap(
 			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_tsv),
 			function(bc_orientation,x,y,z){
-				if(x == "SBS" & (bc_orientation == "all_bc_orientations" | y != "mutation")){
+				if(x == "SBS" & (bc_orientation == "all_bc_orientations" | (bc_orientation != "all_bc_orientations" & y != "mutation"))){
 					z %>%
 						mutate(
 							channel = str_c(reftnc_pyr,">",alttnc_pyr) %>%
@@ -1359,7 +1359,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.refindel_pyr_spectrum = pmap(
 			list(bc_orientation, call_class, SBSindel_call_type, finalCalls_for_vcf),
 			function(bc_orientation,x,y,z){
-				if(x == "indel" & (bc_orientation == "all_bc_orientations" | y != "mutation")){
+				if(x == "indel" & (bc_orientation == "all_bc_orientations" | (bc_orientation != "all_bc_orientations" & y != "mutation"))){
 					z %>%
 						rename(
 							CHROM = seqnames, POS = start,
@@ -1484,7 +1484,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation)
 	) %>%
 	mutate(
-		bam.gr.filtertrack.reftnc_template_denominator = pmap(
+		bam.gr.filtertrack.reftnc_template_strand_denominator = pmap(
 			list(bc_orientation, bam.gr.filtertrack.reftnc_both_strands, bam.gr.filtertrack.reftnc_template_strand),
 			function(bc_orientation, both, template){
 				if(bc_orientation == "all_bc_orientations"){
@@ -1502,7 +1502,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	) %>%
 	annotate_corrected_counts_fractions(
 		cols = "finalCalls.reftnc_template_strand",
-		ref_col = "bam.gr.filtertrack.reftnc_template_denominator",
+		ref_col = "bam.gr.filtertrack.reftnc_template_strand_denominator",
 		annotation_type = "reftnc_template_strand"
 	) %>%
 	annotate_corrected_counts_fractions(
@@ -1512,7 +1512,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	) %>%
 	annotate_corrected_counts_fractions(
 		cols = "finalCalls.reftnc_template_strand_spectrum",
-		ref_col = "bam.gr.filtertrack.reftnc_template_denominator",
+		ref_col = "bam.gr.filtertrack.reftnc_template_strand_denominator",
 		annotation_type = "reftnc_template_strand_channel"
 	)
 
@@ -1555,11 +1555,6 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		bind_rows(
 			#Not unique calls
 			finalCalls.reftnc_spectra %>%
-				select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, finalCalls_for_tsv) %>%
-				semi_join(
-					call_types_toanalyze,
-					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-				) %>%
 				mutate(
 					num_calls = finalCalls_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
@@ -1571,12 +1566,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		
 			#Unique calls (only mutations)
 			finalCalls.reftnc_spectra %>%
-				select(call_type, call_class, SBSindel_call_type, filtergroup, bc_orientation, finalCalls_unique_for_tsv) %>%
-				semi_join(
-					call_types_toanalyze,
-					by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
-				) %>%
-				filter(bc_orientation == "all_bc_orientations", !map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
+				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
 					num_calls = finalCalls_unique_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
@@ -1622,7 +1612,7 @@ finalCalls.reftnc_spectra.genome_correction.SBSmutations <- finalCalls.reftnc_sp
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
-	filter(bc_orientation == "all_bc_orientations", call_class == "SBS" & SBSindel_call_type == "mutation")
+	filter(call_class == "SBS" & SBSindel_call_type == "mutation")
 
 finalCalls.burdens <- finalCalls.burdens %>%
 	bind_rows(
@@ -1691,7 +1681,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				mutate(
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
-						bam.gr.filtertrack.reftnc_template_denominator,
+						bam.gr.filtertrack.reftnc_template_strand_denominator,
 						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"genome",FALSE)}
 					)
 				),
@@ -1701,7 +1691,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				mutate(
 					burden_data = map2(
 						finalCalls.reftnc_template_strand,
-						bam.gr.filtertrack.reftnc_template_denominator,
+						bam.gr.filtertrack.reftnc_template_strand_denominator,
 						function(x,y){get_burden_data(x,y,expr(reftnc_template_strand==reftnc),"genome_chromgroup",FALSE)}
 					)
 				)
@@ -1835,7 +1825,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf, bam.gr.filtertrack.reftnc_pyr, bam.gr.filtertrack.reftnc_both_strands, bam.gr.filtertrack.reftnc_template_denominator))
+	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf, bam.gr.filtertrack.reftnc_pyr, bam.gr.filtertrack.reftnc_both_strands, bam.gr.filtertrack.reftnc_template_strand, bam.gr.filtertrack.reftnc_template_strand_denominator))
 
 cat("DONE\n")
 

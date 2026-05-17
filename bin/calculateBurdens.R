@@ -801,8 +801,8 @@ reftnc_template_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 	) %>%
 	group_by(row_id, reftnc) %>%
 	summarize(count = sum(count), .groups = "drop") %>%
+	complete(row_id = coverage_annotation_rows %>% filter(annotation_type == "strand") %>% pull(parent_row_id) %>% unique, reftnc, fill = list(count = 0)) %>%
 	group_by(row_id) %>%
-	complete(reftnc, fill = list(count = 0)) %>%
 	arrange(reftnc) %>%
 	filter(!is.na(reftnc)) %>%
 	mutate(

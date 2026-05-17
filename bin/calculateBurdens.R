@@ -1062,7 +1062,7 @@ strand_identical_cols_keep <- c(
 )
 
 strand_identical_cols_discard <- c(
-	"bc_orientation", "strand",
+	"strand",
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand"
 )

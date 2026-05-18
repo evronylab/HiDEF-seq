@@ -1,8 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
 #calculateBurdens.R:
-# Calculate burdens.
-	#Calculates non-sensitivity-corrected burdens and the sensitivity values (if sensitivity analysis is configured). The calculated sensitivity values are then used to calculate sensitivity-corrected burdens in the outputResults script rather than in this script, since this script operates per chromgroup x filtergroup whereas the sensitivity correction uses for each filtergroup the sensitivity value of one chromgroup (specified in sensitivity_parameters$use_chromgroup) for sensitivity-correction of all chromgroups.
+#Calculates non-sensitivity-corrected burdens and the sensitivity values (if sensitivity analysis is configured). The calculated sensitivity values are then used to calculate sensitivity-corrected burdens in the outputResults script rather than in this script, since this script operates per chromgroup x filtergroup whereas the sensitivity correction uses for each filtergroup the sensitivity value of one chromgroup (specified in sensitivity_parameters$use_chromgroup) for sensitivity-correction of all chromgroups.
 
 cat("#### Running calculateBurdens ####\n")
 

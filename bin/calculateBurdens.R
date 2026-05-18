@@ -1554,6 +1554,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		bind_rows(
 			#Not unique calls
 			finalCalls.reftnc_spectra %>%
+				select(-starts_with("bam.gr.filtertrack")) %>%
 				mutate(
 					num_calls = finalCalls_for_tsv %>% map_dbl(nrow),
 					num_calls_noncorrected = NA_real_,
@@ -1565,6 +1566,7 @@ finalCalls.burdens <- finalCalls.burdens %>%
 		
 			#Unique calls (only mutations)
 			finalCalls.reftnc_spectra %>%
+				select(-starts_with("bam.gr.filtertrack")) %>%
 				filter(!map_lgl(finalCalls_unique_for_tsv,is.null)) %>%
 				mutate(
 					num_calls = finalCalls_unique_for_tsv %>% map_dbl(nrow),
@@ -1824,7 +1826,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 #Remove unnecessary columns
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
-	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf, bam.gr.filtertrack.reftnc_pyr, bam.gr.filtertrack.reftnc_both_strands, bam.gr.filtertrack.reftnc_template_strand, bam.gr.filtertrack.reftnc_template_strand_denominator))
+	select(-c(finalCalls_for_tsv, finalCalls_unique_for_tsv, finalCalls_for_vcf, finalCalls_unique_for_vcf), -starts_with("bam.gr.filtertrack"))
 
 cat("DONE\n")
 

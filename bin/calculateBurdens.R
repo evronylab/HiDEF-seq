@@ -543,10 +543,7 @@ coverage_annotation_rows <- bind_rows(
 		),
 	coverage_rows %>%
 		filter(bc_orientation != "all_bc_orientations") %>%
-		select(
-			-bc_orientation,
-			-bam.gr.filtertrack.coverage
-		) %>%
+		select(-bam.gr.filtertrack.coverage) %>%
 		rename(parent_row_id = row_id) %>%
 		unnest(bam.gr.filtertrack.by_bc_orientation_strand.coverage)
 ) %>%

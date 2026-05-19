@@ -218,6 +218,7 @@ bc_orientation_is_asymmetric <- function(bc_orientation){
 }
 
 #Function to calculate duplex genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates duplex genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary. Function checks that bam.gr.filtertrack1 and bam.gr.filtertrack2 (if present) each have identical ranges for '+' and '-' strand reads, which they should from upstream filters.
+#Note: duplex coverage counts one unit per base pair, and due to duplex-only filtering, this is the same numeric depth and positions as per-strand coverage that counts one unit per base.
 sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
 
 	#Helper function to confirm identical ranges and metadata in '+' and '-' strand reads.
@@ -505,7 +506,7 @@ cat("## Calculating trinucleotide distributions of interrogated bases and the ge
 
 chunk_runs <- 1e7 #Size of blocks to write to disk. Lower number takes longer, but decreases peak RAM.
 
-#Build coverage rows to annotate. All-barcode-orientation aggregate rows retain current duplex coverage, while per-barcode-orientation rows retain barcode-orientation-specific total coverage plus the aligned-strand split needed to orient template-strand summaries.
+#Build coverage rows to annotate. All-barcode-orientation aggregate rows retain current duplex coverage and are written to coverage_reftnc BEDs. Per-bc-orientation rows retain summed coverage internally for burden denominators, plus the aligned-strand split needed to calculate template-strand summaries, where reference trinucleotides are oriented to the sequencer polymerase template strand. Per-bc-orientation per-strand coverage and duplex coverage are different units, but after duplex-only filtering they have the same numeric depth and positions.
 make_per_bc_orientation_coverage <- function(x){
 	x %>%
 		filter(bc_orientation_is_asymmetric(bc_orientation)) %>%
@@ -533,68 +534,42 @@ coverage_rows <- bind_rows(
 ) %>%
 	mutate(row_id = row_number())
 
-total_annotation_rows <- coverage_rows %>%
-	mutate(
-		parent_row_id = row_id,
-		annotation_type = "total",
-		strand = NA_character_
-	)
-
-strand_annotation_rows <- coverage_rows %>%
-	filter(bc_orientation != "all_bc_orientations") %>%
-	select(
-		-bc_orientation,
-		-bam.gr.filtertrack.coverage
-	) %>%
-	rename(parent_row_id = row_id) %>%
-	unnest(bam.gr.filtertrack.by_bc_orientation_strand.coverage) %>%
-	mutate(annotation_type = "strand")
-
-coverage_annotation_rows <- bind_rows(total_annotation_rows, strand_annotation_rows) %>%
+coverage_annotation_rows <- bind_rows(
+	coverage_rows %>%
+		filter(bc_orientation == "all_bc_orientations") %>%
+		mutate(
+			parent_row_id = row_id,
+			strand = NA_character_
+		),
+	coverage_rows %>%
+		filter(bc_orientation != "all_bc_orientations") %>%
+		select(
+			-bc_orientation,
+			-bam.gr.filtertrack.coverage
+		) %>%
+		rename(parent_row_id = row_id) %>%
+		unnest(bam.gr.filtertrack.by_bc_orientation_strand.coverage)
+) %>%
 	mutate(annotation_row_id = row_number())
-rm(total_annotation_rows, strand_annotation_rows)
-invisible(gc())
 
-get_coverage_reftnc_output_file <- function(bc_orientation, call_class, call_type, SBSindel_call_type){
-	bc_orientation <- bc_orientation %>% as.character
+get_coverage_reftnc_output_file <- function(call_class, call_type, SBSindel_call_type){
 	call_class <- call_class %>% as.character
 	call_type <- call_type %>% as.character
 	SBSindel_call_type <- SBSindel_call_type %>% as.character
 	
-	if(bc_orientation == "all_bc_orientations"){
-		str_c(
-			c(
-				yaml.config$analysis_id,
-				individual_id,
-				sample_id_toanalyze,
-				chromgroup_toanalyze,
-				filtergroup_toanalyze,
-				call_class,
-				call_type,
-				SBSindel_call_type,
-				"coverage_reftnc",
-				"bed.gz"
-			),
-			collapse="."
-		)
-	}else{
-		str_c(
-			c(
-				yaml.config$analysis_id,
-				individual_id,
-				sample_id_toanalyze,
-				chromgroup_toanalyze,
-				filtergroup_toanalyze,
-				bc_orientation,
-				call_class,
-				call_type,
-				SBSindel_call_type,
-				"coverage_reftnc",
-				"bed.gz"
-			),
-			collapse="."
-		)
-	}
+	str_c(
+		yaml.config$analysis_id,
+		individual_id,
+		sample_id_toanalyze,
+		chromgroup_toanalyze,
+		filtergroup_toanalyze,
+		call_class,
+		call_type,
+		SBSindel_call_type,
+		"coverage_reftnc",
+		"bed.gz",
+		sep="."
+	)
 }
 
 coverage_annotation_rows %>%
@@ -678,15 +653,14 @@ paste(
 
 file.remove("all.bed") %>% invisible
 
-#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output final per-base BEDs (bgzipped, tabix indexed) for total rows: seqnames, start, end, coverage, reftnc_plus_strand. Strand rows remain internal and only write trinucleotide counts.
+#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output final per-base BEDs (bgzipped, tabix indexed) for all-barcode-orientation total rows: seqnames, start, end, coverage, reftnc_plus_strand. Strand rows remain internal and only write trinucleotide counts.
 coverage_annotation_rows %>%
 	pwalk(
 		function(...){
 			x <- list(...)
 			
-			if(x$annotation_type == "total"){
+			if(x$bc_orientation == "all_bc_orientations"){
 				cov_output_file <- get_coverage_reftnc_output_file(
-					bc_orientation = x$bc_orientation,
 					call_class = x$call_class,
 					call_type = x$call_type,
 					SBSindel_call_type = x$SBSindel_call_type
@@ -777,7 +751,7 @@ reftnc_plus_strand_by_annotation_row <- list.files(pattern="*.reftnc_plus_strand
 reftnc_plus_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 	inner_join(
 		coverage_annotation_rows %>%
-			filter(annotation_type == "total") %>%
+			filter(bc_orientation == "all_bc_orientations") %>%
 			select(annotation_row_id, row_id = parent_row_id),
 		by = join_by(annotation_row_id)
 	) %>%
@@ -786,7 +760,7 @@ reftnc_plus_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 reftnc_template_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 	inner_join(
 		coverage_annotation_rows %>%
-			filter(annotation_type == "strand") %>%
+			filter(bc_orientation != "all_bc_orientations") %>%
 			select(annotation_row_id, row_id = parent_row_id, strand),
 		by = join_by(annotation_row_id)
 	) %>%
@@ -800,7 +774,7 @@ reftnc_template_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 	) %>%
 	group_by(row_id, reftnc) %>%
 	summarize(count = sum(count), .groups = "drop") %>%
-	complete(row_id = coverage_annotation_rows %>% filter(annotation_type == "strand") %>% pull(parent_row_id) %>% unique, reftnc, fill = list(count = 0)) %>%
+	complete(row_id = coverage_annotation_rows %>% filter(bc_orientation != "all_bc_orientations") %>% pull(parent_row_id) %>% unique, reftnc, fill = list(count = 0)) %>%
 	group_by(row_id) %>%
 	arrange(reftnc) %>%
 	filter(!is.na(reftnc)) %>%
@@ -1526,6 +1500,7 @@ cat("## Calculating call burdens...")
 #A. Call burdens not corrected for interrogated vs genome trinucleotide distributions
 
 #Calculate number of interrogated base pairs (SBSindel_call_type = mutation) or bases (mismatch-ss, mismatch-ds, mismatch-os, match), for each call_type to analyze. Note, for mismatch-ds, each mismatch-ds is counted as 2 mismatches so burdens use interrogated bases rather than base pairs.
+#For individual bc_orientation rows, the denominator is a per-strand base count, not a duplex base-pair count. The code below calculates cov_sum from the per-bc-orientation coverage Rle retained until this step; after duplex-only filtering, one strand with that bc_orientation is present for each retained duplex molecule, making the per-strand base count numerically equal to the duplex base-pair count.
 finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
 	
 	#Exclude SBS/mismatch-ss row if it was only added to bam.gr.filtertrack.bytype for downstream calculation of SBS mutation error probability. 
@@ -1533,7 +1508,6 @@ finalCalls.burdens <- bam.gr.filtertrack.bytype %>%
 		call_types_toanalyze,
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	) %>%
-	
 	mutate(
 		cov_sum = bam.gr.filtertrack.coverage %>%
 			map_dbl(function(x){

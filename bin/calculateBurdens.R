@@ -530,7 +530,8 @@ coverage_rows <- bind_rows(
 		filter(SBSindel_call_type != "mutation") %>%
 		mutate(per_bc_orientation_coverage = bam.gr.filtertrack.by_bc_orientation_strand.coverage %>% map(make_per_bc_orientation_coverage)) %>%
 		select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_orientation_strand.coverage) %>%
-		unnest(per_bc_orientation_coverage)
+		unnest(per_bc_orientation_coverage) %>%
+		select(-any_of("per_bc_orientation_coverage"))
 ) %>%
 	mutate(row_id = row_number())
 

@@ -237,17 +237,18 @@ invisible(gc())
 bam.df <- bam.df %>%
 	cbind(run_metadata[match(bam.df$RG, run_metadata$rg_id),c("movie_id","run_id")])
 
-#Convert bc tag from uint16[2] list to hyphen-separated barcode_id string (factor) (forward-reverse)
-bam.df$bc <- map2_chr(bam.df$bc, bam.df$run_id, function(bc_tag, run_id){
+#Convert bc tag from uint16[2] list to hyphen-separated barcode_id orientation string (factor) (forward-reverse)
+bam.df$bc_orientation <- map2_chr(bam.df$bc, bam.df$run_id, function(bc_tag, run_id){
     str_c(barcode_ids_by_run[[run_id]][bc_tag + 1L], collapse = "-")
   }) %>%
 	factor
+bam.df$bc <- NULL
 
 #Extract ccs strand
 bam.df$ccs_strand <- bam.df$qname %>% str_extract("(fwd|rev)$")
 
 #Convert some columns to factor
-for(i in c("flag","bc","RG","movie_id","run_id","ccs_strand")){
+for(i in c("flag","bc_orientation","RG","movie_id","run_id","ccs_strand")){
 	bam.df[,i] <- factor(bam.df[,i])
 }
 
@@ -407,7 +408,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   #Initialize empty calls tibble
   calls.out <- tibble(
     zm=integer(),
-    bc=factor(),
+    bc_orientation=factor(),
     seqnames=factor(),
     strand=factor(),
     start_queryspace=integer(),
@@ -971,17 +972,17 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       )
     )
   
-  #Annotate barcode tag (bc) from input reads
+  #Annotate barcode orientation from input reads
   calls.out <- calls.out %>%
-  	select(-bc) %>%
+	select(-bc_orientation) %>%
     left_join(
       bam.gr.input %>%
         as_tibble %>%
-        mutate(strand = fct_drop(strand)) %>%
-        distinct(zm, strand, bc),
+        mutate(strand = factor(strand, levels = strand_levels)) %>%
+        distinct(zm, strand, bc_orientation),
       by = join_by(zm, strand)
     ) %>%
-    relocate(bc, .after = zm)
+    relocate(bc_orientation, .after = zm)
 
   #Set call_class and call_type
   calls.out <- calls.out %>%

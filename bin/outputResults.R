@@ -317,7 +317,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
 	#Genome coverage and trinucleotide counts, fractions, and ratio to genome
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- calculateBurdensFile %>%
@@ -328,7 +328,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
 	#Whole genome trinucleotide counts and fractions
 	genome.reftnc[[i]] <- calculateBurdensFile %>%
@@ -368,7 +368,7 @@ for(i in seq_along(calculateBurdensFiles)){
 			filtergroup = filtergroup %>% factor(levels = filtergroups),
 			.before = 1
 		) %>%
-		relocate(filtergroup, call_class, .after = chromgroup)
+		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 		
 	#estimated SBS mutation error probability
 	if(! calculateBurdensFile %>% pluck("estimatedSBSMutationErrorProbability") %>% is.null){
@@ -614,7 +614,7 @@ strand_identical_cols_keep <- c(
 )
 
 strand_identical_cols_discard <- c(
-	"bc", "refstrand",
+	"bc_orientation", "refstrand",
 	"call_class.opposite_strand", "call_type.opposite_strand",
 	"alt_plus_strand.opposite_strand",
 	"deletion.bothstrands.startendmatch", "MDB_score"
@@ -743,13 +743,39 @@ cat("DONE\n")
 ######################
 cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
+is_output_object <- function(x){
+	!is.null(x) && !(length(x) == 1 && is.na(x))
+}
+
+sum_spectrum_objects <- function(x){
+	reduce(
+		x,
+		function(a,b){
+			map2(a, b, ~ .x + .y)
+		}
+	) %>%
+		list
+}
+
+sum_sigfit_objects <- function(x){
+	x %>%
+		reduce(`+`) %>%
+		list %>%
+		map(
+			function(y){
+				rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
+				return(y)
+			}
+		)
+}
+
 #Add to finalCalls.reftnc_spectra additional indel spectra tables that combine insertion and deletion finalCalls across filtergroups. Since insertions and deletions are treated separately until this point, this is required to output combined insertion/deletion spectra for pyrimidine-collapsed indels and template-strand single-strand call types.
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	bind_rows(
 		finalCalls.reftnc_spectra %>%
 			filter(call_class=="indel", SBSindel_call_type == "mutation") %>%
 			select(
-				analysis_id, individual_id, sample_id, chromgroup, call_class,
+				analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class,
 				call_type,
 				SBSindel_call_type,
 				finalCalls.refindel_pyr_spectrum,
@@ -759,36 +785,18 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			) %>%
 			
 			#Sum insertion and deletion matrices (not grouping by call_type)
-			group_by(analysis_id, individual_id, sample_id, chromgroup, call_class, SBSindel_call_type) %>%
+			group_by(analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class, SBSindel_call_type) %>%
 			summarize(
 				#Spectra
 				across(
 					c(finalCalls.refindel_pyr_spectrum, finalCalls_unique.refindel_pyr_spectrum),
-					function(x){
-						reduce(
-							x,
-							function(a,b){
-								map2(a, b, ~ .x + .y)
-							}
-						) %>%
-							list
-					}
+					sum_spectrum_objects
 				),
 				
 				#Sigfit matrices, and rename rownames
 				across(
 					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls_unique.refindel_pyr_spectrum.sigfit),
-					function(x){
-						result <- x %>%
-							reduce(`+`) %>%
-							list %>%
-							map(
-								function(y){
-									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
-									return(y)
-								}
-							)
-					}
+					sum_sigfit_objects
 				),
 
 				.groups = "drop"
@@ -797,7 +805,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 		finalCalls.reftnc_spectra %>%
 			filter(call_class=="indel", SBSindel_call_type != "mutation") %>%
 			select(
-				analysis_id, individual_id, sample_id, chromgroup, call_class,
+				analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class,
 				call_type,
 				SBSindel_call_type,
 				finalCalls.refindel_pyr_spectrum,
@@ -807,49 +815,23 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 			) %>%
 
 			#Sum insertion and deletion matrices (not grouping by call_type)
-			group_by(analysis_id, individual_id, sample_id, chromgroup, call_class, SBSindel_call_type) %>%
+			group_by(analysis_id, individual_id, sample_id, chromgroup, bc_orientation, call_class, SBSindel_call_type) %>%
 			summarize(
 				#Spectra
 				across(
 					c(finalCalls.refindel_pyr_spectrum, finalCalls.refindel_template_strand_spectrum),
-					function(x){
-						reduce(
-							x,
-							function(a,b){
-								map2(a, b, ~ .x + .y)
-							}
-						) %>%
-							list
-					}
+					sum_spectrum_objects
 				),
 
 				#Sigfit matrices, and rename rownames
 				across(
 					c(finalCalls.refindel_pyr_spectrum.sigfit, finalCalls.refindel_template_strand_spectrum.sigfit),
-					function(x){
-						result <- x %>%
-							reduce(`+`) %>%
-							list %>%
-							map(
-								function(y){
-									rownames(y) <- cur_group() %>% as.list %>% map_chr(as.character) %>% str_c(collapse=".")
-									return(y)
-								}
-							)
-					}
+					sum_sigfit_objects
 				),
 				
 				.groups = "drop"
 			)
 	)
-
-#Helper function: write TSV for a given tibble col_name
-write_col <- function(df.input, col_name.input, metadata.input, output_basename_full.input) {
-	metadata.input %>%
-		mutate(!!sym(col_name.input) := list(df.input)) %>%
-		unnest(all_of(col_name.input)) %>%
-		write_tsv(str_c(output_basename_full.input, ".", col_name.input, ".tsv"))
-}
 
 #Helper function: plots spectrum for a given sigfit col_name
 plot_col <- function(df.input, col_name.input, output_basename_full.input){
@@ -873,103 +855,143 @@ plot_col <- function(df.input, col_name.input, output_basename_full.input){
 
 #Output spectra of finalCalls for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type, as well as the added combined insertion+deletion mutation spectra.
 #Note: this outputs SBS/mismatch-ss trinucleotide distributions that were retained in finalCalls.reftnc_spectra from upstream calculateBurdens for every chromgroup/filtergroup, even if not configured to call SBS/mismatch-ss in a chromgroup/filtergroup. This aids assessment of mismatch patterns for every chromgroup/filtergroup for the purpose of evaluating SBS mutation error probability (which is also later calculated directly).
+spectra_metadata_cols <- c(
+	"analysis_id", "individual_id", "sample_id", "chromgroup", "filtergroup",
+	"bc_orientation", "call_class", "call_type", "SBSindel_call_type"
+)
+
+spectra_group_cols <- c("chromgroup", "filtergroup", "call_class", "call_type", "SBSindel_call_type")
+
+finalCalls_sbs_tables_to_output <- c(
+	"finalCalls.reftnc_pyr",
+	"finalCalls_unique.reftnc_pyr",
+	"finalCalls.reftnc_template_strand",
+	"finalCalls.reftnc_pyr_spectrum",
+	"finalCalls_unique.reftnc_pyr_spectrum",
+	"finalCalls.reftnc_template_strand_spectrum"
+)
+
+interrogatedBases_sbs_tables_to_output <- c(
+	"bam.gr.filtertrack.reftnc_pyr",
+	"bam.gr.filtertrack.reftnc_both_strands",
+	"bam.gr.filtertrack.reftnc_template_strand"
+)
+
+indel_tables_to_output <- c(
+	"finalCalls.refindel_pyr_spectrum.sigfit",
+	"finalCalls_unique.refindel_pyr_spectrum.sigfit",
+	"finalCalls.refindel_template_strand_spectrum.sigfit"
+)
+
+plots_to_output <- c(
+	"finalCalls.reftnc_pyr_spectrum.sigfit",
+	"finalCalls.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
+	"finalCalls.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
+	"finalCalls_unique.reftnc_pyr_spectrum.sigfit",
+	"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
+	"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
+	"finalCalls.reftnc_template_strand_spectrum.sigfit",
+	"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome.sigfit",
+	"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome_chromgroup.sigfit",
+	"finalCalls.refindel_pyr_spectrum.sigfit",
+	"finalCalls_unique.refindel_pyr_spectrum.sigfit",
+	"finalCalls.refindel_template_strand_spectrum.sigfit"
+)
+
+make_finalCalls_spectra_basename <- function(x, include_bc_orientation = FALSE){
+	str_c(
+		c(
+			str_c(finalCalls.spectra_dir, x$chromgroup, "/", output_basename),
+			x$chromgroup %>% as.character,
+			x$filtergroup %>% as.character,
+			if(include_bc_orientation){x$bc_orientation %>% as.character},
+			x$call_class %>% as.character,
+			x$call_type %>% as.character,
+			x$SBSindel_call_type %>% as.character
+		) %>%
+			discard(is.na),
+		collapse="."
+	)
+}
+
+write_nested_spectra_table <- function(data.input, col_name.input, metadata_cols.input, output_basename_full.input, transform_object.input = identity){
+	has_output <- map_lgl(data.input[[col_name.input]], is_output_object)
+	
+	if(any(has_output)){
+		output_table <- data.input %>%
+			filter(has_output) %>%
+			mutate(
+				!!sym(col_name.input) := .data[[col_name.input]] %>%
+					map(transform_object.input)
+			) %>%
+			select(any_of(metadata_cols.input), all_of(col_name.input)) %>%
+			unnest(all_of(col_name.input))
+		
+		output_table %>%
+			write_tsv(str_c(output_basename_full.input, ".", col_name.input, ".tsv"))
+	}
+}
+
+#Output spectra TSVs with all_bc_orientations and any asymmetric per-barcode-orientation rows in the same tidy table.
 finalCalls.reftnc_spectra %>%
+	group_by(across(all_of(spectra_group_cols))) %>%
+	nest %>%
 	pwalk(
 		function(...){
 			x <- list(...)
+			output_basename_full <- make_finalCalls_spectra_basename(x)
 			
-			output_basename_full <- str_c(
-				c(
-					str_c(finalCalls.spectra_dir,x$chromgroup,"/",output_basename),
-					x$chromgroup %>% as.character,
-					x$filtergroup %>% as.character,
-					x$call_class %>% as.character,
-					x$call_type %>% as.character,
-					x$SBSindel_call_type %>% as.character
-				) %>%
-					discard(is.na), #Needed because filtergroup and call_type are NA for rows of combined insertion + deletion spectra
-				collapse="."
-			)
-			
-			metadata <- x %>%
-				keep(
-					names(.) %in%
-						c(
-							"analysis_id", "individual_id", "sample_id",
-							"chromgroup", "filtergroup",
-							"call_class", "call_type", "SBSindel_call_type"
-						)
-				) %>%
-				as_tibble
-			
-			sbs_tables_to_output <- c(
-				"finalCalls.reftnc_pyr",
-				"finalCalls_unique.reftnc_pyr",
-				"finalCalls.reftnc_template_strand",
-				"finalCalls.reftnc_pyr_spectrum",
-				"finalCalls_unique.reftnc_pyr_spectrum",
-				"finalCalls.reftnc_template_strand_spectrum"
-			)
-			
-			indel_tables_to_output <- c(
-				"finalCalls.refindel_pyr_spectrum.sigfit",
-				"finalCalls_unique.refindel_pyr_spectrum.sigfit",
-				"finalCalls.refindel_template_strand_spectrum.sigfit"
-			)
-			
-			plots_to_output <- c(
-				"finalCalls.reftnc_pyr_spectrum.sigfit",
-				"finalCalls.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
-				"finalCalls.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
-				"finalCalls_unique.reftnc_pyr_spectrum.sigfit",
-				"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome.sigfit",
-				"finalCalls_unique.reftnc_pyr_spectrum.corrected_to_genome_chromgroup.sigfit",
-				"finalCalls.reftnc_template_strand_spectrum.sigfit",
-				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome.sigfit",
-				"finalCalls.reftnc_template_strand_spectrum.corrected_to_genome_chromgroup.sigfit",
-				"finalCalls.refindel_pyr_spectrum.sigfit",
-				"finalCalls_unique.refindel_pyr_spectrum.sigfit",
-				"finalCalls.refindel_template_strand_spectrum.sigfit"
-			)
-			
-			sbs_tables_to_output %>%
+			finalCalls_sbs_tables_to_output %>%
 				walk(function(y){
-					if(!is.null(x[[y]])){
-						write_col(
-							df.input = x[[y]],
-							col_name.input = y, metadata.input = metadata, output_basename_full.input = output_basename_full
-						)
-					}
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full
+					)
 				})
 			
 			indel_tables_to_output %>%
 				walk(function(y){
-					if(!is.null(x[[y]])){
-						write_col(
-							df.input = x[[y]] %>%
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full,
+						transform_object.input = function(z){
+							z %>%
 								as_tibble %>%
 								pivot_longer(cols=everything(), names_to = "channel", values_to = "count") %>%
-								mutate(fraction = count / sum(count)),
-							col_name.input = y, metadata.input = metadata, output_basename_full.input = output_basename_full
-						)
-					}
+								mutate(fraction = count / sum(count))
+						}
+					)
 				})
+		}
+	)
+
+#Output plots in the finalCalls spectra directory, adding bc_orientation to filenames for per-barcode-orientation rows.
+finalCalls.reftnc_spectra %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+			output_basename_full <- make_finalCalls_spectra_basename(x, include_bc_orientation = x$bc_orientation != "all_bc_orientations")
 			
 			plots_to_output %>%
 				walk(function(y){
-					if(!is.null(x[[y]])){
+					if(is_output_object(x[[y]])){
 						plot_col(
 							df.input = x[[y]],
 							col_name.input = y, output_basename_full.input = output_basename_full
 						)
 					}
 				})
-			
 		}
 	)
 
 #Output spectra of interrogated bases for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type
 bam.gr.filtertrack.bytype.coverage_tnc %>%
+	group_by(across(all_of(spectra_group_cols))) %>%
+	nest %>%
 	pwalk(
 		function(...){
 			x <- list(...)
@@ -984,27 +1006,13 @@ bam.gr.filtertrack.bytype.coverage_tnc %>%
 				sep="."
 			)
 			
-			metadata <- x %>%
-				keep(
-					names(.) %in%
-						c(
-							"analysis_id", "individual_id", "sample_id",
-							"chromgroup", "filtergroup",
-							"call_class", "call_type", "SBSindel_call_type"
-						)
-				) %>%
-				as_tibble
-			
-			sbs_tables_to_output <- c(
-				"bam.gr.filtertrack.reftnc_pyr",
-				"bam.gr.filtertrack.reftnc_both_strands"
-			)
-			
-			sbs_tables_to_output %>%
+			interrogatedBases_sbs_tables_to_output %>%
 				walk(function(y){
-					write_col(
-						df.input = x[[y]],
-						col_name.input = y, metadata.input = metadata, output_basename_full.input = output_basename_full
+					write_nested_spectra_table(
+						data.input = x$data,
+						col_name.input = y,
+						metadata_cols.input = spectra_metadata_cols,
+						output_basename_full.input = output_basename_full
 					)
 				})
 			

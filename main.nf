@@ -80,6 +80,13 @@ def configHash(params_input, keys) {
   digest.digest().encodeHex().toString()
 }
 
+def fileSha256(path) {
+  return java.security.MessageDigest.getInstance('SHA-256')
+    .digest(file(path).bytes)
+    .encodeHex()
+    .toString()
+}
+
 def canonicalBarcodePair(barcodeA, barcodeB) {
   return barcodeA == barcodeB ? barcodeA : [barcodeA, barcodeB].toSorted().join('-')
 }
@@ -153,18 +160,14 @@ workflow {
   params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
-  sharedFunctionsHash = java.security.MessageDigest.getInstance('SHA-256')
-    .digest(file("${workflow.projectDir}/bin/sharedFunctions.R").bytes)
-    .encodeHex()
-    .toString()
-  paramsWithSharedFunctionsHash = params + [sharedFunctionsHash: sharedFunctionsHash]
+  signature_params = params + [sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")]
   config_signatures = [
-    installBSgenome: configHash(params, ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes']),
-    processGermlineVCFs: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'sharedFunctionsHash']),
-    extractCallsChunk: configHash(paramsWithSharedFunctionsHash, ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'sharedFunctionsHash']),
-    filterCallsChunkChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(paramsWithSharedFunctionsHash, ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'sharedFunctionsHash']),
-    outputResultsSample: configHash(paramsWithSharedFunctionsHash, ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'sharedFunctionsHash'])
+    installBSgenome: configHash(signature_params + [installBSgenomeScriptHash: fileSha256("${workflow.projectDir}/bin/installBSgenome.R")], ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes', 'installBSgenomeScriptHash']),
+    processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
+    extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
+    filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
+    outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
   ]
 
   // Validate barcodes section and build barcode map

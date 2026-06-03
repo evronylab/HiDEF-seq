@@ -1215,10 +1215,10 @@ calls.gr <- calls %>%
   )
 
  #Initialize new opposite strand columns
-calls.gr$call_class.opposite_strand <- factor(NA, levels = levels(calls.gr$call_class))
-calls.gr$call_type.opposite_strand  <- factor(NA, levels = levels(calls.gr$call_type))
-calls.gr$alt_plus_strand.opposite_strand <- NA_character_
-calls.gr$deletion.bothstrands.startendmatch <- NA
+calls.gr$call_class.opposite_strand <- factor(rep(NA, length(calls.gr)), levels = levels(calls.gr$call_class))
+calls.gr$call_type.opposite_strand  <- factor(rep(NA, length(calls.gr)), levels = levels(calls.gr$call_type))
+calls.gr$alt_plus_strand.opposite_strand <- rep(NA, length(calls.gr))
+calls.gr$deletion.bothstrands.startendmatch <- rep(NA, length(calls.gr))
 
  #Create GRanges (current and opposite strand) with new seqnames keys so overlaps only occur within same chromosome, run_id, zm, opposite strand. For opposite strand GRanges, keep only SBS and indel calls.
 calls.gr.keyed <- GRanges(
@@ -1227,8 +1227,7 @@ calls.gr.keyed <- GRanges(
 		select(seqnames, run_id, zm, strand) %>%
 		as.list %>%
 		interaction(drop = TRUE),
-	ranges = ranges(calls.gr),
-	strand = "*"
+	ranges = ranges(calls.gr)
 )
 
 calls.gr.keyed.opposite <- GRanges(
@@ -1238,8 +1237,7 @@ calls.gr.keyed.opposite <- GRanges(
 		mutate(strand = strand %>% case_match("+" ~ "-", "-" ~ "+", "*" ~ "*")) %>%
 		as.list %>%
 		interaction(drop = TRUE),
-	ranges = ranges(calls.gr),
-	strand = "*"
+	ranges = ranges(calls.gr)
 )
 mcols(calls.gr.keyed.opposite) = mcols(calls.gr)[,c("call_class","call_type","alt_plus_strand","start_refspace","end_refspace")]
 

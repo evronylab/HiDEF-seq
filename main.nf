@@ -894,7 +894,7 @@ process limaDemux {
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), val(barcode_ids_round2), val(barcode_pair_key_round2), path(bamFile), path(pbiFile), path(barcodesFasta), val(mode), val(supplemental_settings)
 
     output:
-      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), val(barcode_ids_round2), val(barcode_pair_key_round2), path("*.demux.*.bam"), emit: bam
+      tuple val(run_id), val(individual_id), val(sample_id), val(barcode_ids), val(barcode_ids_round2), val(barcode_pair_key_round2), path("*.demux.*.bam"), emit: bam, optional: true
       path "*.lima.summary", emit: lima_summary
       path "*.lima.counts", emit: lima_counts
 

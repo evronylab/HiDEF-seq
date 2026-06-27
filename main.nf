@@ -516,7 +516,8 @@ workflow {
   // Create input channel
   countZMWs_input_ch = countZMWs_initial_ch.mix(
       filterAdapter.out.map { f -> tuple(f[1], f[2], "zmwcount.txt") },
-      pbmm2Align_input_ch.map { run_id, individual_id, sample_id, barcode_id, demux_bam -> tuple(demux_bam, file("${demux_bam}.pbi"), "zmwcount.txt") },
+      mergeDemuxBams_round1.map { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> tuple(bamFile, pbiFile, "zmwcount.txt") },
+      mergeDemuxBams_round2.map { run_id, individual_id, sample_id, barcode_ids, bamFile, pbiFile -> tuple(bamFile, pbiFile, "zmwcount.txt") },
       pbmm2Align.out.map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile -> tuple(bamFile, pbiFile, "zmwcount.txt") }
     )
 

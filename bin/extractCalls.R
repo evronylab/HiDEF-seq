@@ -263,6 +263,7 @@ bam.df$sa <- mapply(
 		function(x,y){inverse.rle(list(lengths=x,values=y))},
 		x=sa.lengths,
 		y=sa.values,
+		SIMPLIFY=FALSE,
 		USE.NAMES=FALSE
 	)
 

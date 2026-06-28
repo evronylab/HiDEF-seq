@@ -554,11 +554,17 @@ workflow {
   // splitBAM
   //******************
 
+  countAnalysisZMWs(mergeAlignedSampleBAMs.out)
+
   // Create input channel
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
-      .combine(channel.from(1..params.analysis_chunks))
-      .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID ->
-        tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID)
+      .join(countAnalysisZMWs.out, by: [0, 1])
+      .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile ->
+        def total_zmws = zmwCountFile.text.trim() as int
+        def effective_chunks = Math.min(params.analysis_chunks as int, total_zmws)
+        (1..effective_chunks).collect { chunkID ->
+          tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effective_chunks)
+        }
       }
 
   // Run process
@@ -646,8 +652,8 @@ workflow {
   // Create input channel
   extractCalls_input_ch = splitBAM.out
       .combine(prepareFilters_done)
-      .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, prepareFiltersReady ->
-        tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, config_signatures.extractCallsChunk)
+      .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, prepareFiltersReady ->
+        tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, config_signatures.extractCallsChunk)
       }
 
   // Run process
@@ -679,8 +685,8 @@ workflow {
   // Create input channel
   filterCallsChunkChromgroupFiltergroup_input_ch = extractCallsChunk.out
       .combine(channel.fromList(chromgroups_filtergroups_list))
-      .map { individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup ->
-        tuple(individual_id, sample_id, extractCallsFile, chunkID, chromgroup, filtergroup, config_signatures.filterCallsChunkChromgroupFiltergroup)
+      .map { individual_id, sample_id, extractCallsFile, chunkID, effectiveChunks, chromgroup, filtergroup ->
+        tuple(individual_id, sample_id, extractCallsFile, chunkID, effectiveChunks, chromgroup, filtergroup, config_signatures.filterCallsChunkChromgroupFiltergroup)
       }
 
   // Run process
@@ -691,8 +697,12 @@ workflow {
   //******************
   // Create input channel
   calculateBurdensChromgroupFiltergroup_input_ch = filterCallsChunkChromgroupFiltergroup.out
-      .groupTuple(by: [0, 1, 2, 3], size: params.analysis_chunks) // Group by individual_id, sample_id, chromgroup, filtergroup. 'size' parameter emits as soon as each group's chunks finish.
-      .map { individual_id, sample_id, chromgroup, filtergroup, chunkIDs, filterCallsFiles ->
+      .map { individual_id, sample_id, chromgroup, filtergroup, chunkID, filterCallsFile, effectiveChunks ->
+          tuple(groupKey([individual_id, sample_id, chromgroup, filtergroup], effectiveChunks), chunkID, filterCallsFile)
+      }
+      .groupTuple()
+      .map { group, chunkIDs, filterCallsFiles ->
+          def (individual_id, sample_id, chromgroup, filtergroup) = group.getGroupTarget()
           // Sort by chunkID
           def sortedIndices = (0..<chunkIDs.size()).toList().sort { i -> chunkIDs[i] as int }
           def sortedfilterCallsFiles = sortedIndices.collect { i -> filterCallsFiles[i] }
@@ -1137,7 +1147,33 @@ process countZMWs {
 }
 
 /*
-  splitBAM: Splits BAM files into approximately equal chunks per params.analysis_chunks.
+  countAnalysisZMWs: Counts ZMWs in merged per-sample BAM files for analysis chunk planning.
+*/
+process countAnalysisZMWs {
+    cpus 1
+    memory '8 GB'
+    time '10m'
+    tag { "countAnalysisZMWs: ${sample_id}" }
+    container "${params.hidefseq_container}"
+
+    input:
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile)
+
+    output:
+      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt")
+
+    script:
+    """
+    set -euo pipefail
+    
+    source ${params.conda_base_script}
+    conda activate ${params.conda_pbbioconda_env}
+    zmwfilter --show-all ${bamFile} | wc -l > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt
+    """
+}
+
+/*
+  splitBAM: Splits BAM files into approximately equal non-empty chunks.
 */
 process splitBAM {
     cpus 2
@@ -1159,14 +1195,14 @@ process splitBAM {
     }
 
     input:
-      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(effectiveChunks)
 
     output:
       tuple val(individual_id), val(sample_id),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"),
       path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
-      val(chunkID)
+      val(chunkID), val(effectiveChunks)
 
     script:
     """
@@ -1183,7 +1219,7 @@ process splitBAM {
 
     total_zmws=\$(wc -l < \$ids_file)
 
-    awk -v T=\$total_zmws -v N=${params.analysis_chunks} -v K=${chunkID} '
+    awk -v T=\$total_zmws -v N=${effectiveChunks} -v K=${chunkID} '
       BEGIN{
         base=int(T/N); rem=T%N
       }
@@ -1196,9 +1232,9 @@ process splitBAM {
       }
     ' \$ids_file > \$chunk_ids
 
-    # Fail if chunk_ids is empty (can happen when total_zmws < N and K > total_zmws)
+    # Guard against unexpected empty chunks.
     if [ ! -s \$chunk_ids ]; then
-      echo "ERROR: chunkID=${chunkID} produced no ZMW IDs" >&2
+      echo "ERROR: chunkID=${chunkID} produced no ZMW IDs with effectiveChunks=${effectiveChunks}" >&2
       exit 1
     fi
 
@@ -1454,10 +1490,10 @@ process extractCallsChunk {
     }
 
     input:
-      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(config_sig)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(effectiveChunks), val(config_sig)
 
     output:
-      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID)
+      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2"), val(chunkID), val(effectiveChunks)
 
     script:
     """
@@ -1495,10 +1531,10 @@ process filterCallsChunkChromgroupFiltergroup {
     }
 
     input:
-      tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(chromgroup), val(filtergroup), val(config_sig)
+      tuple val(individual_id), val(sample_id), path(extractCallsFile), val(chunkID), val(effectiveChunks), val(chromgroup), val(filtergroup), val(config_sig)
 
     output:
-      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2")
+      tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), val(chunkID), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2"), val(effectiveChunks)
 
     script:
     """

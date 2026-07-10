@@ -124,7 +124,7 @@ The repository provides an example workflow ([`scripts/Process_PacBio_GermlineWG
 Run the script as follows:
 
 ```
-Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh [input_bam] [output_basename] [reference.fasta] [reference.mmi] [hidef-seq .sif path] [clair3 .sif path] [deepvariant .sif path]
+Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh [input_bam] [output_basename] [reference.fasta] [reference.mmi] [hidef-seq .sif path] [clair3 .sif path] [deepvariant .sif path] [male/female] [PAR.bed]
 ```
 
 

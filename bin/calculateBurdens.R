@@ -2037,32 +2037,51 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 ### Calculate estimated SBS mutation error rates per trinucleotide call channel and total error rate
 ######################
 cat("## Calculating estimated SBS mutation error probability per trinucleotide call channel and total error probability...")
-#The SBS mutation error probability is estimated for each of the 192 trinucleotide call channels using SBS mismatch-ss calls as [burden(tri-call_i) * burden(rev complement tri-call_i)], where burden(tri-call_i) = [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context], and likewise for burden(rev complement tri-call_i). Then these error probabilities are summed across the 96 central pyrimidine trinucelotide call channels. The total error probability is then calculated as the sum of the 96 trinucleotide call channel error probabilities. The error rate is calculated both using raw burdens and with burdens corrected for the whole genome and for the genome chromgroup. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
+#The SBS mutation error probability is estimated for each of the 96 central-pyrimidine trinucleotide call channels as [burden(tri-call_i) * burden(reverse-complement tri-call_i)], where each burden is [# tri_i calls] / [# interrogated bases with tri_i's trinucleotide context]. Each conditional error probability is weighted once by the corresponding reverse-complement-paired context fraction in the interrogated bases, whole genome, or genome chromgroup. The totals are the sums across the 96 weighted channel probabilities. Note: assumes that trinucleotide contexts that are not in interrogated bases have 0 error probability.
 estimatedSBSMutationErrorProbability <- list()
 
-#Calculate burden of each trinucleotide call channel
-estimatedSBSMutationErrorProbability_by_channel <- left_join(
+#Calculate the conditional mismatch burden and target context fractions of each strand-oriented trinucleotide call channel
+estimatedSBSMutationErrorProbability_by_channel <- finalCalls.reftnc_spectra %>%
 	#SBS mismatch-ss calls template_strand spectrum
-	finalCalls.reftnc_spectra %>%
-		filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
-		pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
-		mutate(reftnc = channel %>% str_sub(1,3)),
-
-	#Interrogated bases spectrum
-	bam.gr.filtertrack.bytype %>%
-		filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
-		pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
-		select(reftnc, count),
-	
-	by = "reftnc",
-	suffix = c(".calls",".interrogated_bases")
-) %>%
-	mutate(
-		burden = count.calls / count.interrogated_bases,
-		burden_corrected_to_genome = count_corrected_to_genome / count.interrogated_bases,
-		burden_corrected_to_genome_chromgroup = count_corrected_to_genome_chromgroup / count.interrogated_bases
+	filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+	pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
+	transmute(
+		channel,
+		reftnc = channel %>% str_sub(1,3) %>% factor(levels = trinucleotides_64),
+		count.calls = count
 	) %>%
-	select(channel, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup)
+	left_join(
+		#Interrogated bases spectrum
+		bam.gr.filtertrack.bytype %>%
+			filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
+			pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
+			transmute(
+				reftnc,
+				count.interrogated_bases = count,
+				fraction.interrogated_bases = fraction
+			),
+		by = "reftnc"
+	) %>%
+	left_join(
+		genome.reftnc$reftnc_both_strands %>%
+			transmute(reftnc, fraction.genome = fraction),
+		by = "reftnc"
+	) %>%
+	left_join(
+		genome_chromgroup.reftnc$reftnc_both_strands %>%
+			transmute(reftnc, fraction.genome_chromgroup = fraction),
+		by = "reftnc"
+	) %>%
+	mutate(
+		burden = if_else(count.interrogated_bases > 0, count.calls / count.interrogated_bases, 0),
+		across(starts_with("fraction."), ~ .x %>% replace_na(0)),
+		channel_rc = str_c(
+			channel %>% str_sub(1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
+			">",
+			channel %>% str_sub(5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
+		) %>%
+			factor(levels = sbs192_labels)
+	)
 
 #Remove SBS/mismatch-ss from bam.gr.filtertrack.bytype if it is not part of call_types_toanalyze, since it was only retained until here in order to calculate SBS mutation error probability.
 bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
@@ -2071,35 +2090,27 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 		by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 	)
 
-#Multiply each trinucleotide call channel burden by its reverse complement's burden to obtain the error probability for each channel
+#Pair each central-pyrimidine channel with its reverse complement once, multiply their conditional burdens, and weight the result once by each target context distribution
 estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationErrorProbability_by_channel %>%
-	mutate(
-		channel_rc = str_c(
-			channel %>% str_sub(1,3) %>% DNAStringSet %>% reverseComplement %>% as.character,
-			">",
-			channel %>% str_sub(5,7) %>% DNAStringSet %>% reverseComplement %>% as.character
-		) %>%
-			factor(levels = sbs192_labels)
-	) %>%
 	left_join(
-		x = select(., channel, channel_rc, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup),
-		y = select(., channel_rc, burden, burden_corrected_to_genome, burden_corrected_to_genome_chromgroup),
-		by = join_by(channel == channel_rc),
-		suffix = c("",".rc")
+		estimatedSBSMutationErrorProbability_by_channel %>%
+			transmute(
+				channel_rc = channel,
+				burden.rc = burden,
+				fraction.interrogated_bases.rc = fraction.interrogated_bases,
+				fraction.genome.rc = fraction.genome,
+				fraction.genome_chromgroup.rc = fraction.genome_chromgroup
+			),
+		by = "channel_rc"
 	) %>%
+	filter(channel %>% str_sub(2,2) %in% c("C","T")) %>%
 	mutate(
-		error_prob = burden * burden.rc,
-		error_prob_corrected_to_genome = burden_corrected_to_genome * burden_corrected_to_genome.rc,
-		error_prob_corrected_to_genome_chromgroup = burden_corrected_to_genome_chromgroup * burden_corrected_to_genome_chromgroup.rc,
-		channel_pyr = if_else(channel %>% str_sub(2,2) %in% c("C","T"), channel, channel_rc) %>%
-			factor(levels = sbs96_labels.sigfit)
+		error_prob = burden * burden.rc * (fraction.interrogated_bases + fraction.interrogated_bases.rc),
+		error_prob_corrected_to_genome = burden * burden.rc * (fraction.genome + fraction.genome.rc),
+		error_prob_corrected_to_genome_chromgroup = burden * burden.rc * (fraction.genome_chromgroup + fraction.genome_chromgroup.rc),
+		channel_pyr = channel %>% factor(levels = sbs96_labels.sigfit)
 	) %>%
-	group_by(channel_pyr) %>%
-	summarize(
-		error_prob = sum(error_prob, na.rm = TRUE),
-		error_prob_corrected_to_genome = sum(error_prob_corrected_to_genome, na.rm = TRUE),
-		error_prob_corrected_to_genome_chromgroup = sum(error_prob_corrected_to_genome_chromgroup, na.rm = TRUE)
-		) %>%
+	select(channel_pyr, error_prob, error_prob_corrected_to_genome, error_prob_corrected_to_genome_chromgroup) %>%
 	arrange(channel_pyr)
 
 estimatedSBSMutationErrorProbability$total <- estimatedSBSMutationErrorProbability$by_channel_pyr %>%

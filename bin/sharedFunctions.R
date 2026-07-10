@@ -328,6 +328,29 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	
 	# context_bp: total number of bp extracted around ≥5 bp events (flank on each side ~ context_bp/2)
 	.flank <- as.integer(context_bp / 2L)  # symmetric flank size used in ≥5 bp sections
+
+	#Extract fixed-width reference contexts without failing at contig boundaries. Bases requested outside a contig are represented as N so downstream position indexing remains unchanged.
+	extract_reference_context <- function(reference, chrom, context_start, context_end){
+		map_chr(seq_along(chrom), function(i){
+			ref <- reference[[as.character(chrom[i])]]
+			ref_width <- length(ref)
+			requested_start <- as.integer(context_start[i])
+			requested_end <- as.integer(context_end[i])
+			clipped_start <- max(1L, requested_start)
+			clipped_end <- min(ref_width, requested_end)
+			context <- if(clipped_start <= clipped_end){
+				as.character(subseq(ref, start = clipped_start, end = clipped_end))
+			}else{
+				""
+			}
+
+			str_c(
+				str_dup("N", max(0L, 1L - requested_start)),
+				context,
+				str_dup("N", max(0L, requested_end - ref_width))
+			)
+		})
+	}
 	
 	## 1. split VCF indels into:
 	# (i) 1-bp deletions
@@ -370,9 +393,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	if(nrow(dels.1bp) > 0){
 		
 		## extract 10 bp upstream/downstream sequence context from reference
-		dels.1bp.context <- as.character(subseq(x = reference[as.character(dels.1bp[,'CHROM'])], 
-																						start = as.numeric(dels.1bp[,'POS']) - 9, 
-																						end = as.numeric(dels.1bp[,'POS']) + 11))
+		dels.1bp.context <- extract_reference_context(
+			reference,
+			dels.1bp[,'CHROM'],
+			as.numeric(dels.1bp[,'POS']) - 9,
+			as.numeric(dels.1bp[,'POS']) + 11
+		)
 		dels.1bp.context.middle <- paste0('[', str_split_fixed(dels.1bp.context, '', 21)[,11,drop=F], ']')
 		dels.1bp.context.start <- str_split_fixed(dels.1bp.context, '', 11)[,1:10,drop=F]
 		dels.1bp.context.start <- paste(dels.1bp.context.start[,1], dels.1bp.context.start[,2], dels.1bp.context.start[,3],
@@ -383,9 +409,15 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 		dels.1bp[,'CONTEXT FW'] <- paste(dels.1bp.context.start, dels.1bp.context.middle, dels.1bp.context.end, sep = '')
 		
 		## For pyr spectra, pyrimidine-center 1-bp indels; for template spectra, orient by TEMPLATE_STRAND.
-		dels.1bp.context.rc <- as.character(reverseComplement(subseq(x = reference[as.character(dels.1bp[,'CHROM'])], 
-																																 start = as.numeric(dels.1bp[,'POS']) - 9, 
-																																 end = as.numeric(dels.1bp[,'POS']) + 11)))
+		dels.1bp.context.rc <- extract_reference_context(
+			reference,
+			dels.1bp[,'CHROM'],
+			as.numeric(dels.1bp[,'POS']) - 9,
+			as.numeric(dels.1bp[,'POS']) + 11
+		) %>%
+			DNAStringSet %>%
+			reverseComplement %>%
+			as.character
 		dels.1bp.context.rc.middle <- paste0('[', str_split_fixed(dels.1bp.context.rc, '', 21)[,11,drop=F], ']')
 		dels.1bp.context.rc.start <- str_split_fixed(dels.1bp.context.rc, '', 11)[,1:10,drop=F]
 		dels.1bp.context.rc.start <- paste(dels.1bp.context.rc.start[,1], dels.1bp.context.rc.start[,2], dels.1bp.context.rc.start[,3],
@@ -580,9 +612,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	if(nrow(ins.1bp) > 0){
 		
 		## extract 10 bp upstream/downstream sequence context from reference
-		ins.1bp.context <- as.character(subseq(x = reference[as.character(ins.1bp[,'CHROM'])], 
-																					 start = as.numeric(ins.1bp[,'POS']) - 9, 
-																					 end = as.numeric(ins.1bp[,'POS']) + 10))
+		ins.1bp.context <- extract_reference_context(
+			reference,
+			ins.1bp[,'CHROM'],
+			as.numeric(ins.1bp[,'POS']) - 9,
+			as.numeric(ins.1bp[,'POS']) + 10
+		)
 		## insertion after base pos. 10
 		ins.1bp.context.middle <- paste0('[', str_split_fixed(as.character(ins.1bp[,'ALT']), '', 2)[,2,drop=F], ']')
 		ins.1bp.context.start <- str_split_fixed(ins.1bp.context, '', 11)[,1:10,drop=F]
@@ -594,9 +629,15 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 		ins.1bp[,'CONTEXT FW'] <- paste(ins.1bp.context.start, ins.1bp.context.middle, ins.1bp.context.end, sep = '')
 		
 		## For pyr spectra, pyrimidine-center 1-bp indels; for template spectra, orient by TEMPLATE_STRAND.
-		ins.1bp.context.rc <- as.character(reverseComplement(subseq(x = reference[as.character(ins.1bp[,'CHROM'])], 
-																																start = as.numeric(ins.1bp[,'POS']) - 9, 
-																																end = as.numeric(ins.1bp[,'POS']) + 10)))
+		ins.1bp.context.rc <- extract_reference_context(
+			reference,
+			ins.1bp[,'CHROM'],
+			as.numeric(ins.1bp[,'POS']) - 9,
+			as.numeric(ins.1bp[,'POS']) + 10
+		) %>%
+			DNAStringSet %>%
+			reverseComplement %>%
+			as.character
 		ins.1bp.context.rc.middle <- paste0('[', as.character(reverseComplement(DNAStringSet(str_split_fixed(as.character(ins.1bp[,'ALT']), '', 2)[,2,drop=F]))), ']')
 		ins.1bp.context.rc.start <- str_split_fixed(ins.1bp.context.rc, '', 11)[,1:10,drop=F]
 		ins.1bp.context.rc.start <- paste(ins.1bp.context.rc.start[,1], ins.1bp.context.rc.start[,2], ins.1bp.context.rc.start[,3],
@@ -793,9 +834,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	if(nrow(dels.2bp) > 0){
 		
 		## extract 5 x 2 bp upstream/downstream sequence context from reference
-		dels.2bp.context <- as.character(subseq(x = reference[as.character(dels.2bp[,'CHROM'])], 
-																						start = as.numeric(dels.2bp[,'POS']) - 9, 
-																						end = as.numeric(dels.2bp[,'POS']) + 2 + 10))
+		dels.2bp.context <- extract_reference_context(
+			reference,
+			dels.2bp[,'CHROM'],
+			as.numeric(dels.2bp[,'POS']) - 9,
+			as.numeric(dels.2bp[,'POS']) + 2 + 10
+		)
 		dels.2bp.context.middle <- str_split_fixed(dels.2bp.context, '', 22)[,11:12,drop=F]
 		dels.2bp.context.middle <- paste0('[', dels.2bp.context.middle[,1], dels.2bp.context.middle[,2], ']')
 		dels.2bp.context.start <- str_split_fixed(dels.2bp.context, '', 11)[,1:10,drop=F]
@@ -812,9 +856,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	if(nrow(dels.3bp) > 0){
 		
 		## extract 5 x 3 bp upstream/downstream sequence context from reference
-		dels.3bp.context <- as.character(subseq(x = reference[as.character(dels.3bp[,'CHROM'])], 
-																						start = as.numeric(dels.3bp[,'POS']) - 14, 
-																						end = as.numeric(dels.3bp[,'POS']) + 3 + 15))
+		dels.3bp.context <- extract_reference_context(
+			reference,
+			dels.3bp[,'CHROM'],
+			as.numeric(dels.3bp[,'POS']) - 14,
+			as.numeric(dels.3bp[,'POS']) + 3 + 15
+		)
 		dels.3bp.context.middle <- str_split_fixed(dels.3bp.context, '', 33)[,16:18,drop=F]
 		dels.3bp.context.middle <- paste0('[', dels.3bp.context.middle[,1], dels.3bp.context.middle[,2], dels.3bp.context.middle[,3], ']')
 		dels.3bp.context.start <- str_split_fixed(dels.3bp.context, '', 33)[,1:15,drop=F]
@@ -832,9 +879,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	if(nrow(dels.4bp) > 0){
 		
 		## extract 5 x 4 bp upstream/downstream sequence context from reference
-		dels.4bp.context <- as.character(subseq(x = reference[as.character(dels.4bp[,'CHROM'])], 
-																						start = as.numeric(dels.4bp[,'POS']) - 19, 
-																						end = as.numeric(dels.4bp[,'POS']) + 4 + 20))
+		dels.4bp.context <- extract_reference_context(
+			reference,
+			dels.4bp[,'CHROM'],
+			as.numeric(dels.4bp[,'POS']) - 19,
+			as.numeric(dels.4bp[,'POS']) + 4 + 20
+		)
 		dels.4bp.context.middle <- str_split_fixed(dels.4bp.context, '', 41)[,21:24,drop=F]
 		dels.4bp.context.middle <- paste0('[', dels.4bp.context.middle[,1], 
 																			dels.4bp.context.middle[,2], 
@@ -860,13 +910,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 		dels.5bp.context.middle.lengths <- nchar(as.character(dels.5bp[,'REF'])) - 1
 		
 		# extract symmetric upstream/downstream flanks sized by context_bp and extend end by deletion length
-		dels.5bp.context <- as.character(
-			subseq(
-				x = reference[as.character(dels.5bp[,'CHROM'])],
-				start = as.numeric(dels.5bp[,'POS']) - (.flank - 1),
-				end = as.numeric(dels.5bp[,'POS']) + dels.5bp.context.middle.lengths + .flank
-				)
-			)
+		dels.5bp.context <- extract_reference_context(
+			reference,
+			dels.5bp[,'CHROM'],
+			as.numeric(dels.5bp[,'POS']) - (.flank - 1),
+			as.numeric(dels.5bp[,'POS']) + dels.5bp.context.middle.lengths + .flank
+		)
 		
 		# build [deleted] middle
 		dels.5bp.context.middle <- as.character(dels.5bp[,'REF'])
@@ -1427,9 +1476,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	# (i) 2 bp insertions at simple repeats (length 0 == "no neighbouring simple repeat")
 	if(nrow(ins.2bp) > 0){
 		
-		ins.2bp.context <- as.character(subseq(x = reference[as.character(ins.2bp[,'CHROM'])], 
-																					 start = as.numeric(ins.2bp[,'POS']) - 9, 
-																					 end = as.numeric(ins.2bp[,'POS']) + 10))
+		ins.2bp.context <- extract_reference_context(
+			reference,
+			ins.2bp[,'CHROM'],
+			as.numeric(ins.2bp[,'POS']) - 9,
+			as.numeric(ins.2bp[,'POS']) + 10
+		)
 		ins.2bp.context.middle <- as.character(ins.2bp[,'ALT'])
 		ins.2bp.context.middle <- paste0('[', str_split_fixed(ins.2bp.context.middle, '', 2)[,2,drop=F], ']')
 		ins.2bp.context.start <- str_split_fixed(ins.2bp.context, '', 11)[,1:10,drop=F]
@@ -1445,9 +1497,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	# (ii) 3 bp insertions at simple repeats (length 0 == "no neighbouring simple repeat")
 	if(nrow(ins.3bp) > 0){
 		
-		ins.3bp.context <- as.character(subseq(x = reference[as.character(ins.3bp[,'CHROM'])], 
-																					 start = as.numeric(ins.3bp[,'POS']) - 14, 
-																					 end = as.numeric(ins.3bp[,'POS']) + 15))
+		ins.3bp.context <- extract_reference_context(
+			reference,
+			ins.3bp[,'CHROM'],
+			as.numeric(ins.3bp[,'POS']) - 14,
+			as.numeric(ins.3bp[,'POS']) + 15
+		)
 		ins.3bp.context.middle <- as.character(ins.3bp[,'ALT'])
 		ins.3bp.context.middle <- paste0('[', str_split_fixed(ins.3bp.context.middle, '', 2)[,2,drop=F], ']')
 		ins.3bp.context.start <- str_split_fixed(ins.3bp.context, '', 16)[,1:15,drop=F]
@@ -1464,9 +1519,12 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	# (iii) 4 bp insertions at simple repeats (length 0 == "no neighbouring simple repeat")
 	if(nrow(ins.4bp) > 0){
 		
-		ins.4bp.context <- as.character(subseq(x = reference[as.character(ins.4bp[,'CHROM'])], 
-																					 start = as.numeric(ins.4bp[,'POS']) - 19, 
-																					 end = as.numeric(ins.4bp[,'POS']) + 20))
+		ins.4bp.context <- extract_reference_context(
+			reference,
+			ins.4bp[,'CHROM'],
+			as.numeric(ins.4bp[,'POS']) - 19,
+			as.numeric(ins.4bp[,'POS']) + 20
+		)
 		ins.4bp.context.middle <- as.character(ins.4bp[,'ALT'])
 		ins.4bp.context.middle <- paste0('[', str_split_fixed(ins.4bp.context.middle, '', 2)[,2,drop=F], ']')
 		ins.4bp.context.start <- str_split_fixed(ins.4bp.context, '', 21)[,1:20,drop=F]
@@ -1485,12 +1543,11 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 	# (iv) 5+ bp insertions at simple repeats (length 0 == "no neighbouring simple repeat")
 	if(nrow(ins.5bp) > 0){
 		
-		ins.5bp.context <- as.character(
-			subseq(
-				x = reference[as.character(ins.5bp[,'CHROM'])],
-				start = as.numeric(ins.5bp[,'POS']) - (.flank - 1L),
-				end = as.numeric(ins.5bp[,'POS']) + .flank
-			)
+		ins.5bp.context <- extract_reference_context(
+			reference,
+			ins.5bp[,'CHROM'],
+			as.numeric(ins.5bp[,'POS']) - (.flank - 1L),
+			as.numeric(ins.5bp[,'POS']) + .flank
 		)
 		
 		# inserted segment and its length

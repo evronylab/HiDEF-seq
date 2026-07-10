@@ -1,5 +1,5 @@
 #!/bin/bash
-#Usage: Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh [input_bam] [output_basename] [reference.fasta] [reference.mmi] [hidef-seq sif path] [clair3 sif path] [deepvariant sif path] [MALE/FEMALE] [PAR.bed]
+#Usage: Process_PacBio_GermlineWGS_for_HiDEF-seq_v3.sh [input_bam] [output_basename] [reference.fasta] [reference.mmi] [hidef-seq sif path] [clair3 sif path] [deepvariant sif path] [male/female] [PAR.bed]
 input_bam=`readlink -f $1`
 output_basename=`readlink -f $2`
 reffasta=`readlink -f $3`

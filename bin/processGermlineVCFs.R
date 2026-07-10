@@ -68,9 +68,24 @@ cat("#### Loading VCF variants...\n")
 
 #Load list of germline VCFs for all configured individuals
 vcf_files <- yaml.config$individuals %>%
-	modify_tree(leaf = as.character) %>%
-	bind_rows %>%
-	unnest_wider(germline_vcf_files)
+	map_df(function(individual){
+		if(is.null(individual$germline_vcf_files) || length(individual$germline_vcf_files) == 0){
+			return(tibble(
+				individual_id = character(),
+				germline_vcf_file = character(),
+				germline_vcf_type = character()
+			))
+		}
+
+		individual$germline_vcf_files %>%
+			map_df(function(vcf){
+				tibble(
+					individual_id = as.character(individual$individual_id),
+					germline_vcf_file = as.character(vcf$germline_vcf_file),
+					germline_vcf_type = as.character(vcf$germline_vcf_type)
+				)
+			})
+	})
 
 #Load VCF files
 cat("> Processing individual:",individual_id_toprocess,"\n")
@@ -79,7 +94,7 @@ germline_vcf_variants <- list()
 
 vcf_files_individual <- vcf_files %>% filter(individual_id == individual_id_toprocess)
 
-for(i in 1:nrow(vcf_files_individual)){
+for(i in seq_len(nrow(vcf_files_individual))){
 	
 	germline_vcf_file <- vcf_files_individual %>% pluck("germline_vcf_file",i)
 	germline_vcf_type <- vcf_files_individual %>% pluck("germline_vcf_type",i)

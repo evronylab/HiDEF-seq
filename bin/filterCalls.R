@@ -167,7 +167,7 @@ calculate_molecule_stats_frombam <- function(bam.input, individual_filter_patter
 				matches(individual_filter_pattern),
 				list(
 					num_molecules = ~ n_distinct(zm[.x]),
-					num_refspacebases = ~ sum(end[.x] - start[.x])
+					num_refspacebases = ~ sum(end[.x] - start[.x] + 1L)
 				),
 				.names = "{.fn}_individualfilter.{.col}"
 			)
@@ -182,7 +182,7 @@ calculate_molecule_stats_frombam <- function(bam.input, individual_filter_patter
 					group_by(run_id) %>%
 					summarize(
 						!!str_c("num_molecules_remaining.",all_filter_suffix) := n_distinct(zm),
-						!!str_c("num_refspacebases_remaining.",all_filter_suffix) := sum(end-start)
+						!!str_c("num_refspacebases_remaining.",all_filter_suffix) := sum(end-start+1L)
 					),
 				by = "run_id"
 			)
@@ -218,7 +218,7 @@ calculate_molecule_stats_frombamfiltertrack <- function(bam.gr.filtertrack.input
 		group_by(run_id) %>%
 		summarize(
 			!!str_c("num_molecules_remaining.",stat_label.suffix) := n_distinct(zm),
-			!!str_c("num_refspacebases_remaining.",stat_label.suffix) := sum(end-start)
+			!!str_c("num_refspacebases_remaining.",stat_label.suffix) := sum(end-start+1L)
 		) %>%
 		complete(run_id) %>%
 		mutate(across(-run_id, ~ .x %>% replace_na(0))) %>%
@@ -648,6 +648,7 @@ germline_vcf_variants <- qs_read(
   as_tibble
   
 #Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering
+if(nrow(germline_vcf_variants) > 0){
 germline_vcf_variants <- germline_vcf_variants  %>%
   group_by(germline_vcf_type) %>% #split by germline_vcf_type
   nest %>%
@@ -680,6 +681,19 @@ germline_vcf_variants <- germline_vcf_variants  %>%
     }
   ) %>%
   bind_rows(.id="germline_vcf_type") #Combine back to one tibble
+}else{
+	germline_vcf_variants <- tibble(
+		germline_vcf_type = character(),
+		seqnames = character(),
+		start = integer(),
+		end = integer(),
+		ref_plus_strand = character(),
+		alt_plus_strand = character(),
+		call_class = factor(),
+		call_type = factor(),
+		germline_vcf_file = factor()
+	)
+}
 
 #Annotate calls matching germline VCF variants, and for MDB calls set germline_vcf.passfilter = TRUE regardless if there is a matching germline VCF variant, since we do not want to filter out MDBs just because they are in the location of a germline variant.
 calls <- calls %>%
@@ -1772,7 +1786,10 @@ molecule_stats <- molecule_stats %>%
 		)
 	)
 
-rm(germline_vcf_ins_region_filter, germline_vcf_del_region_filter, germline_vcf_indel_region_filter)
+rm(list = intersect(
+	c("germline_vcf_ins_region_filter", "germline_vcf_del_region_filter", "germline_vcf_indel_region_filter"),
+	ls()
+))
 invisible(gc())
 
 cat("DONE\n")
@@ -1797,7 +1814,8 @@ for(i in seq_len(nrow(region_read_filters_config))){
 	
 	read_threshold_value <- region_read_filters_config %>%
 		pluck("read_threshold",i) %>%
-		str_extract("[0-9.]+$")
+		str_extract("[0-9.]+$") %>%
+		as.numeric
 	
 	#Load region read filter bigwig
 	region_read_filter <- region_read_filters_config %>%

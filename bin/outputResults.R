@@ -1115,21 +1115,17 @@ finalCalls.burdens <- finalCalls.burdens %>%
 				by = join_by(analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type)
 			) %>%
 
-			#Calculate corrected counts, burdens, and Poisson 95% confidence intervals for number of calls and burdens
+			#Calculate sensitivity-corrected counts, burdens, and 95% confidence intervals by scaling the observed-count estimates
 			mutate(
 				num_calls = num_calls / sensitivity,
+				num_calls_lci = num_calls_lci / sensitivity,
+				num_calls_uci = num_calls_uci / sensitivity,
 				sensitivity_corrected = TRUE,
-
-				ci = num_calls %>% map( function(x){cipoisson(x)} ),
-
-				num_calls_lci = map_dbl(ci,1),
-				num_calls_uci = map_dbl(ci,2),
 
 				burden_calls = num_calls / interrogated_bases_or_bp,
 				burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
 				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
-			) %>%
-			select(-ci)
+			)
 	) %>%
 
 	#Set sensitivity and sensitivity_source to NA when sensitivity_corrected = FALSE

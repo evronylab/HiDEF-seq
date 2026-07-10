@@ -561,6 +561,10 @@ workflow {
       .join(countAnalysisZMWs.out, by: [0, 1])
       .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile ->
         def total_zmws = zmwCountFile.text.trim() as int
+        if (total_zmws == 0) {
+          log.warn "Skipping sample '${sample_id}' because its merged analysis BAM contains zero ZMWs."
+          return []
+        }
         def effective_chunks = Math.min(params.analysis_chunks as int, total_zmws)
         (1..effective_chunks).collect { chunkID ->
           tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effective_chunks)

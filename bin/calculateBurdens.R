@@ -2045,31 +2045,41 @@ estimatedSBSMutationErrorProbability_by_channel <- finalCalls.reftnc_spectra %>%
 	#SBS mismatch-ss calls template_strand spectrum
 	filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
 	pluck("finalCalls.reftnc_template_strand_spectrum",1) %>%
-	transmute(
-		channel,
+	mutate(
 		reftnc = channel %>% str_sub(1,3) %>% factor(levels = trinucleotides_64),
 		count.calls = count
+	) %>%
+	select(
+		channel,
+		reftnc,
+		count.calls
 	) %>%
 	left_join(
 		#Interrogated bases spectrum
 		bam.gr.filtertrack.bytype %>%
 			filter(bc_orientation == "all_bc_orientations", call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
 			pluck("bam.gr.filtertrack.reftnc_both_strands",1) %>%
-			transmute(
-				reftnc,
+			mutate(
 				count.interrogated_bases = count,
 				fraction.interrogated_bases = fraction
+			) %>%
+			select(
+				reftnc,
+				count.interrogated_bases,
+				fraction.interrogated_bases
 			),
 		by = "reftnc"
 	) %>%
 	left_join(
 		genome.reftnc$reftnc_both_strands %>%
-			transmute(reftnc, fraction.genome = fraction),
+			mutate(fraction.genome = fraction) %>%
+			select(reftnc, fraction.genome),
 		by = "reftnc"
 	) %>%
 	left_join(
 		genome_chromgroup.reftnc$reftnc_both_strands %>%
-			transmute(reftnc, fraction.genome_chromgroup = fraction),
+			mutate(fraction.genome_chromgroup = fraction) %>%
+			select(reftnc, fraction.genome_chromgroup),
 		by = "reftnc"
 	) %>%
 	mutate(
@@ -2094,12 +2104,19 @@ bam.gr.filtertrack.bytype <- bam.gr.filtertrack.bytype %>%
 estimatedSBSMutationErrorProbability$by_channel_pyr <- estimatedSBSMutationErrorProbability_by_channel %>%
 	left_join(
 		estimatedSBSMutationErrorProbability_by_channel %>%
-			transmute(
+			mutate(
 				channel_rc = channel,
 				burden.rc = burden,
 				fraction.interrogated_bases.rc = fraction.interrogated_bases,
 				fraction.genome.rc = fraction.genome,
 				fraction.genome_chromgroup.rc = fraction.genome_chromgroup
+			) %>%
+			select(
+				channel_rc,
+				burden.rc,
+				fraction.interrogated_bases.rc,
+				fraction.genome.rc,
+				fraction.genome_chromgroup.rc
 			),
 		by = "channel_rc"
 	) %>%

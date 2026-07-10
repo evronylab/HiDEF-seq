@@ -17,7 +17,6 @@ suppressPackageStartupMessages(library(plyranges))
 suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(VariantAnnotation))
-suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
 suppressPackageStartupMessages(library(tidyverse))
 

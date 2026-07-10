@@ -334,8 +334,8 @@ indel.spectrum <- function(x, reference, context_bp = 1000, spectrum_type = c("p
 		map_chr(seq_along(chrom), function(i){
 			ref <- reference[[as.character(chrom[i])]]
 			ref_width <- length(ref)
-			requested_start <- as.integer(context_start[i])
-			requested_end <- as.integer(context_end[i])
+			requested_start <- context_start[i]
+			requested_end <- context_end[i]
 			clipped_start <- max(1L, requested_start)
 			clipped_end <- min(ref_width, requested_end)
 			context <- if(clipped_start <= clipped_end){

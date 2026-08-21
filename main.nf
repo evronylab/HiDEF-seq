@@ -1182,7 +1182,7 @@ process countAnalysisZMWs {
 process splitBAM {
     cpus 2
     memory '8 GB'
-    time '1h'
+    time '4h'
     tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
 

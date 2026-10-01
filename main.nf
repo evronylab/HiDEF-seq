@@ -1387,6 +1387,7 @@ process processGermlineBAMs {
     #Using bcftools mpileup for call filtering, because the output is in VCF format that is easier to parse.
     #The difference between samtools mpileup and bcftools mpileup should not be significant.
     #We are not calling indels with bcftools mpileup, since that is too noisy to use for filtering.
+    #Treat each individual's germline BAM as one sample, even when merged read groups have different SM tags.
 
     #Slightly different parameters are used for Illumina vs PacBio germline BAM to match how bcftools mpileup is run later
     #in the call filtering analysis.
@@ -1395,11 +1396,11 @@ process processGermlineBAMs {
 
     if [[ ${germline_bam_type} == Illumina ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 11 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
-      ${params.bcftools_bin} mpileup -A -B -Q 11 -d 999999 --ns 3328 -I -a "INFO/AD" -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} mpileup --ignore-RG -A -B -Q 11 -d 999999 --ns 3328 -I -a "INFO/AD" -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
       ${params.bcftools_bin} index -t ${germline_bam_file}.vcf.gz
     elif [[ ${germline_bam_type} == PacBio ]]; then
       ${params.samtools_bin} mpileup -A -B -Q 5 -d 999999 --ff 3328 -f ${params.genome_fasta} ${germline_bam_file} 2>/dev/null | awk '{print \$1 "\t" \$2-1 "\t" \$2 "\t" \$4}' > mpileup.bg
-      ${params.bcftools_bin} mpileup -A -B -Q 5 -d 999999 --ns 3328 -I -a "INFO/AD" --max-BQ 50 -F0.1 -o25 -e1 -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
+      ${params.bcftools_bin} mpileup --ignore-RG -A -B -Q 5 -d 999999 --ns 3328 -I -a "INFO/AD" --max-BQ 50 -F0.1 -o25 -e1 -f ${params.genome_fasta} -Oz ${germline_bam_file} 2>/dev/null > ${germline_bam_file}.vcf.gz
       ${params.bcftools_bin} index -t ${germline_bam_file}.vcf.gz
     else
       echo "ERROR: Unknown germline_bam_type: ${germline_bam_type}"

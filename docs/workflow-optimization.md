@@ -77,18 +77,51 @@ links when work/output directories are on the same filesystem and copies
 otherwise. This replaces final-output `move` publication, which removed files
 required by resume. The existing global preparation barrier remains in place.
 
-## BAM splitting audit
+## BAM dispatch
 
-The current split process enumerates all ZMW IDs and filters the entire merged
-BAM independently for every chunk. A compatible future dispatcher should retain
-one exact `zmwfilter --show-all` enumeration, assign contiguous quotient/remainder
-partitions, and stream original BAM records once. Numeric ZMW IDs must remain
-the grouping key even when the same number occurs in multiple runs; record
-order, tags, headers, and empty-input behavior must be checked against the
-legacy implementation. No dispatcher is enabled by this cache change. `pbmerge`,
-sorting, indexing, and the global preparation barrier remain unchanged.
+`countAnalysisZMWs` retains one exact `zmwfilter --show-all` enumeration alongside
+its existing count text. Empty samples are skipped as before; effective chunk
+count remains the smaller of requested chunks and enumerated IDs. A small
+Nextflow process compiles `splitBamByZmw.cpp` once inside the pinned container,
+with the source supplied as a content-hashed task input. All sample dispatches
+reuse that executable.
+
+Each sample dispatch assigns the same contiguous quotient/remainder ID
+partitions and streams original BAM records to those chunks. Numeric ZMW IDs
+remain the grouping key across runs. If an ID occurs in multiple legacy
+partitions, its records are emitted to each matching chunk, preserving the
+legacy include behavior. Missing `zm` tags follow the pinned PacBio index's
+observed zero-ID behavior. Headers, record order and tags are preserved.
+
+Up to 128 output writers share an HTSlib compression thread pool. Larger chunk
+counts use additional sequential input passes over bounded writer groups,
+without changing chunk assignments. The pool limits compression workers;
+HTSlib may also create background I/O threads per stream. Each output receives
+its PacBio and samtools indices sequentially. BAM/PBI/BAI filenames and the
+seven-field downstream tuples are unchanged; tuple expansion explicitly matches
+basenames, including the single-chunk case and chunk numbers above nine. One
+sample-level dispatch log replaces separate chunk logs. `pbmerge`, coordinate
+sorts and the global preparation barrier remain unchanged.
+
+The adversarial helper harness covers duplicate IDs across groups, missing tags,
+QNAME disagreement, one/many writers, original headers/tags/order, indexing and
+truncated input. `tests/test_dispatch_workflow.py` extracts the actual process
+and channel code for a small multi/single/empty-sample Nextflow replay; it checks
+all resulting tuples and compares each chunk with legacy `zmwfilter --include`.
+Run it on compute with the pinned tools, then repeat Nextflow with `-resume` to
+check retained task outputs. Integration remains pending the real-data exact
+record comparison and workflow replay; helper timings alone do not establish
+complete pipeline performance or correctness.
 
 ## Focused local validation
+
+Coordinate-sort reuse was tested and rejected. The single-input fixture matched,
+but every tested multi-input order (`AB`, `BA`, `ABC`, `CBA`) changed SAM record
+order at coordinate ties. Record multisets and headers excluding program records
+matched, and indices validated; those checks are insufficient because ordered
+records must also match. Keep the existing coordinate sorts and `pbmerge`, with
+no single-input exception. The retained fixture report is workspace
+`runs/coordinate-merge-fixtures/results.json`.
 
 Run `python3 -m unittest discover -s tests -p test_artifact_cache.py -v` from the
 repository. Tests exercise identity changes, exact serialized identity handling,

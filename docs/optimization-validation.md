@@ -76,6 +76,41 @@ Measurements are in workspace `runs/chunk-replay/extract.json` and
 `runs/extract-candidate/comparison.tsv`. Allocated CPU-hours above cover the timed
 command, not its containing job's setup or validation overhead.
 
+## Completed: germline VCF annotation block, three pairs
+
+The full VCF load/conversion, quality filter, deduplication, summary, and call
+annotation block was replayed on LIB1 chunk 1, nuclear chromosome group `1-22X`,
+filtergroup `lenient`. Both arms used the same actual calls from the candidate
+script's preceding filters and loaded the same germline artifact afresh. The
+candidate restricts only annotation summaries to matching call keys; its extra
+matching scan is included in these timings.
+
+| Pair | Baseline CPU (s) | Candidate CPU (s) | Baseline wall (s) | Candidate wall (s) | Exact comparison |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 275.089 | 13.674 | 278.905 | 13.755 | Both tables identical |
+| 2 | 264.022 | 13.947 | 265.061 | 14.009 | Both tables identical |
+| 3 | 255.846 | 15.116 | 256.769 | 15.179 | Both tables identical |
+
+Each pair matched all **1,023,018 annotated calls** and the entire
+**10,772,319-row filtered germline table** using `identical()`. The latter remains
+unchanged for downstream per-file filters and whole-genome statistics. Mean
+actual CPU was **264.986 s baseline** and **14.246 s candidate**, a **94.62%**
+reduction for this block only. Full-filter and whole-pipeline gains remain pending.
+
+Observed phase peak RSS was 11,746,588 / 11,394,356 / 10,184,904 KiB for baseline
+and 8,903,732 / 8,945,940 / 8,967,980 KiB for candidate. The Linux high-water reset
+succeeded for each arm. However, arms share one R process and retain a common
+preceding-filter context; allocator-resident pages can persist even after each
+arm's outputs are released and garbage-collected. These are not independent
+fresh-process memory estimates. Alternating arm order limits systematic warm-up
+effects; full-filter process replay is required for a standalone memory claim.
+Serialization and exact comparison were outside block timing.
+
+Actual ASTs, input/source fingerprints, session details, complete output tables,
+`metrics.tsv`, and `comparisons.tsv` are retained in workspace
+`runs/germline-vcf-block/`. The sourceable AST locator and benchmark commands are
+documented in the [benchmark harness](../scripts/benchmark/README.md).
+
 ## Completed: existing final LIB1 QS2 profile
 
 Job `19188581` profiled one existing final QS2. Its compressed size was **2.397
@@ -96,6 +131,53 @@ The selected design retains **one final QS2 per sample**, along with existing
 TSV, VCF, PDF, BED.gz, and Tabix products. No call batching or output sharding is
 introduced, and no scientific schema change is authorized by these measurements.
 
+## Rejected: coordinate-sort reuse
+
+The completed tiny fixture matched ordered SAM records for one input but failed
+for every tested multi-input order (`AB`, `BA`, `ABC`, `CBA`) because coordinate
+ties changed record order. Record multisets, headers excluding program records,
+and index checks passed. These do not establish the required ordered equivalence.
+Keep the current coordinate sorts and `pbmerge`; no single-input exception or
+sort-reuse implementation is adopted. Results are retained in workspace
+`runs/coordinate-merge-fixtures/results.json`.
+
+## Rejected: mitochondrial shared-session filtering
+
+Job `19191880` completed one paired mitochondrial replay of lenient and strict
+filtergroups. Both complete QS outputs matched exactly between separate R
+processes and the shared-session prototype. Direct inspection confirms this
+mitochondrial source snapshot already included the germline VCF annotation
+`semi_join` optimization; the earlier nuclear experiment used a different snapshot.
+
+| Complete two-group chain | Actual CPU (s) | Wall (s) | Allocated CPU-hours during command | Peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Separate processes | 479.830 | 484.334 | 0.26907 | 7,063,536 |
+| Shared session | 448.831 | 452.033 | 0.25113 | 9,918,568 |
+
+The single pair saved 6.46% actual CPU but increased peak RSS by 40.42%.
+Mitochondrial fusion is rejected; no production implementation is adopted.
+Nuclear results remain a separate pending experiment. Records and strict
+comparison reports are in workspace `runs/filter-chain-mito/`.
+
+## Running: complete current-candidate chunk filtering
+
+Job `19194137` replays all four chromosome/filtergroup combinations for the
+original LIB1 chunk-1 extraction with 24 GiB, two CPUs, and a four-hour limit.
+Workspace `runs/filter-candidate-current/` contains the frozen `code/bin` and
+benchmark scripts, per-file SHA256 manifest, prepared config, logs and metrics.
+The extraction argument remains the exact relative `extractCalls.chunk1.qs2`
+used by the original replay; its symlink resolves to the original extraction.
+
+Preflight requires every original parsed configuration value to match and exactly
+two added preparation fields. After each candidate group, available complete
+original outputs are compared with only
+`/config/yaml.config/reference_summary_file` and
+`/config/yaml.config/germline_coverage_filters` whitelisted. The full config,
+inherited run metadata, scientific schemas and within-group row order otherwise
+remain strict. `comparisons/status.json` distinguishes pending from passed groups;
+the saved comparator can be rerun on compute as remaining originals arrive.
+No complete-filter equivalence or performance result is claimed yet.
+
 ## Pending before overall conclusions
 
 - Complete comparable baseline and candidate runs for both samples; compare
@@ -103,8 +185,9 @@ introduced, and no scientific schema change is authorized by these measurements.
 - Compare complete nested scientific QS objects and every published scientific
   output, resolving all discrepancies and binary-file review findings.
 - Complete paired measurements and exact-output checks for the remaining
-  implementations. Combined filtering, BAM dispatch, BED annotation alternatives,
-  and coordinate-sort reuse remain experiments until separately accepted.
+  implementations. Combined filtering and BED annotation alternatives remain
+  experiments until separately accepted; BAM dispatch integration requires its
+  real-data and workflow checks. Coordinate-sort reuse was rejected above.
 - Validate cache/resume behavior, effective YAML parsing and scientific keys,
   including missing prepared artifacts and concurrent launches.
 

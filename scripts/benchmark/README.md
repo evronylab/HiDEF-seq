@@ -204,7 +204,12 @@ Rscript --vanilla scripts/benchmark/benchmark_germline_vcf.R \
 Run this on a compute node. It alternates arm order, reports actual CPU including
 waited-for children, wall time and R phase RSS, and records whether the RSS
 high-water reset succeeded. RSS includes the retained common preceding-filter
-context. Each pair compares both annotated calls and the complete filtered
+context. Arms use separate evaluation environments; their output objects are
+released and garbage-collected before the next arm. They still share one R
+process: allocator-resident pages and filesystem caches can persist. Alternating
+order mitigates this effect but does not make the RSS values independent
+fresh-process peaks. Use full-filter process replays for that claim.
+Each pair compares both annotated calls and the complete filtered
 germline table with `identical()` outside timing; the latter must remain intact
 for downstream whole-genome statistics. Source ASTs, source/input fingerprints,
 outputs, metrics and session information are retained. Wrap the command with

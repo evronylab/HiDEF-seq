@@ -59,6 +59,21 @@ class PublishedContentsTest(unittest.TestCase):
             self.assertEqual(records["missing.tsv"]["status"], "failure")
             self.assertEqual(records["sample.run_metadata.tsv"]["status"], "ignored")
 
+    def test_bgz_vcf_inventory_and_concatenated_gzip_members(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory) / "a", Path(directory) / "b"
+            a.mkdir(); b.mkdir()
+            for suffix in (".bgz", ".bgzf"):
+                name = "calls.vcf" + suffix
+                (a / name).write_bytes(gzip.compress(b"##fileDate=20261004\n#CHROM\tPOS\n") +
+                                      gzip.compress(b"chr1\t1\nchr2\t2\n"))
+                (b / name).write_bytes(gzip.compress(b"##fileDate=20261005\n#CHROM\tPOS\nchr1\t1\nchr2\t2\n"))
+                records = {r["path"]: r for r in compare.compare_trees(a, b)}
+                self.assertEqual(records[name]["status"], "pass")
+                (b / name).write_bytes(gzip.compress(b"##fileDate=20261005\n#CHROM\tPOS\nchr2\t2\nchr1\t1\n"))
+                records = {r["path"]: r for r in compare.compare_trees(a, b)}
+                self.assertEqual(records[name]["status"], "failure")
+
     def test_published_precision_and_row_order_are_exact(self):
         with tempfile.TemporaryDirectory() as directory:
             a, b = Path(directory) / "a.tsv", Path(directory) / "b.tsv"

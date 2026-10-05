@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 
 TEXT_SUFFIXES = {".tsv", ".csv", ".txt", ".bed", ".vcf", ".yaml", ".yml"}
+GZIP_SUFFIXES = {".gz", ".bgz", ".bgzf"}
 
 
 def digest(path):
@@ -21,8 +22,9 @@ def digest(path):
 
 
 def scientific_lines(path, vcf_ignore_keys=("fileDate",)):
-    opener = gzip.open if path.suffix == ".gz" else open
-    is_vcf = path.name.endswith((".vcf", ".vcf.gz"))
+    compressed = path.suffix in GZIP_SUFFIXES
+    opener = gzip.open if compressed else open
+    is_vcf = (path.with_suffix("") if compressed else path).suffix == ".vcf"
     with opener(path, "rt", encoding="utf-8", newline=None) as handle:
         for line_number, line in enumerate(handle, 1):
             if is_vcf and any(line.startswith("##" + key + "=") for key in vcf_ignore_keys):
@@ -54,7 +56,8 @@ def compare_trees(reference, candidate, excludes=(), vcf_ignore_keys=("fileDate"
         elif digest(left[name]) == digest(right[name]):
             record.update(status="pass", reason="byte identical")
         else:
-            suffix = Path(name[:-3] if name.endswith(".gz") else name).suffix
+            filename = Path(name)
+            suffix = (filename.with_suffix("") if filename.suffix in GZIP_SUFFIXES else filename).suffix
             if suffix in TEXT_SUFFIXES:
                 record.update(compare_text(left[name], right[name], vcf_ignore_keys))
             else:

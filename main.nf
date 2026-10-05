@@ -43,6 +43,25 @@ def dirCoverage_Reftnc(individual_id, sample_id) {
   return "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc"
 }
 
+// Rebuild the original seven-field downstream tuples by exact basename, never
+// glob/list order (chunk10 sorts before chunk2, and one chunk is a scalar path).
+def expandAnalysisChunks(individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks) {
+  def bams = bamFiles instanceof List ? bamFiles : [bamFiles]
+  def pbis = pbiFiles instanceof List ? pbiFiles : [pbiFiles]
+  def bais = baiFiles instanceof List ? baiFiles : [baiFiles]
+  def byName = (bams + pbis + bais).collectEntries { item -> [(item.name): item] }
+  if (bams.size() != effectiveChunks || pbis.size() != effectiveChunks || bais.size() != effectiveChunks || byName.size() != 3 * effectiveChunks) {
+    throw new IllegalStateException("Unexpected dispatch output set for ${individual_id}/${sample_id}")
+  }
+  (1..effectiveChunks).collect { chunkID ->
+    def basename = "${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam".toString()
+    if (!byName.containsKey(basename) || !byName.containsKey(basename + '.pbi') || !byName.containsKey(basename + '.bai')) {
+      throw new IllegalStateException("Missing dispatch chunk ${chunkID} for ${individual_id}/${sample_id}")
+    }
+    tuple(individual_id, sample_id, byName[basename], byName[basename + '.pbi'], byName[basename + '.bai'], chunkID, effectiveChunks)
+  }
+}
+
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
   // Strip workflow prefixes like "processReads:" from the log name
@@ -192,6 +211,10 @@ def publicationMode(workDirectory, outputDirectory) {
   }
 }
 
+// Resolve once before process declarations: publishDir mode must be a String,
+// and strict process directive scope does not resolve script helper calls.
+params.publication_mode = publicationMode(workflow.workDir, params.analysis_output_dir)
+
 def cachedBuild(entry, products, command) {
   def productOptions = products.collect { '--product ' + shellQuote(it) }.join(' ')
   return """
@@ -303,7 +326,6 @@ workflow {
   // Scoped prepared artifacts: changing one individual's VCF inputs does not
   // invalidate the reference, other individuals, or independent region tracks.
   params.cache_helper = "${workflow.projectDir}/bin/artifactCache.py".toString()
-  params.publication_mode = publicationMode(workflow.workDir, params.analysis_output_dir)
   params.prepared_cache_root = "${file(params.cache_dir).toAbsolutePath()}/prepared".toString()
   inputIdentities = [:]
   identifyInput = { source ->
@@ -795,24 +817,25 @@ workflow {
   //******************
 
   countAnalysisZMWs(mergeAlignedSampleBAMs.out)
+  compileBamDispatcher(channel.value(file("${projectDir}/bin/splitBamByZmw.cpp", checkIfExists: true)))
 
-  // Create input channel
+  // Keep the exact legacy enumeration once, and dispatch all chunks per sample.
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
       .join(countAnalysisZMWs.out, by: [0, 1])
-      .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile ->
+      .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile, zmwIdsFile ->
         def total_zmws = zmwCountFile.text.trim() as int
         if (total_zmws == 0) {
           log.warn "Skipping sample '${sample_id}' because its merged analysis BAM contains zero ZMWs."
           return []
         }
         def effective_chunks = Math.min(params.analysis_chunks as int, total_zmws)
-        (1..effective_chunks).collect { chunkID ->
-          tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effective_chunks)
-        }
+        [tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, zmwIdsFile, effective_chunks)]
       }
 
-  // Run process
-  splitBAM(splitBAM_input_ch)
+  splitBAM(splitBAM_input_ch, compileBamDispatcher.out)
+  splitBAM_chunks_ch = splitBAM.out.flatMap { individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks ->
+    expandAnalysisChunks(individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks)
+  }
 
   //******************
   // installBSgenome
@@ -906,7 +929,7 @@ workflow {
     .map { true }
 
   // Create input channel
-  extractCalls_input_ch = splitBAM.out
+  extractCalls_input_ch = splitBAM_chunks_ch
       .combine(prepareFilters_done)
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, prepareFiltersReady ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, config_signatures.extractCallsChunk)
@@ -1338,7 +1361,7 @@ process mergeAlignedSampleBAMs {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       saveAs: { filename -> "${dirProcessReads(individual_id, sample_id)}/${filename}" }
 
     afterScript {
@@ -1416,20 +1439,42 @@ process countAnalysisZMWs {
       tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile)
 
     output:
-      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt")
+      tuple val(individual_id), val(sample_id),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt")
 
     script:
     """
     set -euo pipefail
-    
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    zmwfilter --show-all ${bamFile} | wc -l > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt
+    zmwfilter --show-all ${bamFile} > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt
+    wc -l < ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt
+    """
+}
+
+/* Compile once in the pinned container; the small source is a content-hashed input. */
+process compileBamDispatcher {
+    cpus 1
+    memory '1 GB'
+    time '10m'
+    container "${params.hidefseq_container}"
+    cache 'deep'
+
+    input:
+      path(dispatcherSource)
+
+    output:
+      path('splitBamByZmw')
+
+    script:
+    """
+    g++ -O2 -std=c++17 ${dispatcherSource} -o splitBamByZmw -lhts -Wl,-rpath,/usr/local/lib
     """
 }
 
 /*
-  splitBAM: Splits BAM files into approximately equal non-empty chunks.
+  splitBAM: Dispatch all legacy partitions per sample, then index sequentially.
 */
 process splitBAM {
     cpus 2
@@ -1439,67 +1484,44 @@ process splitBAM {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirSplitBAMs(individual_id, sample_id)}/${filename}" }
 
     afterScript {
       generateAfterScript(
         "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
-        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
 
     input:
-      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(effectiveChunks)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), path(zmwIdsFile), val(effectiveChunks)
+      path(dispatcher)
 
     output:
       tuple val(individual_id), val(sample_id),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
-      val(chunkID), val(effectiveChunks)
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam.pbi"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam.bai"),
+      val(effectiveChunks)
 
     script:
+    def prefix = "${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted"
     """
+    set -euo pipefail
+    ./${dispatcher} --input ${bamFile} --ids ${zmwIdsFile} --chunks ${effectiveChunks} \
+      --output-prefix ${prefix} --threads ${task.cpus} --max-open-writers 128
+
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-
-    sample_basename=\$(basename ${bamFile} .bam)
-
-    ids_file=\${sample_basename}.zmwIDs.txt
-    chunk_ids=\${sample_basename}.chunk${chunkID}.zmwIDs.txt
-    chunk_bam=\${sample_basename}.chunk${chunkID}.bam
-    
-    zmwfilter --show-all ${bamFile} > \$ids_file
-
-    total_zmws=\$(wc -l < \$ids_file)
-
-    awk -v T=\$total_zmws -v N=${effectiveChunks} -v K=${chunkID} '
-      BEGIN{
-        base=int(T/N); rem=T%N
-      }
-
-      {
-        if(NR == 1){chunk=1; left = base + (chunk <= rem)}
-        if(chunk == K){print}
-        left--
-        if(left==0){chunk++; left=base+(chunk<=rem); if(chunk>K){exit} }
-      }
-    ' \$ids_file > \$chunk_ids
-
-    # Guard against unexpected empty chunks.
-    if [ ! -s \$chunk_ids ]; then
-      echo "ERROR: chunkID=${chunkID} produced no ZMW IDs with effectiveChunks=${effectiveChunks}" >&2
-      exit 1
-    fi
-
-    zmwfilter --include \$chunk_ids ${bamFile} \$chunk_bam
-    pbindex \$chunk_bam
-
+    for chunk_bam in ${prefix}.chunk*.bam; do
+      pbindex \$chunk_bam
+    done
     conda deactivate
-
-    ${params.samtools_bin} index -@ ${task.cpus} \$chunk_bam
+    for chunk_bam in ${prefix}.chunk*.bam; do
+      ${params.samtools_bin} index -@ ${task.cpus} \$chunk_bam
+    done
     """
 }
 
@@ -1798,7 +1820,7 @@ process extractCallsChunk {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirExtractCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1839,7 +1861,7 @@ process filterCallsChunkChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirFilterCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1880,13 +1902,13 @@ process calculateBurdensChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       pattern: "*.calculateBurdens.qs2",
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirCalculateBurdens(individual_id, sample_id)}/${filename}" }
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       pattern: "*.bed.gz*",
       saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/${filename}" }
 
@@ -1928,7 +1950,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: { params.publication_mode },
+      mode: params.publication_mode,
       saveAs: { filename -> "${sampleBaseDir(individual_id, sample_id)}/${filename}" }
 
     afterScript {

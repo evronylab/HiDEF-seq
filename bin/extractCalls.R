@@ -901,17 +901,25 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     setkey(indels_queryspace_pos.opposite_strand, zm_strand, start_end_queryspace)
     
     #Extract data
-    indels_queryspace_pos[, sa_val := subset_tag_positions(sa.input[[zm_strand[1]]], pos_queryspace), by = zm_strand]
-    indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    # Resolve read names once; repeated named-list [[ lookups scan the tag list.
+    indels_queryspace_pos[, tag_index := match(zm_strand, names(sa.input))]
+    indels_queryspace_pos[is.na(zm_strand) | zm_strand == "", tag_index := NA_integer_]
+    indels_queryspace_pos[, sa_val := subset_tag_positions(sa.input[[tag_index[1]]], pos_queryspace), by = zm_strand]
+    indels_queryspace_pos[, sm_val := sm.input[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, sx_val := sx.input[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, tag_index := NULL]
     
     sa.input.opposite_strand <- sa.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sm.input.opposite_strand <- sm.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sx.input.opposite_strand <- sx.input %>% setNames(names(.) %>% chartr("+-","-+",.))
 
-    indels_queryspace_pos.opposite_strand[, sa_val := subset_tag_positions(sa.input.opposite_strand[[zm_strand[1]]], pos_queryspace), by = zm_strand]
-    indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    # Resolve read names once; repeated named-list [[ lookups scan the tag list.
+    indels_queryspace_pos.opposite_strand[, tag_index := match(zm_strand, names(sa.input.opposite_strand))]
+    indels_queryspace_pos.opposite_strand[is.na(zm_strand) | zm_strand == "", tag_index := NA_integer_]
+    indels_queryspace_pos.opposite_strand[, sa_val := subset_tag_positions(sa.input.opposite_strand[[tag_index[1]]], pos_queryspace), by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, tag_index := NULL]
     
     rm(cigar.queryspace.var.forqualdata, vars_queryspace.opposite_strand)
     invisible(gc())

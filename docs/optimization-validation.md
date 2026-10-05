@@ -173,8 +173,11 @@ in workspace `runs/extract-paired-index/`.
 The actual assignment fixture passed successful homogeneous integer/double tags,
 duplicate and absent names, empty queries, out-of-bounds positions, keys and row
 order. Mixed tag types that trigger a legacy truncation error retain that error.
-The additional integrated SA/extraction fixture remains queued at this entry;
-production promotion awaits that check.
+The additional integrated SA/extraction and actual indel-assignment fixtures
+passed in job `19206115` against the same candidate source. The indexed lookup is
+now included in the production script. The original queued fixture `19202242`
+was cancelled before execution after its identical replacement was accepted on
+Torch's short-job partition; no timed scientific worker was rerun for that change.
 
 ## Completed: germline VCF annotation block, three pairs
 

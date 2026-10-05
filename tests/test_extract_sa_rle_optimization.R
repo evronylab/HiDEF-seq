@@ -112,10 +112,10 @@ cat("PASS: actual SBS/MDB sa/sm/sx extraction and opposite-strand coordinate-joi
 #Run the actual six data.table indel tag assignments on ordinary vs compressed
 #sa inputs, covering insertion-base ranges, deletion flanks, duplicates and OOB.
 lines <- readLines(script)
-indel_lines <- lines[grepl("indels_queryspace_pos[,", lines, fixed = TRUE) |
-                       grepl("indels_queryspace_pos.opposite_strand[,", lines, fixed = TRUE)]
-indel_lines <- indel_lines[grepl("_val :=", indel_lines, fixed = TRUE)]
-stopifnot(length(indel_lines) == 6L)
+indel_lines <- lines[grepl("indels_queryspace_pos[", lines, fixed = TRUE) |
+                       grepl("indels_queryspace_pos.opposite_strand[", lines, fixed = TRUE)]
+indel_lines <- indel_lines[grepl(":=", indel_lines, fixed = TRUE)]
+stopifnot(length(indel_lines) == 12L, sum(grepl("_val :=", indel_lines, fixed = TRUE)) == 6L)
 indel_code <- parse(text = indel_lines)
 indel_queries <- data.table(zm_strand = c(rep("101_+", 4), rep("101_-", 2), rep("102_+", 2)),
                             start_end_queryspace = c(rep("2_4", 3), "1_6", "1_6", "1_6", "1_2", "1_2"),

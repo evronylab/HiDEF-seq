@@ -1,4 +1,12 @@
-# Prepared cache and publication changes
+# Computational optimizations
+
+The optimization branch changes repeated work and intermediate allocations while
+retaining the scientific output schemas and one final QS2 per sample. TSV, VCF,
+PDF and indexed coverage BED outputs are retained. The
+[validation ledger](optimization-validation.md) distinguishes completed component
+benchmarks from the full-workflow comparisons that are still in progress.
+
+## Prepared caches and publication
 
 Prepared reference libraries, reference trinucleotide BEDs, per-individual VCF
 annotations, germline BAM coverage/calls, and thresholded region tracks now use
@@ -93,6 +101,21 @@ partitions, its records are emitted to each matching chunk, preserving the
 legacy include behavior. Missing `zm` tags follow the pinned PacBio index's
 observed zero-ID behavior. Headers, record order and tags are preserved.
 
+Production dispatch inputs always pass through `mergeAlignedSampleBAMs`, which
+unconditionally runs pinned `pbmerge` (including one input), then coordinate sort
+and indexing. This boundary matters for noncanonical synthetic PacBio headers:
+legacy `zmwfilter` adds missing `@HD pb:5.0.0` and `@RG PM:SEQUEL` defaults, while
+the dispatcher preserves its input header. In the long-CIGAR boundary fixture,
+one-input `pbmerge` added those defaults before dispatch; all non-`@PG` header
+lines, the binary reference dictionary and all three ordered raw BAM records
+then matched legacy exactly. Two malformed inputs lacking the PacBio version
+were rejected by `pbmerge` before dispatch. The direct unmerged synthetic case
+therefore remains a documented standalone-helper difference, with no observed
+production mismatch. Program-header differences remain explicit review findings;
+this is not a blanket header whitelist. Boundary evidence is in
+`runs/dispatcher-header-boundary/results.json` (job 19201853); that focused probe
+did not rebuild indices, which are covered by the separate dispatch fixtures.
+
 Up to 128 output writers share an HTSlib compression thread pool. Larger chunk
 counts use additional sequential input passes over bounded writer groups,
 without changing chunk assignments. The pool limits compression workers;
@@ -123,6 +146,72 @@ Chunk 1's complete ordered SAM record stream matched the legacy chunk SHA256
 These measurements and hashes are retained in `runs/dispatch-benchmark/`. This
 is an exact real-data record comparison for chunk 1, not a claim that every
 real-data chunk was compared or that a complete optimized pipeline was validated.
+
+## Processing inside the R scripts
+
+### Extraction
+
+`extractCalls.R` decodes the run-length encoded `sa` tag directly into an Rle and
+reverses its runs when strand orientation requires it. It no longer expands all
+read-level `sa` tags into dense arrays for quality lookup. Queried positions are
+mapped to run values using cumulative endpoints; unusual indices use the original
+dense-vector semantics. The published extraction object still contains its
+original `sa` Rle representation, and `sm` and `sx` retain their original vectors.
+
+For indel quality lookup, read names are matched to tag-list positions once for
+each strand. The six existing assignments then use integer positions, avoiding
+repeated linear searches through long named lists. All three tag lists originate
+from the same BAM rows and share the same name order. The temporary index is
+removed before aggregation; first-match, absent-name and output-order behavior
+is unchanged. Run `tests/test_extract_sa_rle_optimization.R` and
+`tests/test_indel_tag_indices.R` in the pipeline container for focused regression
+checks against the actual production assignments.
+
+### Filtering
+
+`filterCalls.R` restricts calls to the requested chromosome group before expensive
+processing. Whole-genome statistics and germline variant filters retain their
+original scope. In the germline annotation step, only variants matching the call
+keys need the expensive per-variant summary; the complete filtered germline table
+is still retained where downstream calculations require it. The reusable reference
+summary and germline coverage masks above remove repeated reference scans and
+whole-genome coverage conversion from individual filter tasks. Filtergroups remain
+separate jobs: the tested shared-load alternative did not justify its additional
+memory and complexity.
+
+### Burden and sensitivity calculations
+
+`calculateBurdens.R` accumulates coverage one category at a time and replaces that
+category's prior value. Joins operate on category metadata instead of carrying
+old and new genome-wide coverage list-columns through the join. The final coverage
+tables retain their original structure.
+
+Barcode-orientation tracks are constructed only for requested non-mutation call
+types with asymmetric final-round barcodes, where the downstream summaries consume
+them. The observed orientation incorporates both demultiplexing rounds; asymmetric
+round-2 outputs remain supported. Aggregate duplex coverage and the existing
+plus/minus and even-depth consistency checks remain in place.
+
+Sensitivity retains coverage only at selected high-confidence germline variant
+positions instead of accumulating extra genome-wide coverage tracks. The original
+per-VCF quality quantiles are calculated over the whole genome before chromosome
+selection. Each indel flank is summed across all chunks before the minimum of its
+flanks is taken. These details preserve the denominator, including variants whose
+two flanks are covered by different chunks. Indel reference annotation also loads
+only chromosomes containing calls.
+
+The current production coverage BED writer retains its `chunk_runs = 1e7` setting.
+The alternative reference-annotation helper remains experimental until the full
+operation's performance and output comparison pass.
+
+### Final output
+
+`outputResults.R` skips expensive list-column conversions that the following
+germline-table pivot discards. Its native `VariantAnnotation::writeVcf()` call uses
+`nchunk = 100000L` to reduce temporary VCF formatting allocations. This is the
+existing writer's export buffer; it does not divide analysis calls into separate
+jobs or split the final QS2. The measured final object fits as a single object,
+so no separate QS2 components or new reader API are introduced.
 
 ## Focused local validation
 

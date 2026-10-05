@@ -63,7 +63,7 @@ Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].s
 Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `verifyBAMID`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.). Logs are renamed to start with the process name followed by the sample identifiers and any additional context keys needed by that process:
 
 - Core sample scope: `processName.${analysis_id}.${individual_id}.${sample_id}.command.log` (for example `mergeAlignedSampleBAMs.A123.I456.S789.command.log`).
-- Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
+- Chunked extraction and filtering tasks append the chunk identifier: `...chunk${chunkID}.command.log`. BAM splitting now uses one sample-level dispatch task and log, `splitBAM.${analysis_id}.${individual_id}.${sample_id}.command.log`; the individual chunk BAM/PBI/BAI filenames are unchanged.
 - Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
 - Per-barcode alignments append the run and barcode identifiers (for example `pbmm2Align.A123.Run123.I456.S789.bc2009.command.log` for one demultiplexing round, or `pbmm2Align.A123.Run123.I456.S789.bc2009.bc2010-bc2011.command.log` when two rounds are configured; analogous naming applies to `verifyBAMID` logs).
 

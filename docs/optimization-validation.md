@@ -2,8 +2,9 @@
 
 This living ledger records the optimization measurements available on 2026-10-05.
 Completed component results do **not** establish a whole-pipeline improvement.
-Full scientific equivalence, total pipeline CPU, and high-memory-stage RSS
-comparisons remain pending.
+Full scientific equivalence, total pipeline CPU, and the remaining high-memory
+stage comparisons remain pending. The first complete nuclear burden group has
+passed strict scientific comparison and shows substantial CPU/RSS reductions.
 
 ## Measurement and acceptance
 
@@ -122,7 +123,40 @@ The candidate controller finished with failure after the discovered burden bug;
 all healthy filtering tasks were allowed to finish and remain cached. Failed and
 deliberately stopped development burden attempts are retained separately, with
 signal-interrupted CPU marked as a lower bound. Full successful-workload CPU,
-nuclear burden peaks, and final publication equivalence remain pending.
+the remaining nuclear burden peaks, and final publication equivalence remain pending.
+
+## Completed: first full 60-chunk nuclear burden comparison
+
+The LIB1 nuclear lenient group completed successfully in baseline job `19210736`
+and candidate job `19223739` (production revision `3911047`). Both use all 60
+ordered filter outputs and the same scientific settings and two-CPU allocation.
+
+| Metric | Baseline | Candidate | Decrease |
+| --- | ---: | ---: | ---: |
+| Actual user + system CPU-hours | 9.4044 | 3.9775 | 57.71% |
+| Slurm-reported maximum RSS (KiB) | 178,074,992 | 64,809,888 | 63.61% |
+| Slurm-reported maximum RSS (GiB) | 169.826 | 61.808 | 63.61% |
+| Allocation elapsed time | 8:46:47 | 3:49:59 | 56.34% |
+
+These are complete task measurements on different nodes (`cl011` and `cl015`),
+not a repeated matched-node trial or a whole-pipeline result. Slurm RSS is distinct
+from R heap size and Nextflow's sampled peak: the latter reported 132,119,540 KiB
+for this baseline task. Frozen allocation and step accounting is in
+`runtime/accounting-checkpoints/lenient-nuclear-first-pair-20261005/`.
+
+Job `19234598` compared both complete burden QS objects, including real nuclear
+sensitivity results and all accumulated coverage. Scientific values, types,
+attributes and row order matched with **zero failures and zero numeric reviews**.
+No cross-chromgroup row normalization was enabled. The nine explicit
+configuration/run-metadata exclusions were accompanied by saved-YAML binding.
+Table provenance used only the reviewed exact region-cache and germline-source
+path mappings; no other table values were normalized.
+Input file identities remained unchanged throughout comparison. Frozen source,
+commands and reports are in `runs/full-nuclear-burden-lib1-lenient/`.
+
+This establishes the complete lenient nuclear burden object for one sample.
+Coverage BED/index publications, strict groups, combined final QS/TSV/VCF/PDF
+outputs and whole-pipeline totals still require their pending comparisons.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 
@@ -170,9 +204,10 @@ rules remain unchanged.
 Evidence is in `runs/mito-singleton-fix-v3/`, `runs/mito-cache-path-audit/` and
 `runs/mito-reviewed-path-comparison/`; earlier failure snapshots remain in the
 preceding directories. This is real 60-chunk mitochondrial downstream proof.
-These groups skip the configured nuclear sensitivity calculation, so full
-nuclear burden/sensitivity, combined final publication, and whole-pipeline
-performance comparisons remain pending.
+These groups skip the configured nuclear sensitivity calculation. The separate
+complete LIB1 lenient nuclear check above covers that calculation; the other
+nuclear groups, combined final publication and whole-pipeline performance
+comparisons remain pending.
 
 ## Completed: full-reference summary preparation
 

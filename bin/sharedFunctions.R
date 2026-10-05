@@ -2,6 +2,21 @@
 ### Custom shared functions
 ######################
 
+# Workflow-generated configurations resolve prepared products to immutable,
+# process-scoped bundles. Standalone scripts retain the legacy cache layout.
+cache_file <- function(path, yaml.config){
+  if(is.null(yaml.config$cache_artifacts)) return(path)
+  vapply(path, function(item){
+    resolved <- yaml.config$cache_artifacts[[basename(item)]]
+    if(is.null(resolved)) stop(paste("No prepared cache artifact for", item), call.=FALSE)
+    as.character(resolved)
+  }, character(1), USE.NAMES=FALSE)
+}
+
+reference_cache_dir <- function(yaml.config){
+  if(is.null(yaml.config$reference_cache_dir)) yaml.config$cache_dir else yaml.config$reference_cache_dir
+}
+
 #Function to derive the BSgenome package name created from the configured FASTA
 get_bsgenome_name <- function(yaml.config){
 	genome_suffix <- yaml.config$genome_fasta %>%

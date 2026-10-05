@@ -43,7 +43,7 @@ if(is.null(opt$config)){
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 
-cache_dir <- yaml.config$cache_dir
+cache_dir <- Sys.getenv("HIDEF_REFERENCE_BUILD_DIR", unset=reference_cache_dir(yaml.config))
 BSgenome_name <- get_bsgenome_name(yaml.config)
 writeLines(BSgenome_name, "BSgenome_name.txt")
 

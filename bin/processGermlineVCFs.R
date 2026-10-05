@@ -55,7 +55,7 @@ cache_dir <- yaml.config$cache_dir
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 cat("DONE\n")
 

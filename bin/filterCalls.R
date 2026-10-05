@@ -66,7 +66,7 @@ outputFile <- opt$output
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -125,7 +125,7 @@ region_read_filters_config <- yaml.config$region_filters %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+  mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
@@ -136,7 +136,7 @@ region_genome_filters_config <- yaml.config$region_filters %>%
   flatten %>%
   enframe(name=NULL) %>%
   unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+  mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
@@ -409,6 +409,7 @@ bam <- extractedCalls %>%
 # b. call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity and estimated SBS mutation error calculations).
 calls <- extractedCalls %>%
 	pluck("calls") %>%
+	filter(seqnames %in% chroms_toanalyze) %>%
 	left_join(
 		call_types_toanalyze %>%
 			distinct(call_type,call_class,SBSindel_call_type) %>%
@@ -417,7 +418,6 @@ calls <- extractedCalls %>%
 	) %>%
   mutate(call_toanalyze = call_toanalyze %>% replace_na(FALSE)) %>%
 	filter(
-	  seqnames %in% chroms_toanalyze,
 	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		)
 
@@ -631,7 +631,7 @@ cat("DONE\n")
 cat("## Applying germline VCF variant filters...")
 
 #Load germline VCF filter data
-germline_vcf_variants <- qs_read(
+germline_vcf_variants <- qs_read(cache_file(
 	str_c(
 		cache_dir,
 		individual_id_toanalyze,".",
@@ -644,7 +644,7 @@ germline_vcf_variants <- qs_read(
 			basename,
 		".germline_vcf_variants.qs2"
 		)
-	) %>%
+	, yaml.config)) %>%
   as_tibble
   
 #Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering
@@ -699,6 +699,12 @@ germline_vcf_variants <- germline_vcf_variants  %>%
 calls <- calls %>%
   left_join(
     germline_vcf_variants %>%
+      # Only summarize variants matching this chunk's calls. Keep the full table
+      # above for later per-file indel filters and whole-genome statistics.
+      semi_join(
+        calls %>% select(seqnames,start,end,ref_plus_strand,alt_plus_strand),
+        by = join_by(seqnames,start,end,ref_plus_strand,alt_plus_strand)
+      ) %>%
       group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
       summarize(
         germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),
@@ -874,11 +880,16 @@ cat("## Applying genome 'N' base sequence filter...")
 
 passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
-#Extract 'N' base sequence ranges
-region_genome_filter <- BSgenome_name %>%
-	get %>%
-	vmatchPattern("N",.) %>%
-	GenomicRanges::reduce(ignore.strand=TRUE)
+#Keep full-reference N ranges so the whole-genome filtered-base statistic is
+#unchanged even when this task analyzes only a small chromosome group.
+region_genome_filter <- if(!is.null(yaml.config$reference_summary_file)){
+	qs_read(yaml.config$reference_summary_file)$n_ranges
+}else{
+	BSgenome_name %>%
+		get %>%
+		vmatchPattern("N",.) %>%
+		GenomicRanges::reduce(ignore.strand=TRUE)
+}
 
 #Subtract regions from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1215,39 +1226,49 @@ germline_bam_samtools_mpileup_file <- cache_dir %>%
 			unique %>%
 			basename,
 		".bw"
-	)
+	) %>% cache_file(yaml.config)
 
-tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".",fileext=".bed")
-system(paste("/bin/bash -c",shQuote(paste(
-	"awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
-	"| sort -k1,1 -k2,2n >",
-	tmpchromsizes
-)
-)))
+if(!is.null(yaml.config$germline_coverage_filters)) {
+  coverage_entries <- Filter(function(entry) {
+    as.character(entry$individual_id) == individual_id_toanalyze &&
+      as.numeric(entry$threshold) == filtergroup_toanalyze_config$min_germlineBAM_TotalReads
+  }, yaml.config$germline_coverage_filters)
+  if(length(coverage_entries) != 1L) {
+    stop("Expected one prepared germline coverage filter for this individual and threshold", call.=FALSE)
+  }
+  germline_bam_samtools_mpileup_filter <- qs_read(coverage_entries[[1]]$file)
+} else {
+  tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".",fileext=".bed")
+  system(paste("/bin/bash -c",shQuote(paste(
+    "awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
+    "| sort -k1,1 -k2,2n >",
+    tmpchromsizes
+  )
+  )))
 
-tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
+  tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
 
-system(paste("/bin/bash -c",shQuote(paste(
-	yaml.config$wiggletools_bin, "lt",
-	filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
-	"trim", tmpchromsizes, "fillIn", tmpchromsizes,
-	germline_bam_samtools_mpileup_file, "|",
-	yaml.config$wigToBigWig_bin, "stdin <(cut -f 1,2",
-	yaml.config$genome_fai,")",
-	tmpbw
-	)
-)))
+  system(paste("/bin/bash -c",shQuote(paste(
+    yaml.config$wiggletools_bin, "lt",
+    filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
+    "trim", tmpchromsizes, "fillIn", tmpchromsizes,
+    germline_bam_samtools_mpileup_file, "|",
+    yaml.config$wigToBigWig_bin, "stdin <(cut -f 1,2",
+    yaml.config$genome_fai,")",
+    tmpbw
+    )
+  )))
 
-germline_bam_samtools_mpileup_filter <- tmpbw %>%
-	import(format = "bigWig") %>%
-	{
-		seqlevels(.) <- seqlevels(genome_chromgroup.gr)
-		seqinfo(.) <- seqinfo(genome_chromgroup.gr)
-		.
-	} %>%
-	select(-score)
+  germline_bam_samtools_mpileup_filter <- tmpbw %>%
+    import(format = "bigWig") %>%
+    select(-score)
 
-invisible(file.remove(tmpchromsizes, tmpbw))
+  invisible(file.remove(tmpchromsizes, tmpbw))
+}
+
+# Preserve the original full-reference Seqinfo assignment after either path.
+seqlevels(germline_bam_samtools_mpileup_filter) <- seqlevels(genome_chromgroup.gr)
+seqinfo(germline_bam_samtools_mpileup_filter) <- seqinfo(genome_chromgroup.gr)
 
 #Subtract filtered regions from filter trackers
 bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%
@@ -1334,7 +1355,7 @@ germline_bam_bcftools_mpileup_file <- cache_dir %>%
 			unique %>%
 			basename,
 		".vcf.gz"
-	)
+	) %>% cache_file(yaml.config)
 
 germline_bam_bcftools_mpileup_filter <- load_vcf(
 	vcf_file = germline_bam_bcftools_mpileup_file,

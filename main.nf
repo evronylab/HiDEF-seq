@@ -87,6 +87,126 @@ def fileSha256(path) {
     .toString()
 }
 
+// Metadata identities avoid reading large BAMs, references or containers on the
+// orchestration node. They are intentionally not described as content hashes.
+def preparedInputIdentity(rawPath) {
+  def source = file(rawPath).toRealPath()
+  def attrs = java.nio.file.Files.readAttributes(source, java.nio.file.attribute.BasicFileAttributes)
+  def changed = null
+  try {
+    changed = java.nio.file.Files.getAttribute(source, 'unix:ctime').toString()
+  } catch (UnsupportedOperationException ignored) {
+    changed = null
+  }
+  return [kind: 'canonical-path-size-mtime-ctime', path: source.toString(),
+          bytes: attrs.size(), modified: attrs.lastModifiedTime().toString(),
+          changed: changed, fileKey: attrs.fileKey()?.toString()]
+}
+
+def canonicalCacheValue(value) {
+  if (value instanceof Map) {
+    def result = new TreeMap()
+    value.each { key, item -> result[key.toString()] = canonicalCacheValue(item) }
+    return result
+  }
+  if (value instanceof Collection) {
+    return value.collect { canonicalCacheValue(it) }
+  }
+  return value instanceof GString ? value.toString() : value
+}
+
+// Emit ordinary YAML scalars/collections, never tagged Nextflow/Groovy runtime
+// objects such as MemoryUnit. Only original configuration keys and explicitly
+// added artifact fields are passed through this conversion.
+def plainConfigurationValue(value) {
+  if (value == null) return null
+  if (value instanceof CharSequence || value instanceof java.nio.file.Path ||
+      value instanceof nextflow.util.MemoryUnit || value instanceof nextflow.util.Duration) return value.toString()
+  if (value instanceof Number || value instanceof Boolean) return value
+  if (value instanceof Map) {
+    def result = new LinkedHashMap()
+    value.each { key, item -> result[key.toString()] = plainConfigurationValue(item) }
+    return result
+  }
+  if (value instanceof Collection) return value.collect { plainConfigurationValue(it) }
+  throw new IllegalArgumentException("Unsupported configuration value type: ${value.getClass().name}")
+}
+
+def originalParamsFile(commandLine) {
+  def matches = commandLine =~ /(?:^|\s)-params-file(?:\s+|=)("[^"]*"|'[^']*'|\S+)/
+  if (!matches.find()) throw new IllegalArgumentException('An original -params-file YAML is required')
+  def value = matches.group(1)
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.substring(1, value.length() - 1)
+  }
+  return file(value).toAbsolutePath()
+}
+
+def writeImmutableConfiguration(path, text) {
+  def destination = file(path).toAbsolutePath()
+  def expected = text.getBytes('UTF-8')
+  def verifyExisting = {
+    if (!java.util.Arrays.equals(java.nio.file.Files.readAllBytes(destination), expected)) {
+      throw new IllegalStateException("Existing immutable configuration differs: ${destination}")
+    }
+  }
+  if (java.nio.file.Files.exists(destination)) {
+    verifyExisting.call()
+    return
+  }
+  def temporary = java.nio.file.Files.createTempFile(destination.parent, '.effective-params-', '.tmp')
+  try {
+    java.nio.file.Files.write(temporary, expected)
+    java.nio.channels.FileChannel.open(temporary, java.nio.file.StandardOpenOption.WRITE).withCloseable { channel ->
+      channel.force(true)
+    }
+    try {
+      // Publish one complete sibling file atomically without ever replacing an
+      // existing name. Unlike ATOMIC_MOVE, createLink has no replace ambiguity.
+      java.nio.file.Files.createLink(destination, temporary)
+    } catch (java.nio.file.FileAlreadyExistsException ignored) {
+      verifyExisting.call()
+    }
+  } catch (Exception failure) {
+    java.nio.file.Files.deleteIfExists(temporary)
+    throw failure
+  }
+  java.nio.file.Files.deleteIfExists(temporary)
+}
+
+def shellQuote(value) {
+  return "'" + value.toString().replace("'", "'\"'\"'") + "'"
+}
+
+def nearestExistingPath(path) {
+  def current = file(path).toAbsolutePath()
+  return java.nio.file.Files.exists(current) ? current : nearestExistingPath(current.parent)
+}
+
+def publicationMode(workDirectory, outputDirectory) {
+  try {
+    return java.nio.file.Files.getFileStore(nearestExistingPath(workDirectory)) ==
+      java.nio.file.Files.getFileStore(nearestExistingPath(outputDirectory)) ? 'link' : 'copy'
+  } catch (Exception ignored) {
+    return 'copy'
+  }
+}
+
+def cachedBuild(entry, products, command) {
+  def productOptions = products.collect { '--product ' + shellQuote(it) }.join(' ')
+  return """
+  set -euo pipefail
+  cat > .cache.identity.json <<'HIDEF_CACHE_IDENTITY'
+  ${entry.json}
+  HIDEF_CACHE_IDENTITY
+  cat > .cache.build.sh <<'HIDEF_CACHE_BUILD'
+  set -euo pipefail
+  ${command}
+  HIDEF_CACHE_BUILD
+  python3 ${shellQuote(params.cache_helper)} run --root ${shellQuote(params.prepared_cache_root)} --identity .cache.identity.json ${productOptions} -- bash .cache.build.sh
+  """.stripIndent()
+}
+
 def canonicalBarcodePair(barcodeA, barcodeB) {
   return barcodeA == barcodeB ? barcodeA : [barcodeA, barcodeB].toSorted().join('-')
 }
@@ -137,8 +257,20 @@ workflow {
   options.setIndent(2)
 
   yaml = new org.yaml.snakeyaml.Yaml(options)
-  timestamp = new Date().format('yyyy_MMdd_HHmm')
-  file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
+  originalParametersFile = originalParamsFile(workflow.commandLine)
+  originalConfiguration = yaml.load(originalParametersFile.text)
+  if (!(originalConfiguration instanceof Map)) error 'The original parameters YAML must contain a mapping'
+  if (params.containsKey('paramsFileName')) {
+    error 'paramsFileName is reserved for the generated effective YAML; use the original input configuration'
+  }
+  // Apply intentional command-line/config overrides to original keys, without
+  // leaking unrelated injected defaults into R's scientific configuration.
+  scientificConfiguration = new LinkedHashMap()
+  originalConfiguration.each { name, value ->
+    scientificConfiguration[name.toString()] = plainConfigurationValue(params.containsKey(name) ? params[name] : value)
+  }
+  timestamp = "${new Date().format('yyyy_MMdd_HHmmss_SSS')}.${workflow.sessionId}".toString()
+  file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(scientificConfiguration)
 
   // Save copy of run information
   file("${logsDir}/runInfo.${timestamp}.txt").text = """
@@ -155,9 +287,7 @@ workflow {
   Nextflow Build: ${workflow.nextflow.build}
   """.stripIndent()
 
-  // Get path of parameters file
-  commandLineTokens = workflow.commandLine.tokenize()
-  params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
+  // paramsFileName is assigned once below, after resolving prepared artifacts.
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
   signature_params = params + [sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")]
@@ -169,6 +299,116 @@ workflow {
     calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
     outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
   ]
+
+  // Scoped prepared artifacts: changing one individual's VCF inputs does not
+  // invalidate the reference, other individuals, or independent region tracks.
+  params.cache_helper = "${workflow.projectDir}/bin/artifactCache.py".toString()
+  params.publication_mode = publicationMode(workflow.workDir, params.analysis_output_dir)
+  params.prepared_cache_root = "${file(params.cache_dir).toAbsolutePath()}/prepared".toString()
+  inputIdentities = [:]
+  identifyInput = { source ->
+    def name = source.toString()
+    if (!inputIdentities.containsKey(name)) {
+      inputIdentities[name] = preparedInputIdentity(source)
+    }
+    inputIdentities[name]
+  }
+  containerIdentity = file(params.hidefseq_container).exists() ? identifyInput.call(params.hidefseq_container) : [kind: 'container-uri', uri: params.hidefseq_container]
+  workflowSource = file("${workflow.projectDir}/main.nf").text
+  cacheArtifacts = [:]
+  makeCacheEntry = { namespace, processName, settings, inputs, scripts, products ->
+    def start = workflowSource.indexOf("\nprocess ${processName} {")
+    def end = workflowSource.indexOf('\nprocess ', start + 1)
+    def processSource = workflowSource.substring(start, end < 0 ? workflowSource.length() : end)
+    def scriptHashes = scripts.collectEntries { script -> [(script): fileSha256("${workflow.projectDir}/bin/${script}")] }
+    scriptHashes['process'] = java.security.MessageDigest.getInstance('SHA-256').digest(processSource.getBytes('UTF-8')).encodeHex().toString()
+    scriptHashes['artifactCache.py'] = fileSha256(params.cache_helper)
+    def toolIdentities = [container: containerIdentity]
+    settings.findAll { name, value -> name in ['seqkit', 'bgzip', 'tabix', 'bcftools', 'samtools', 'bedGraphToBigWig', 'wiggletools', 'wigToBigWig'] }.each { name, executable ->
+      toolIdentities[name] = file(executable).exists() ? identifyInput.call(executable) : [kind: 'container-command', command: executable]
+    }
+    def identity = canonicalCacheValue([schema: 1, namespace: namespace, settings: settings,
+      inputs: inputs.collectEntries { name, source -> [(name): identifyInput.call(source)] },
+      scripts: scriptHashes, tools: toolIdentities])
+    def serialized = groovy.json.JsonOutput.toJson(identity)
+    def digest = java.security.MessageDigest.getInstance('SHA-256').digest(serialized.getBytes('UTF-8')).encodeHex().toString()
+    def directory = "${params.prepared_cache_root}/v1/${namespace}/${digest}".toString()
+    products.each { product ->
+      def destination = "${directory}/${product}".toString()
+      if (cacheArtifacts.containsKey(product) && cacheArtifacts[product] != destination) {
+        error "Prepared cache filename collision for '${product}'. Use distinct input basenames."
+      }
+      cacheArtifacts[product] = destination
+    }
+    def envelope = [schema: 1, namespace: namespace, serialized_identity: serialized]
+    [json: groovy.json.JsonOutput.toJson(envelope), key: digest, directory: directory]
+  }
+  referenceEntry = makeCacheEntry.call('reference', 'installBSgenome',
+    [organism: params.genome_organism, circular: params.circular_chromosomes, fastaName: file(params.genome_fasta).name],
+    [fasta: params.genome_fasta], ['installBSgenome.R', 'sharedFunctions.R'], [])
+  referenceSummaryEntry = makeCacheEntry.call('reference-summary', 'prepareReferenceSummary',
+    [reference: referenceEntry.key], [:],
+    ['prepareReferenceSummary.R', 'referenceSummaryFunctions.R', 'sharedFunctions.R'], ['referenceSummary.qs2'])
+  trinucleotideEntry = makeCacheEntry.call('trinucleotides', 'extractGenomeTrinucleotides',
+    [seqkit: params.seqkit_bin, bgzip: params.bgzip_bin, tabix: params.tabix_bin],
+    [fasta: params.genome_fasta], [], ["${file(params.genome_fasta).name}.bed.gz".toString(), "${file(params.genome_fasta).name}.bed.gz.tbi".toString()])
+  vcfEntries = [:]
+  bamEntries = [:]
+  params.individuals.each { individual ->
+    def bamName = file(individual.germline_bam_file).name
+    def vcfInputs = [fasta: params.genome_fasta]
+    (individual.germline_vcf_files ?: []).eachWithIndex { vcf, i -> vcfInputs["vcf${i}"] = vcf.germline_vcf_file }
+    vcfEntries[individual.individual_id] = makeCacheEntry.call('germline-vcf', 'processGermlineVCFs',
+      [individual: individual.individual_id, vcfs: individual.germline_vcf_files, reference: referenceEntry.key, bcftools: params.bcftools_bin],
+      vcfInputs, ['processGermlineVCFs.R', 'sharedFunctions.R'], ["${individual.individual_id}.${bamName}.germline_vcf_variants.qs2".toString()])
+    bamEntries[bamName] = makeCacheEntry.call('germline-bam', 'processGermlineBAMs',
+      [type: individual.germline_bam_type, samtools: params.samtools_bin, bcftools: params.bcftools_bin, bedGraphToBigWig: params.bedGraphToBigWig_bin],
+      [bam: individual.germline_bam_file, fasta: params.genome_fasta, fai: params.genome_fai], [],
+      ["${bamName}.bw".toString(), "${bamName}.vcf.gz".toString(), "${bamName}.vcf.gz.tbi".toString()])
+  }
+  regionEntries = [:]
+  (params.region_filters ?: []).each { group ->
+    ((group.read_filters ?: []) + (group.genome_filters ?: [])).each { region ->
+      def product = "${file(region.region_filter_file).name}.bin${region.binsize}.${region.threshold}.bw".toString()
+      regionEntries[product] = makeCacheEntry.call('region-filter', 'prepareRegionFilters',
+        [binsize: region.binsize, threshold: region.threshold, wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
+        [region: region.region_filter_file, fai: params.genome_fai], [], [product])
+    }
+  }
+  coverageEntries = [:]
+  coverageConfigurations = []
+  coverageThresholds = params.filtergroups.collect { it.min_germlineBAM_TotalReads }.unique()
+  params.individuals.each { individual ->
+    def bamName = file(individual.germline_bam_file).name
+    coverageThresholds.each { threshold ->
+      def product = "${individual.individual_id}.${bamName}.minCoverage${threshold}.qs2".toString()
+      def entry = makeCacheEntry.call('germline-coverage-filter', 'prepareGermlineCoverageFilters',
+        [individual: individual.individual_id, threshold: threshold, rawCoverage: bamEntries[bamName].key,
+         wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
+        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R'], [product])
+      coverageEntries[product] = entry
+      coverageConfigurations << [individual_id: individual.individual_id, threshold: threshold,
+        bigwig_name: "${bamName}.bw".toString(), product: product, file: "${entry.directory}/${product}".toString()]
+    }
+  }
+  params.germline_coverage_filters = coverageConfigurations
+  params.prepared_cache = [reference: referenceEntry, reference_summary: referenceSummaryEntry, trinucleotides: trinucleotideEntry, vcfs: vcfEntries, bams: bamEntries, regions: regionEntries, coverage: coverageEntries]
+  params.reference_cache_dir = "${referenceEntry.directory}/library".toString()
+  params.reference_summary_file = "${referenceSummaryEntry.directory}/referenceSummary.qs2".toString()
+  params.cache_artifacts = cacheArtifacts
+  // Keep the user's original YAML untouched; R consumers receive the resolved
+  // immutable product paths through an effective configuration for this run.
+  def effectiveConfiguration = new LinkedHashMap(scientificConfiguration)
+  ['germline_coverage_filters', 'reference_cache_dir', 'reference_summary_file', 'cache_artifacts'].each { name ->
+    effectiveConfiguration[name] = plainConfigurationValue(params[name])
+  }
+  def effectiveYaml = yaml.dump(effectiveConfiguration)
+  def effectiveDigest = java.security.MessageDigest.getInstance('SHA-256').digest(effectiveYaml.getBytes('UTF-8')).encodeHex().toString()
+  def effectiveParametersFile = "${logsDir}/effectiveParams.${effectiveDigest}.yaml".toString()
+  if (file(effectiveParametersFile).toAbsolutePath() == originalParametersFile) error 'Effective YAML must not replace its input'
+  writeImmutableConfiguration(effectiveParametersFile, effectiveYaml)
+  params.paramsFileName = effectiveParametersFile
+
 
   // Validate barcodes section and build barcode map
   if (!params.barcodes || params.barcodes.isEmpty()) {
@@ -579,6 +819,7 @@ workflow {
   //******************
   installBSgenome(channel.value(config_signatures.installBSgenome))
   BSgenome_name_ch = installBSgenome.out.map { bsgenomeNameFile -> bsgenomeNameFile.text.trim() }
+  prepareReferenceSummary(BSgenome_name_ch)
 
   //******************
   // extractGenomeTrinucleotides
@@ -610,9 +851,18 @@ workflow {
     .map { run ->
       tuple( file(run.germline_bam_file), run.germline_bam_type )
     }
+    .unique() // Shared germline BAM/type inputs need only one preparation task.
 
   // Run process
   processGermlineBAMs(processGermlineBAMs_input_ch)
+
+  // Reuse identical thresholds across filtergroups, samples, and chunks.
+  prepareGermlineCoverageFilters_input_ch = processGermlineBAMs.out.coverage
+    .flatMap { coverageFile ->
+      params.germline_coverage_filters.findAll { entry -> entry.bigwig_name == coverageFile.name }
+        .collect { entry -> tuple(entry.individual_id, entry.threshold, coverageFile, entry.product) }
+    }
+  prepareGermlineCoverageFilters(prepareGermlineCoverageFilters_input_ch)
 
   //******************
   // processGermlineBAMs
@@ -645,9 +895,11 @@ workflow {
   // Create a completion signal for all filter-related processes by collecting all outputs
   prepareFilters_done = BSgenome_name_ch
     .mix(
+      prepareReferenceSummary.out,
       extractGenomeTrinucleotides.out,
       processGermlineVCFs.out,
       processGermlineBAMs.out,
+      prepareGermlineCoverageFilters.out,
       prepareRegionFilters.out
     )
     .collect()
@@ -1086,7 +1338,7 @@ process mergeAlignedSampleBAMs {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
+      mode: { params.publication_mode },
       saveAs: { filename -> "${dirProcessReads(individual_id, sample_id)}/${filename}" }
 
     afterScript {
@@ -1187,7 +1439,7 @@ process splitBAM {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
+      mode: { params.publication_mode },
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirSplitBAMs(individual_id, sample_id)}/${filename}" }
 
@@ -1260,7 +1512,7 @@ process installBSgenome {
     time '8h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
-    cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
+    cache false // Validate the complete immutable cache bundle on every launch.
 
     afterScript {
       generateAfterScript(
@@ -1276,9 +1528,39 @@ process installBSgenome {
       path("BSgenome_name.txt")
 
     script:
-    """
+    def buildCommand = """
+    export HIDEF_REFERENCE_BUILD_DIR="\$PWD/library"
     installBSgenome.R -c ${params.paramsFileName}
     """
+    cachedBuild(params.prepared_cache.reference, ['library', 'BSgenome_name.txt'], buildCommand)
+}
+
+/*
+  prepareReferenceSummary: Reusable whole-reference N intervals and per-chromosome context counts.
+*/
+process prepareReferenceSummary {
+    cpus 1
+    memory '8 GB'
+    time '2h'
+    tag { "prepareReferenceSummary" }
+    container "${params.hidefseq_container}"
+    cache false // Validate the immutable summary bundle on each workflow launch.
+
+    afterScript {
+      generateAfterScript(sharedLogsDir(), "${task.process}.command.log")
+    }
+
+    input:
+      val(BSgenome_name)
+
+    output:
+      path("referenceSummary.qs2")
+
+    script:
+    def buildCommand = """
+    prepareReferenceSummary.R -c ${shellQuote(params.paramsFileName)} -o referenceSummary.qs2
+    """
+    cachedBuild(params.prepared_cache.reference_summary, ['referenceSummary.qs2'], buildCommand)
 }
 
 /*
@@ -1290,8 +1572,8 @@ process extractGenomeTrinucleotides {
     time '6h'
     tag { "extractGenomeTrinucleotides" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1305,7 +1587,7 @@ process extractGenomeTrinucleotides {
       path("${file(params.genome_fasta).name}.bed.gz.tbi")
 
     script:
-    """
+    def buildCommand = """
     #Convert to upper case, replace unsupported bases with N's, extract sequences for all bases
     #(except contig edges), convert to BED format (column 2 is start position of trinucleotide position),
     #and bgzip + tabix index
@@ -1318,6 +1600,7 @@ process extractGenomeTrinucleotides {
 
     ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${file(params.genome_fasta).name}.bed.gz
     """
+    cachedBuild(params.prepared_cache.trinucleotides, ["${file(params.genome_fasta).name}.bed.gz", "${file(params.genome_fasta).name}.bed.gz.tbi"], buildCommand)
 }
 
 /*
@@ -1329,8 +1612,8 @@ process processGermlineVCFs {
     time '4h'
     tag { "processGermlineVCFs: ${individual_id}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1346,9 +1629,10 @@ process processGermlineVCFs {
       path "${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"
 
     script:
-    """
+    def buildCommand = """
     processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
     """
+    cachedBuild(params.prepared_cache.vcfs[individual_id], ["${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"], buildCommand)
 }
 
 /*
@@ -1360,8 +1644,8 @@ process processGermlineBAMs {
     time '24h'
     tag { "processGermlineBAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1374,11 +1658,11 @@ process processGermlineBAMs {
       tuple path(germline_bam_file), val(germline_bam_type)
 
     output:
-      path("${germline_bam_file}.bw")
+      path("${germline_bam_file}.bw"), emit: coverage
       path("${germline_bam_file}.vcf.gz*")
 
     script:
-    """
+    def buildCommand = """
     #Output per-base coverage using samtools mpileup and direct BAM variant calls using bcftools mpileup
     #Use similar filters for both samtools and bcftools to ensure that samtools coverage data for calculating
     #the fraction of the genome that was filtered maintains correct calculation of the mutation rate.
@@ -1411,6 +1695,36 @@ process processGermlineBAMs {
 
     ${params.bedGraphToBigWig_bin} mpileup.sorted.bg <(cut -f 1,2 ${params.genome_fai}) ${germline_bam_file}.bw
     """
+    cachedBuild(params.prepared_cache.bams[germline_bam_file.name], ["${germline_bam_file}.bw", "${germline_bam_file}.vcf.gz", "${germline_bam_file}.vcf.gz.tbi"], buildCommand)
+}
+
+/*
+  prepareGermlineCoverageFilters: Prepare each individual's whole-genome
+  low-coverage intervals once per distinct threshold, independent of filtergroup.
+*/
+process prepareGermlineCoverageFilters {
+    cpus 2
+    memory '16 GB'
+    time '4h'
+    tag { "prepareGermlineCoverageFilters: ${individual_id} ${threshold}" }
+    container "${params.hidefseq_container}"
+    cache false
+
+    afterScript {
+      generateAfterScript(sharedLogsDir(), "${task.process}.${individual_id}.${threshold}.command.log")
+    }
+
+    input:
+      tuple val(individual_id), val(threshold), path(coverageFile), val(product)
+
+    output:
+      path("${product}")
+
+    script:
+    def buildCommand = """
+    prepareGermlineCoverageFilters.R --bigwig ${shellQuote(coverageFile)} --fai ${shellQuote(params.genome_fai)} --threshold ${shellQuote(threshold)} --wiggletools ${shellQuote(params.wiggletools_bin)} --wig_to_bigwig ${shellQuote(params.wigToBigWig_bin)} --output ${shellQuote(product)}
+    """
+    cachedBuild(params.prepared_cache.coverage[product], [product], buildCommand)
 }
 
 /*
@@ -1422,8 +1736,8 @@ process prepareRegionFilters {
     time '24h'
     tag { "prepareRegionFilters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1439,7 +1753,7 @@ process prepareRegionFilters {
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
     script:
-    """
+    def buildCommand = """
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
     awk '{print \$1 "\t0\t" \$2}' ${params.genome_fai} | sort -k1,1 -k2,2n > chromsizes.bed
 
@@ -1463,6 +1777,7 @@ process prepareRegionFilters {
     ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
       | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
     """
+    cachedBuild(params.prepared_cache.regions["${region_filter_file}.bin${binsize}.${threshold}.bw".toString()], ["${region_filter_file}.bin${binsize}.${threshold}.bw"], buildCommand)
 }
 
 /*
@@ -1483,7 +1798,7 @@ process extractCallsChunk {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
+      mode: { params.publication_mode },
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirExtractCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1524,7 +1839,7 @@ process filterCallsChunkChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
+      mode: { params.publication_mode },
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirFilterCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1565,13 +1880,13 @@ process calculateBurdensChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'link',
+      mode: { params.publication_mode },
       pattern: "*.calculateBurdens.qs2",
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirCalculateBurdens(individual_id, sample_id)}/${filename}" }
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'move',
+      mode: { params.publication_mode },
       pattern: "*.bed.gz*",
       saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/${filename}" }
 
@@ -1613,7 +1928,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: 'move',
+      mode: { params.publication_mode },
       saveAs: { filename -> "${sampleBaseDir(individual_id, sample_id)}/${filename}" }
 
     afterScript {

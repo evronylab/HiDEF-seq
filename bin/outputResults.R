@@ -58,7 +58,7 @@ output_basename <- opt$output_basename
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #Load miscellaneous configuration parameters
  #analysis_id
@@ -639,7 +639,7 @@ for(i in chromgroups){
 			flatten %>%
 			enframe(name=NULL) %>%
 			unnest_wider(value) %>%
-			mutate(region_filter_threshold_file = str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+			mutate(region_filter_threshold_file = cache_file(str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 			filter(
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
 				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
@@ -654,7 +654,7 @@ for(i in chromgroups){
 			flatten %>%
 			enframe(name=NULL) %>%
 			unnest_wider(value) %>%
-			mutate(region_filter_threshold_file = str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+			mutate(region_filter_threshold_file = cache_file(str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 			filter(
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
 				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
@@ -678,10 +678,11 @@ for(i in chromgroups){
 			#Select current chromgroup/filtergroup
 			filter(chromgroup == i, filtergroup == j) %>%
 			
-			#Reformat list columns to be comma-delimited
+			#Reformat retained list columns only; the strand columns discarded by
+			#pivot_wider below do not need comma-delimited copies.
 			mutate(
 				across(
-					where(is.list),
+					where(is.list) & !any_of(c(strand_identical_cols_discard, strand_redundant_cols_discard)),
 					function(x){x %>% map_chr(function(v){str_c(v, collapse = ",")})}
 				)
 			) %>%

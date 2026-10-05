@@ -65,7 +65,7 @@ outputFile <- opt$output
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -217,43 +217,47 @@ bc_orientation_is_asymmetric <- function(bc_orientation){
 		map_lgl(function(x){length(x) == 2 && x[1] != x[2]})
 }
 
-#Function to calculate duplex genome coverage for bam.gr.filtertrack_bytype. If two bam.gr.filtertrack_bytypes are provided, it calculates duplex genome coverage only for the second and adds it to the first. Also removes the bam.gr.filtertrack column that is no longer necessary. Function checks that bam.gr.filtertrack1 and bam.gr.filtertrack2 (if present) each have identical ranges for '+' and '-' strand reads, which they should from upstream filters.
-#Note: duplex coverage counts one unit per base pair, and due to duplex-only filtering, this is the same numeric depth and positions as per-strand coverage that counts one unit per base.
-sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL){
-
-	#Helper function to confirm identical ranges and metadata in '+' and '-' strand reads.
-	is_plus_minus_identical <- function(gr){
-		gr %>%
-			mutate(
-				plus_minus_identical = bam.gr.filtertrack %>%
-					map_lgl(function(x){
-						x_plus <- x %>% filter(strand == "+") %>% select(-bc_orientation)
-						x_minus <- x %>% filter(strand == "-") %>% select(-bc_orientation)
-						
-						return(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))
-					})
-			) %>%
-			pull(plus_minus_identical) %>%
-			all
+#Preserve the molecule-pair and whole-track even-coverage checks for both
+#ordinary coverage and the transient coverage used by sparse sensitivity.
+validate_bam.gr.filtertrack <- function(gr){
+	x_plus <- gr %>% filter(strand == "+") %>% select(-bc_orientation)
+	x_minus <- gr %>% filter(strand == "-") %>% select(-bc_orientation)
+	if(!(identical(ranges(x_plus), ranges(x_minus)) & identical(mcols(x_plus), mcols(x_minus)))){
+		stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
 	}
-	
-	#Helper function to calculate coverage from both strands and then divide by two to get duplex coverage
-	calc_duplex_coverage <- function(gr){
-		cov <- gr %>% coverage
-		
-		#Confirm all values are even integers
-		if((cov %% 2L != 0L) %>% any %>% any){
-			stop("Non-even strand coverage in bam.gr.filtertrack!")
-		}
-		
-		return(cov %/% 2L)
-	}
+	invisible(TRUE)
+}
 
+calc_duplex_coverage <- function(gr){
+	cov <- gr %>% coverage
+	if((cov %% 2L != 0L) %>% any %>% any){
+		stop("Non-even strand coverage in bam.gr.filtertrack!")
+	}
+	cov %/% 2L
+}
+
+#Accumulate duplex genome coverage while retaining only one category's old/new
+#addition at a time. Duplex coverage counts one unit per base pair; after duplex
+#filtering it has the same numeric depth/positions as coverage of either strand.
+#Only requested non-mutation call types need asymmetric orientation coverage.
+#Observed bc_orientation already encodes each sample's actual final barcode round.
+#A NULL orientation_call_types disables orientation coverage.
+accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_types=NULL){
 	#Helper function to calculate strand-level coverage for each barcode configuration and aligned read strand.
-	calc_by_bc_orientation_strand_coverage <- function(gr){
-		gr %>%
-			as_tibble %>%
+	calc_by_bc_orientation_strand_coverage <- function(gr, needed){
+		#Keep the same column types for empty and populated orientation tables,
+		#without converting genomic coordinates and unrelated metadata to a tibble.
+		if(!needed){gr <- gr[0]}
+		orientations <- tibble(
+			bc_orientation = gr$bc_orientation,
+			strand = strand(gr) %>% as.factor
+		)
+		if(!needed){
+			return(orientations[0,] %>% mutate(bam.gr.filtertrack.coverage = list()))
+		}
+		orientations %>%
 			distinct(bc_orientation, strand) %>%
+			filter(bc_orientation_is_asymmetric(bc_orientation)) %>%
 			mutate(
 				bam.gr.filtertrack.coverage = map2(
 					bc_orientation,
@@ -293,52 +297,75 @@ sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NUL
 			select(-bam.gr.filtertrack.coverage.2)
 	}
 	
-	if(is.null(bam.gr.filtertrack2)){
-		if(! bam.gr.filtertrack1 %>% is_plus_minus_identical){
-			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
-		}
-		
-		bam.gr.filtertrack1 %>%
-			mutate(
-				bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
-					map(function(x){x %>% calc_duplex_coverage}),
-				bam.gr.filtertrack.by_bc_orientation_strand.coverage = bam.gr.filtertrack %>%
-					map(function(x){x %>% calc_by_bc_orientation_strand_coverage})
-			) %>%
-			select(-bam.gr.filtertrack)
-		
+	#Only this environment owns the large coverage lists while chunks are loaded.
+	#Do not bind either list to another local variable: that would keep every old
+	#category alive while replacements are constructed. Joins use metadata only.
+	walk(incoming$bam.gr.filtertrack, validate_bam.gr.filtertrack)
+	incoming_metadata <- incoming %>% select(-bam.gr.filtertrack)
+	orientation_rows <- if(is.null(orientation_call_types)){
+		integer()
 	}else{
-		if(! bam.gr.filtertrack2 %>% is_plus_minus_identical){
-			stop("Mismatched plus and minus strand ranges in bam.gr.filtertrack!")
-		}
-		
-		bam.gr.filtertrack1 %>%
-			left_join(
-				bam.gr.filtertrack2 %>%
-					mutate(
-						bam.gr.filtertrack.coverage = bam.gr.filtertrack %>%
-							map(function(x){x %>% calc_duplex_coverage}),
-						bam.gr.filtertrack.by_bc_orientation_strand.coverage = bam.gr.filtertrack %>%
-							map(function(x){x %>% calc_by_bc_orientation_strand_coverage})
-					) %>%
-					select(-bam.gr.filtertrack),
-				by = names(.) %>% setdiff(c("bam.gr.filtertrack.coverage", "bam.gr.filtertrack.by_bc_orientation_strand.coverage")),
-				suffix = c("",".2")
-			) %>%
-			mutate(
-				bam.gr.filtertrack.coverage = map2(
-					bam.gr.filtertrack.coverage,
-					bam.gr.filtertrack.coverage.2,
-					function(x,y){sum_RleList(x,y)}
-				),
-				bam.gr.filtertrack.by_bc_orientation_strand.coverage = map2(
-					bam.gr.filtertrack.by_bc_orientation_strand.coverage,
-					bam.gr.filtertrack.by_bc_orientation_strand.coverage.2,
-					function(x,y){sum_by_bc_orientation_strand_coverage(x,y)}
-				)
-			) %>%
-			select(-bam.gr.filtertrack.coverage.2, -bam.gr.filtertrack.by_bc_orientation_strand.coverage.2)
+		incoming_metadata %>%
+			mutate(.coverage_row = row_number()) %>%
+			filter(SBSindel_call_type != "mutation") %>%
+			semi_join(orientation_call_types, by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)) %>%
+			pull(.coverage_row)
 	}
+	first_chunk <- is.null(state$metadata)
+	if(first_chunk){
+		state$metadata <- incoming_metadata
+		state$coverage <- vector("list", nrow(incoming_metadata))
+		state$orientation <- vector("list", nrow(incoming_metadata))
+		incoming_rows <- seq_len(nrow(incoming_metadata))
+	}else{
+		#Reproduce the former left join's order and metadata/factor promotion,
+		#including repeated keys, without putting coverage into a data mask.
+		matched <- left_join(
+			state$metadata %>% mutate(.previous_row = row_number()),
+			incoming_metadata %>% mutate(.incoming_row = row_number()),
+			by = names(state$metadata)
+		)
+		if(!identical(matched$.previous_row, seq_along(state$coverage))){
+			state$coverage <- state$coverage[matched$.previous_row]
+			state$orientation <- state$orientation[matched$.previous_row]
+		}
+		state$metadata <- matched %>% select(-.previous_row, -.incoming_row)
+		incoming_rows <- matched$.incoming_row
+		#The legacy code checked every incoming category, even an unmatched one.
+		for(j in setdiff(seq_len(nrow(incoming_metadata)), incoming_rows)){
+			invisible(calc_duplex_coverage(incoming$bam.gr.filtertrack[[j]]))
+		}
+	}
+	for(i in seq_along(incoming_rows)){
+		j <- incoming_rows[i]
+		cov <- if(is.na(j)) NULL else calc_duplex_coverage(incoming$bam.gr.filtertrack[[j]])
+		if(first_chunk){
+			state$coverage[[i]] <- cov
+		}else{
+			state$coverage[[i]] <- sum_RleList(state$coverage[[i]], cov)
+		}
+		rm(cov)
+		orientation <- if(is.na(j)) NULL else calc_by_bc_orientation_strand_coverage(
+			incoming$bam.gr.filtertrack[[j]], j %in% orientation_rows
+		)
+		if(first_chunk){
+			state$orientation[[i]] <- orientation
+		}else{
+			state$orientation[[i]] <- sum_by_bc_orientation_strand_coverage(state$orientation[[i]], orientation)
+		}
+		rm(orientation)
+	}
+	invisible(NULL)
+}
+
+#Materialize the public tibble only after accumulation, when no large coverage
+#replacement remains. This preserves the former column names and order.
+filtertrack_coverage_result <- function(state){
+	state$metadata %>%
+		mutate(
+			bam.gr.filtertrack.coverage = state$coverage,
+			bam.gr.filtertrack.by_bc_orientation_strand.coverage = state$orientation
+		)
 }
 
 #Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
@@ -364,6 +391,156 @@ gr_1bp_cov <- function(gr, cov){
 	return(result)
 }
 
+#Select high-confidence variants once before reading chunks. Quantile filters
+#remain genome-wide within each VCF; chromosome/sex/mitochondrial restrictions
+#are applied only after those original filters and the all-VCF intersection.
+prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individual_id, sensitivity_parameters, BSgenome_name, chroms_toanalyze, sex_chromosomes, mitochondrial_chromosome){
+	#Count number of germline VCFs for the analyzed individual
+	num_germline_vcf_files <- yaml.config$individuals %>%
+		modify_tree(leaf = as.character) %>%
+		map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
+		enframe(name=NULL) %>%
+		unnest_wider(value) %>%
+		unnest_longer(germline_vcf_files) %>%
+		unnest_wider(germline_vcf_files) %>%
+		filter(individual_id == !!individual_id) %>%
+		nrow
+
+	#Load sensitivity_vcf
+	sensitivity_vcf <- load_vcf(
+		vcf_file = sensitivity_parameters$sensitivity_vcf,
+		genome_fasta = yaml.config$genome_fasta,
+		BSgenome_name = BSgenome_name,
+		bcftools_bin = yaml.config$bcftools_bin
+	) %>%
+		as_tibble
+
+	#Load germline VCF variants and filter to retain high-confidence variants
+	high_confidence_germline_vcf_variants <- qs_read(cache_file(
+		str_c(
+			yaml.config$cache_dir,"/",
+			individual_id,".",
+			yaml.config$individuals %>%
+				modify_tree(leaf = as.character) %>%
+				bind_rows %>%
+				filter(individual_id == !!individual_id) %>%
+				pull(germline_bam_file) %>%
+				unique %>%
+				basename,
+			".germline_vcf_variants.qs2"
+		)
+	, yaml.config)) %>%
+		as_tibble %>%
+
+		#Separate genotypes of each allele
+		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
+
+		#Group by germline_vcf_file so that filters are calculated separately for each germline VCF.
+		group_by(germline_vcf_file) %>%
+
+		#Filter per sensitivity_threshold settings
+		filter(
+			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile) & call_class == "SBS") |
+				(Depth >= quantile(Depth, sensitivity_parameters$indel_min_Depth_quantile) & call_class == "indel"),
+			(VAF >= sensitivity_parameters$SBS_min_VAF & call_class == "SBS") |
+				(VAF >= sensitivity_parameters$indel_min_VAF & call_class == "indel"),
+			(VAF <= sensitivity_parameters$SBS_max_VAF & call_class == "SBS") |
+				(VAF <= sensitivity_parameters$indel_max_VAF & call_class == "indel"),
+			(GQ >= quantile(GQ, sensitivity_parameters$SBS_min_GQ_quantile) & call_class == "SBS") |
+				(GQ >= quantile(GQ, sensitivity_parameters$indel_min_GQ_quantile) & call_class == "indel"),
+			(QUAL >= quantile(QUAL, sensitivity_parameters$SBS_min_QUAL_quantile) & call_class == "SBS") |
+				(QUAL >= quantile(QUAL, sensitivity_parameters$indel_min_QUAL_quantile) & call_class == "indel"),
+			(sensitivity_parameters$genotype == "heterozygous" & ((GT1 == "1" & GT2 != "1") | (GT1 != "1" & GT2 == "1"))) |
+				(sensitivity_parameters$genotype == "homozygous" & (GT1 == "1" & GT2 == "1"))
+		) %>%
+		ungroup %>%
+
+		#Keep variants detected in all germline vcfs
+		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
+		filter(n == !!num_germline_vcf_files) %>%
+		select(-n) %>%
+
+		#Keep variants in chromgroup, and exclude variants in sex chromosomes and mitochondrial chromosome
+		filter(
+			seqnames %in% chroms_toanalyze,
+			! seqnames %in% sex_chromosomes,
+			! seqnames %in% mitochondrial_chromosome
+		) %>%
+
+		#Keep variants in sensitivity_vcf
+		semi_join(
+			sensitivity_vcf,
+			by = names(.)
+		)
+
+	rm(num_germline_vcf_files, sensitivity_vcf)
+	invisible(gc())
+
+	high_confidence_germline_vcf_variants
+}
+
+#Keep the original variant coordinates for numerator matching. These separate
+#queries use precisely the flanking positions consumed by sensitivity below.
+make_sensitivity_coverage_queries <- function(variants, reference_seqinfo){
+	variants %>%
+		mutate(
+			start = if_else(call_class == "indel", start - 1, start),
+			end = if_else(call_class == "indel", end + 1, end)
+		) %>%
+		nest(.by = call_type) %>%
+		mutate(
+			ranges = map(data, ~ makeGRangesFromDataFrame(.x, seqinfo = reference_seqinfo)),
+			query_start = map(ranges, ~ resize(.x, width = 1, fix = "start")),
+			query_end = map(ranges, ~ resize(.x, width = 1, fix = "end"))
+		) %>%
+		select(call_type, query_start, query_end)
+}
+
+#Retain only site counts for sensitivity. Whole-genome coverage exists for one
+#incoming category at a time so all legacy invariants are still checked, even
+#outside queried loci or when sensitivity is disabled for this chromgroup.
+#Crucially, accumulate the two flanks independently; take their minimum only
+#after every chunk has contributed.
+sum_filtertrack_sensitivity_coverage <- function(bytype, queries, previous = NULL){
+	walk(bytype$bam.gr.filtertrack, validate_bam.gr.filtertrack)
+	current <- bytype %>% select(-bam.gr.filtertrack)
+	current$coverage_start <- vector("list", nrow(current))
+	current$coverage_end <- vector("list", nrow(current))
+	for(i in seq_len(nrow(current))){
+		cov <- calc_duplex_coverage(bytype$bam.gr.filtertrack[[i]])
+		query_index <- match(current$call_type[i], queries$call_type)
+		if(is.na(query_index)){
+			current$coverage_start[[i]] <- numeric()
+			current$coverage_end[[i]] <- numeric()
+		}else{
+			current$coverage_start[[i]] <- gr_1bp_cov(queries$query_start[[query_index]], cov)
+			current$coverage_end[[i]] <- gr_1bp_cov(queries$query_end[[query_index]], cov)
+		}
+		rm(cov)
+	}
+	if(is.null(previous)){return(current)}
+	previous %>%
+		left_join(current, by = setdiff(names(current), c("coverage_start", "coverage_end")), suffix = c("", ".2")) %>%
+		mutate(
+			coverage_start = map2(coverage_start, coverage_start.2, `+`),
+			coverage_end = map2(coverage_end, coverage_end.2, `+`)
+		) %>%
+		select(-coverage_start.2, -coverage_end.2)
+}
+
+sensitivity_enabled_for_chromgroup <- !is.null(sensitivity_parameters$use_chromgroup) && sensitivity_parameters$use_chromgroup == chromgroup_toanalyze
+high_confidence_germline_vcf_variants <- NULL
+sensitivity_coverage_queries <- NULL
+if(sensitivity_enabled_for_chromgroup){
+	high_confidence_germline_vcf_variants <- prepare_high_confidence_germline_vcf_variants(
+		yaml.config, individual_id, sensitivity_parameters, BSgenome_name,
+		chroms_toanalyze, sex_chromosomes, mitochondrial_chromosome
+	)
+	sensitivity_coverage_queries <- make_sensitivity_coverage_queries(
+		high_confidence_germline_vcf_variants, seqinfo(get(BSgenome_name))
+	)
+}
+
 ######################
 ### Load data from filterCalls files
 ######################
@@ -373,6 +550,7 @@ cat("## Loading data from filterCalls files...\n > analysis chunk:")
 finalCalls <- list()
 germlineVariantCalls <- list()
 molecule_stats <- list()
+coverage_accumulator <- new.env(parent = emptyenv())
 
 #Loop over all filterCallsFiles
 for(i in seq_along(filterCallsFiles)){
@@ -432,27 +610,18 @@ for(i in seq_along(filterCallsFiles)){
 			germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
 		)
 	
-	#Filtered duplex read coverage of the genome, with and without germline_filters
-	if(i == 1){
-		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
-			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
-		)
-		
-		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
-			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
-		)
-		
-	}else{
-		bam.gr.filtertrack.bytype <- sum_bam.gr.filtertracks(
-			bam.gr.filtertrack.bytype,
-			filterCallsFile %>% pluck("bam.gr.filtertrack.bytype")
-		)
-		
-		bam.gr.filtertrack.except_germline_filters.bytype <- sum_bam.gr.filtertracks(
-			bam.gr.filtertrack.except_germline_filters.bytype,
-			filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype")
-		)
-	}
+	#The accumulator environment is the only owner of aggregate coverage until
+	#all chunks finish, so replacing one category releases its old coverage.
+	accumulate_bam.gr.filtertracks(
+		coverage_accumulator,
+		filterCallsFile %>% pluck("bam.gr.filtertrack.bytype"),
+		orientation_call_types = call_types_toanalyze
+	)
+	bam.gr.filtertrack.except_germline_filters.bytype <- sum_filtertrack_sensitivity_coverage(
+		filterCallsFile %>% pluck("bam.gr.filtertrack.except_germline_filters.bytype"),
+		sensitivity_coverage_queries,
+		previous = if(i == 1) NULL else bam.gr.filtertrack.except_germline_filters.bytype
+	)
 
 	#molecule_stats
 	molecule_stats[[i]] <- filterCallsFile %>% pluck("molecule_stats")
@@ -461,6 +630,9 @@ for(i in seq_along(filterCallsFiles)){
 	rm(filterCallsFile)
 	invisible(gc())
 }
+
+bam.gr.filtertrack.bytype <- filtertrack_coverage_result(coverage_accumulator)
+rm(coverage_accumulator)
 
 #Combine finalCalls and germlineVariantCalls each to one tibble. Do not remove call_toanalyze column since needed later to filter after done using SBS/mismatch-ss calls that are only present for downstream calculations.
 finalCalls <- finalCalls %>%
@@ -639,7 +811,7 @@ paste(
 	invisible
 
 #Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-genome_trinuc_file <- str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz")
+genome_trinuc_file <- cache_file(str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz"), yaml.config)
 
 paste(
 	yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
@@ -861,14 +1033,26 @@ coverage_rows <- coverage_rows %>%
 	select(-row_id, -bam.gr.filtertrack.by_bc_orientation_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
+reference_summary <- if(!is.null(yaml.config$reference_summary_file)){
+	source(Sys.which("referenceSummaryFunctions.R"))
+	qs_read(yaml.config$reference_summary_file)
+}else{
+	NULL
+}
+
  #Function to extract trinucleotide distribution for selected chromosomes
 get_genome_reftnc <- function(BSgenome_name, chroms){
 	
-	reftnc_plus_strand <- BSgenome_name %>%
-		get %>%
-		getSeq(chroms) %>%
-		DNAStringSet %>%
-		trinucleotideFrequency(simplify.as = "collapsed") %>%
+	reftnc_counts <- if(!is.null(reference_summary)){
+		reference_counts_for_chromosomes(reference_summary$trinucleotide_counts, chroms)
+	}else{
+		BSgenome_name %>%
+			get %>%
+			getSeq(chroms) %>%
+			DNAStringSet %>%
+			trinucleotideFrequency(simplify.as = "collapsed")
+	}
+	reftnc_plus_strand <- reftnc_counts %>%
 		enframe(name = "reftnc", value = "count") %>%
 		mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
 	
@@ -916,6 +1100,7 @@ genome_chromgroup.reftnc <- get_genome_reftnc(
 	BSgenome_name = BSgenome_name,
 	chroms = chroms_toanalyze
 )
+rm(reference_summary)
 
 cat("DONE\n")
 
@@ -1321,9 +1506,21 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	)
 
 #Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows; template-strand spectra are calculated for single-strand call types.
-BSgenome_for_indel.spectrum <- BSgenome_name %>%
-	get %>%
-	getSeq
+#Indel context extraction accesses chromosomes by name and clips contexts at
+#their original boundaries. Retain full sequences only for chromosomes carrying
+#indel calls; there is no reference allocation when every indel table is empty.
+indel_spectrum_chroms <- finalCalls.reftnc_spectra %>%
+	filter(call_class == "indel") %>%
+	pull(finalCalls_for_vcf) %>%
+	map(~ as.character(.x$seqnames)) %>%
+	unlist(use.names = FALSE) %>%
+	unique
+BSgenome_for_indel.spectrum <- if(length(indel_spectrum_chroms) > 0L){
+	getSeq(get(BSgenome_name), names = indel_spectrum_chroms)
+}else{
+	DNAStringSet()
+}
+rm(indel_spectrum_chroms)
 
 finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 	mutate(
@@ -1818,90 +2015,9 @@ sensitivity <- call_types_toanalyze %>%
 	)
 
 #Create set of high-quality germline variants for sensitivity analysis if use_chromgroup is defined and is the current chromgroup
-if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup == chromgroup_toanalyze){
+if(sensitivity_enabled_for_chromgroup){
 	
 	cat("## Calculating SBS and indel sensitivity...")
-	
-	#Count number of germline VCFs for the analyzed individual
-	num_germline_vcf_files <- yaml.config$individuals %>%
-		modify_tree(leaf = as.character) %>%
-		map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
-		enframe(name=NULL) %>%
-		unnest_wider(value) %>%
-		unnest_longer(germline_vcf_files) %>%
-		unnest_wider(germline_vcf_files) %>%
-		filter(individual_id == !!individual_id) %>%
-		nrow
-	
-	#Load sensitivity_vcf
-	sensitivity_vcf <- load_vcf(
-		vcf_file = sensitivity_parameters$sensitivity_vcf,
-		genome_fasta = yaml.config$genome_fasta,
-		BSgenome_name = BSgenome_name,
-		bcftools_bin = yaml.config$bcftools_bin
-	) %>%
-		as_tibble
-	
-	#Load germline VCF variants and filter to retain high-confidence variants
-	high_confidence_germline_vcf_variants <- qs_read(
-		str_c(
-			yaml.config$cache_dir,"/",
-			individual_id,".",
-			yaml.config$individuals %>%
-				modify_tree(leaf = as.character) %>%
-				bind_rows %>%
-				filter(individual_id == !!individual_id) %>%
-				pull(germline_bam_file) %>%
-				unique %>%
-				basename,
-			".germline_vcf_variants.qs2"
-		)
-	) %>%
-		as_tibble %>%
-		
-		#Separate genotypes of each allele
-		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
-		
-		#Group by germline_vcf_file so that filters are calculated separately for each germline VCF.
-		group_by(germline_vcf_file) %>% 
-		
-		#Filter per sensitivity_threshold settings
-		filter(
-			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile) & call_class == "SBS") |
-				(Depth >= quantile(Depth, sensitivity_parameters$indel_min_Depth_quantile) & call_class == "indel"),
-			(VAF >= sensitivity_parameters$SBS_min_VAF & call_class == "SBS") |
-				(VAF >= sensitivity_parameters$indel_min_VAF & call_class == "indel"),
-			(VAF <= sensitivity_parameters$SBS_max_VAF & call_class == "SBS") |
-				(VAF <= sensitivity_parameters$indel_max_VAF & call_class == "indel"),
-			(GQ >= quantile(GQ, sensitivity_parameters$SBS_min_GQ_quantile) & call_class == "SBS") |
-				(GQ >= quantile(GQ, sensitivity_parameters$indel_min_GQ_quantile) & call_class == "indel"),
-			(QUAL >= quantile(QUAL, sensitivity_parameters$SBS_min_QUAL_quantile) & call_class == "SBS") |
-				(QUAL >= quantile(QUAL, sensitivity_parameters$indel_min_QUAL_quantile) & call_class == "indel"),
-			(sensitivity_parameters$genotype == "heterozygous" & ((GT1 == "1" & GT2 != "1") | (GT1 != "1" & GT2 == "1"))) |
-				(sensitivity_parameters$genotype == "homozygous" & (GT1 == "1" & GT2 == "1"))
-		) %>%
-		ungroup %>%
-		
-		#Keep variants detected in all germline vcfs
-		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
-		filter(n == !!num_germline_vcf_files) %>%
-		select(-n) %>%
-		
-		#Keep variants in chromgroup, and exclude variants in sex chromosomes and mitochondrial chromosome
-		filter(
-			seqnames %in% chroms_toanalyze,
-			! seqnames %in% sex_chromosomes,
-			! seqnames %in% mitochondrial_chromosome
-		) %>%
-		
-		#Keep variants in sensitivity_vcf
-		semi_join(
-			sensitivity_vcf,
-			by = names(.)
-		)
-	
-	rm(num_germline_vcf_files, sensitivity_vcf)
-	invisible(gc())
 	
 	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected. 
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
@@ -1926,32 +2042,14 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 			end = if_else(call_class == "indel", end + 1, end)
 		)
 	
-	#Get coverage for start and end positions so that coverage is calculated for those bases specifically, and then set coverage to the minimum between these.
+	#The original variant/category join order matches the query order used while
+	#loading chunks. Flank totals are now complete, so their minimum is valid.
 	bam.gr.filtertrack.except_germline_filters.bytype <- bam.gr.filtertrack.except_germline_filters.bytype %>%
 		nest_join(high_confidence_germline_vcf_variants, by = "call_type") %>%
 		mutate(
-			high_confidence_germline_vcf_variants = map2(
-				high_confidence_germline_vcf_variants,
-				bam.gr.filtertrack.coverage,
-				function(x,y){
-
-					gr <- x %>%
-						makeGRangesFromDataFrame(
-							seqinfo = BSgenome_name %>% get %>% seqinfo
-						)
-					
-					x %>%
-						mutate(
-							duplex_coverage = pmin(
-								gr %>%
-									resize(width = 1, fix = "start") %>%
-									gr_1bp_cov(y),
-								gr %>%
-									resize(width = 1, fix = "end") %>%
-									gr_1bp_cov(y)
-							)
-						)
-				}
+			high_confidence_germline_vcf_variants = pmap(
+				list(high_confidence_germline_vcf_variants, coverage_start, coverage_end),
+				function(x,y,z){x %>% mutate(duplex_coverage = pmin(y,z))}
 			)
 		)
 	
@@ -1959,11 +2057,11 @@ if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_
 	sensitivity <- sensitivity %>%
 		left_join(
 			bam.gr.filtertrack.except_germline_filters.bytype %>%
-				select(-bam.gr.filtertrack.coverage, -bam.gr.filtertrack.by_bc_orientation_strand.coverage),
+				select(-coverage_start, -coverage_end),
 			by = join_by(call_type, call_class, SBSindel_call_type, filtergroup)
 		)
 	
-	rm(high_confidence_germline_vcf_variants, bam.gr.filtertrack.except_germline_filters.bytype)
+	rm(high_confidence_germline_vcf_variants, bam.gr.filtertrack.except_germline_filters.bytype, sensitivity_coverage_queries)
 	invisible(gc())
 	
 	#Sum number of high confidence germline VCF variant detections and coverage, and remove high_confidence_germline_vcf_variants that is no longer needed

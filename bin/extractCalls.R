@@ -59,7 +59,7 @@ outputFile <- opt$output
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #General parameters
 strand_levels <- c("+","-")
@@ -137,6 +137,31 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
+#Decode alternating sa length/value pairs without expanding whole reads. Rle
+#coalesces adjacent equal runs and removes zero-length runs just as the former
+#inverse.rle -> Rle path did. Retain legacy behavior for unusual tag lengths.
+decode_sa_rle <- function(tag){
+  lengths <- tag[c(TRUE, FALSE)]
+  values <- tag[c(FALSE, TRUE)]
+  if(length(lengths) != length(values) || !is.numeric(lengths) || anyNA(lengths) ||
+     any(!is.finite(lengths) | lengths < 0 | lengths != trunc(lengths))){
+    return(Rle(inverse.rle(list(lengths = lengths, values = values))))
+  }
+  Rle(values = values, lengths = lengths)
+}
+
+#Materialize only queried sa positions. Atomic-vector indexing accepts unusual
+#indices (e.g. out-of-range/NA positions) that Rle indexing may reject, so those
+#rare cases retain the original dense lookup semantics. sm/sx remain vectors.
+subset_tag_positions <- function(tag, positions){
+  if(!inherits(tag, "Rle")){return(tag[positions])}
+  if(is.numeric(positions) && !anyNA(positions) &&
+     all(is.finite(positions) & positions >= 1 & positions <= length(tag) & positions == trunc(positions))){
+    return(as.vector(tag[positions]))
+  }
+  as.vector(tag)[positions]
+}
+
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
 calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix){
 	chroms_toanalyze.input %>%
@@ -256,23 +281,11 @@ for(i in c("flag","bc_orientation","RG","movie_id","run_id","ccs_strand")){
 bam.df$isize <- cigarWidthAlongReferenceSpace(bam.df$cigar)
 
 #Reformat sa, sm, sx tags
- #sa: the number of subread alignments that span each CCS read position. sa is run-length encoded (rle) in the BAM file as length, value pairs. We inverse the rle encoding back to standard per-position values, then reverse the value orders for reads aligned to genome minus strand, then convert back to rle (as a list of rles instead of RleList as the former is much faster to convert to tibble).
-sa.lengths <- lapply(bam.df$sa,function(x){x[c(TRUE, FALSE)]})
-sa.values <- lapply(bam.df$sa,function(x){x[c(FALSE, TRUE)]})
-bam.df$sa <- mapply(
-		function(x,y){inverse.rle(list(lengths=x,values=y))},
-		x=sa.lengths,
-		y=sa.values,
-		SIMPLIFY=FALSE,
-		USE.NAMES=FALSE
-	)
-
-rm(sa.lengths,sa.values)
-invisible(gc())
-
+ #sa: the number of subread alignments spanning each CCS read position,
+ #encoded as length/value pairs. Keep it compressed, including strand reversal.
+bam.df$sa <- unname(lapply(bam.df$sa, decode_sa_rle))
 bam.df$sa[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sa[bam.df$strand %>% as.vector == "-"], rev)
-
-bam.df$sa <- bam.df$sa %>% lapply(Rle)
+invisible(gc())
 
  #sm: the number of subreads that align as a match to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
 bam.df$sm[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sm[bam.df$strand %>% as.vector == "-"], rev)
@@ -732,7 +745,6 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   
   #Format sa, sm, sx inputs
   sa.input <- bam.gr.input$sa %>%
-  	lapply(as.vector) %>%
   	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
   
   sm.input <- bam.gr.input$sm %>%
@@ -773,7 +785,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     
     #Define extraction function
     extract_sasmsx <- function(tag.input, tagdata.input, var_queryspace.list.input, vars_queryspace.coordconversion.input=NULL){
-      result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ .x[.y] %>% set_names(.y)) %>%
+      result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ subset_tag_positions(.x, .y) %>% set_names(.y)) %>%
         enframe %>%
         separate(name,sep="_",into=c("zm","strand")) %>%
         unnest_longer(col=value, values_to=tag.input, indices_to="start_queryspace") %>%
@@ -886,7 +898,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     setkey(indels_queryspace_pos.opposite_strand, zm_strand, start_end_queryspace)
     
     #Extract data
-    indels_queryspace_pos[, sa_val := sa.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, sa_val := subset_tag_positions(sa.input[[zm_strand[1]]], pos_queryspace), by = zm_strand]
     indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     
@@ -894,7 +906,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     sm.input.opposite_strand <- sm.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sx.input.opposite_strand <- sx.input %>% setNames(names(.) %>% chartr("+-","-+",.))
 
-    indels_queryspace_pos.opposite_strand[, sa_val := sa.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sa_val := subset_tag_positions(sa.input.opposite_strand[[zm_strand[1]]], pos_queryspace), by = zm_strand]
     indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
     

@@ -62,8 +62,23 @@ verified and atomically published 17 completed bundles under the new identities.
 All product checksums and the original manifests remained exact. The only allowed
 identity changes were removal of the device number and explicit dependency-key
 updates to other proven bundles. This is a one-time development migration, not a
-production compatibility path. The two unfinished germline bundles were excluded.
-Evidence is in `runs/prepared-device-migration-v2/`.
+production compatibility path. The two unfinished germline bundles were excluded
+from that first migration. After they completed, job `19213931` verified and
+published those two bundles (36,287,915,378 product bytes) in 132.495 actual CPU
+seconds and 221.768 wall seconds. All 19 old manifests and the 17 prior migrated
+targets remained unchanged; all 19 new prepared entries are now verified.
+Evidence is in `runs/prepared-device-migration-v2/` and
+`runs/prepared-device-migration-additional/`.
+
+The old full candidate was checkpointed only after all valuable frontend tasks
+and raw germline preparation completed. Its remaining derived-coverage worker
+finished successfully after controller shutdown; its 362.168 CPU seconds are
+retained in a separate accounting-only supplemental trace. No stale R analysis
+was launched. Frozen source, logs, native-job accounting and completion proofs
+are in `runtime/checkpoint-evidence/final-drained-20261005T0951Z/`. Historical
+effective-YAML audit `19214158` confirmed all 57 original fields, four exact
+helper fields and 21 artifact paths against the 19 retained old bundles. The
+resumed run's new effective YAML still requires its own consumption binding.
 
 ## Completed: full-reference summary preparation
 
@@ -377,8 +392,9 @@ uses `-r optimization -latest` and records its resolved revision separately.
 Job `19192378` alternated two complete legacy/candidate operation pairs for all
 eight strict coverage rows on actual LIB1 chromosome 22. Both used the unchanged
 original R BED writer and `chunk_runs=1e7`. The candidate substitutes direct FASTA
-annotation for the large reference-BED intersection; production still uses the
-legacy annotation pending the full nuclear benchmark.
+annotation for the large reference-BED intersection; the legacy arm retained
+the original annotation. The full nuclear gate and subsequent integration are
+documented below.
 
 | Pair | Baseline process CPU (s) | Candidate process CPU (s) | Baseline wall (s) | Candidate wall (s) |
 | --- | ---: | ---: | ---: | ---: |
@@ -392,10 +408,58 @@ experiment establishes no annotation-memory reduction. Separate whole-final-QS
 preparation peaked at 32.03 GiB and is excluded from these operation timings.
 The process metrics include packet loading, writing, annotation, compression and
 indexing; operation-only phase metrics and sampled concurrent process-group RSS
-are also retained under workspace `runs/coverage-annotation-chr22/`. Full nuclear
-job `19194115` will assess scaling before production adoption.
+are also retained under workspace `runs/coverage-annotation-chr22/`. This
+chromosome-specific percentage is not projected to the full nuclear operation.
 
-The proposed R integration remains confined to a runtime candidate tree.
+## Completed and integrated: full nuclear coverage annotation
+
+Job `19194115` completed one legacy/candidate pair for all eight strict nuclear
+coverage rows from the original LIB1 final QS. Every decompressed BED byte and
+all eight numeric context-count maps matched exactly. Tabix contig lists and
+first/last record boundary queries matched for every BED. Per-BED decompressed
+SHA256 hashes, frozen sources/helper, input identity and measurements are in
+workspace `runs/coverage-annotation-nuclear/`. The job completed with exit 0.
+Both arms retained the original R BED writer and `chunk_runs=1e7`.
+
+| Metric | Legacy | Candidate |
+| --- | ---: | ---: |
+| Whole-worker actual CPU (s) | 25,908.885 | 12,660.006 |
+| Whole-worker wall (s) | 15,977.813 | 11,120.429 |
+| Peak individual/descendant RSS (KiB) | 17,542,956 | 17,542,284 |
+| Original writer CPU (s) | 251.892 | 263.565 |
+| Annotation/compression/index CPU (s) | 25,624.548 | 12,363.233 |
+| Complete operation CPU (s) | 25,876.440 | 12,626.798 |
+| Complete operation wall (s) | 15,945.205 | 11,086.803 |
+
+Whole-worker actual CPU fell **51.14%** (7.197 to 3.517 CPU-hours); wall time
+fell 30.40%. Annotation/compression/index CPU fell 51.75%. **Process peak RSS
+was effectively unchanged**, so this experiment establishes no process-memory
+reduction. Sampled summed process-group RSS was 33,311,640 versus 17,559,052 KiB,
+but that sum can double-count shared/forked pages and miss short peaks; it is not
+a heap-memory estimate. Whole-job Slurm batch `MaxRSS` was separately
+67,103,700 KiB, including preparation and validation, and must not be confused
+with either worker's process peak. Shared final-QS preparation, sampling and
+scientific comparison are outside the worker CPU measurements.
+
+Legacy ran first and candidate second in the same allocation on `cl015`.
+Contention was not identical: baseline burden jobs `19210990` and `19211105`
+started on that node at 08:23:45 UTC during the candidate arm. Earlier and other
+colocated work was not fully inventoried; `colocation-note.json` records this
+limitation. This is one observed full-operation pair, not a projection to all
+groups or total pipeline CPU. Complete pipeline scientific and high-memory-stage
+validation remain required; production resource requests remain unchanged.
+
+The accepted helper is integrated through an optional `--coverage-annotator`
+argument, preserving the saved YAML schema. Without that argument, or for a
+reference containing any legacy-ambiguous contig name, R uses the original
+annotation path. The helper's only source difference from the benchmarked C++
+is its first-line description comment; `runtime/coverage-annotation-promotion.json`
+records both source hashes. The portable dispatch fixture was copied
+byte-for-byte from the passed runtime source. The promoted R script differs
+from its passed runtime source only by removing four inherited trailing-space
+instances in the newly indented legacy fallback; the provenance records that
+whitespace-only delta.
+
 Pinned-container jobs `19206485` and `19207026` passed fixtures extracting the
 actual candidate R functions and dispatch expression. They cover aggregate and
 counts-only rows, empty indexed output, all 125 normalized contexts, terminal
@@ -408,7 +472,9 @@ works under `options(warn=2)`. Frozen source, tests and results are in workspace
 `runs/coverage-annotation-dispatch-v3/`. Initial job `19206382` failed before R
 fixtures because the clean container PATH omitted `/hidef/bin/seqkit`; the
 replacement explicitly includes `/hidef/bin`. These fixtures establish dispatch
-and failure behavior, not full nuclear output equivalence or production adoption.
+and failure behavior; the full nuclear comparison above separately establishes
+record/count/index equivalence. The portable test is retained as
+`tests/test_coverage_annotation_dispatch.R`.
 
 Runtime integration job `19207217` then completed the full nuclear-lenient
 one-chunk burden operation with the fixture-passed R dispatch and compiled
@@ -423,8 +489,16 @@ The integrated worker used 737.208 CPU seconds, 694.923 wall seconds and
 21,304,252 KiB peak process RSS; Slurm batch `MaxRSS` was separately 21,789,872 KiB.
 It ran on `cs602`, whereas the reused baseline ran on `cl011`, so this is an
 integration correctness result, **not a matched performance estimate**. The
-full nuclear eight-row annotation experiment and complete pipeline/QS checks
-remain required before final adoption and overall conclusions.
+complete pipeline/QS checks remain required before overall conclusions.
+
+Combined workflow check `19216785` passed after integration with the inode-only
+cache fix. Full-workflow preview emitted the same 19 prepared identities; a cold
+compiler/dependency fixture completed four tasks, all four were cached on resume,
+and changing only the helper source rebuilt the compiler and two burden-consumer
+stubs while preserving an unrelated cached frontend. The actual preparation and
+global-barrier workflow block remains byte-identical to the prior full candidate.
+The fixture is a dependency/staging check, separate from the real R scientific
+replays above. Evidence: `runs/coverage-annotation-integrated-workflow/`.
 
 ## Rejected: coordinate-sort reuse
 
@@ -547,8 +621,8 @@ above; neither is a measurement of the complete pipeline's peak memory.
 - Compare complete nested scientific QS objects and every published scientific
   output, resolving all discrepancies and binary-file review findings.
 - Complete paired measurements and exact-output checks for the remaining
-  implementations. Full nuclear BED annotation remains an experiment until
-  separately accepted. BAM dispatch passed its component and workflow gates;
+  implementations. Full nuclear BED annotation passed its full-operation and
+  integration checks. BAM dispatch passed its component and workflow gates;
   complete pipeline validation remains pending. Coordinate-sort reuse and both
   mitochondrial and nuclear shared-session filtering were rejected above.
 - Validate cache/resume behavior, effective YAML parsing and scientific keys,

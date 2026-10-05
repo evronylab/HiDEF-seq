@@ -20,6 +20,20 @@ class WorkflowAccountingTests(unittest.TestCase):
         return dict(dict(name="extractCallsChunk (sample)",process="extractCallsChunk",stage="extraction",
                          status="COMPLETED",exit="0"),**updates)
 
+    def test_annotation_compiler_cost_is_retained_in_burdens(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            trace = Path(temporary) / "compiler.tsv"
+            trace.write_text("native_id\tname\tstatus\texit\tpeak_rss\n"
+                             "10\tcompileCoverageAnnotator\tCOMPLETED\t0\t1 GB\n"
+                             "11\tcompileCoverageAnnotator\tFAILED\t1\t1 GB\n")
+            jobs = MODULE.trace_jobs([trace])
+            report = MODULE.summarize(jobs, [dict(records=[
+                self.allocation("10", actual_cpu_seconds=4),
+                self.allocation("11", State="FAILED", ExitCode="1:0", actual_cpu_seconds=1)])])
+            self.assertEqual(report["stages"]["burdens"]["observed_actual_cpu_seconds"], 5)
+            self.assertEqual(report["stages"]["burdens"]["observed_unsuccessful_cpu_seconds"], 1)
+            self.assertEqual(report["scopes"]["common_downstream"]["observed_actual_cpu_seconds"], 5)
+
     def test_resumed_job_is_counted_once_and_steps_are_not_added_twice(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             one, two = Path(temporary) / "one.tsv", Path(temporary) / "two.tsv"

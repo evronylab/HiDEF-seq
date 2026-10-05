@@ -202,9 +202,22 @@ flanks is taken. These details preserve the denominator, including variants whos
 two flanks are covered by different chunks. Indel reference annotation also loads
 only chromosomes containing calls.
 
-The current production coverage BED writer retains its `chunk_runs = 1e7` setting.
-The alternative reference-annotation helper remains experimental until the full
-operation's performance and output comparison pass.
+The coverage BED writer retains its `chunk_runs = 1e7` setting. After it writes
+the original coverage runs, a helper reads the reference FASTA directly to emit
+the same per-base BED records and context counts. Nextflow compiles the helper
+once using the compiler and HTSlib already in the pinned container, then stages
+the executable as an explicit burden-task dependency. No additional software
+dependency or output format is introduced.
+
+The original annotation path remains available for reference contig names that
+the legacy parser treats ambiguously, and for standalone `calculateBurdens.R`
+invocations without `--coverage-annotator`. Helper, compression and index failures
+stop the task before results can be saved. Full nuclear validation matched all
+eight BEDs, count tables and indexed queries, while the integrated one-chunk
+replay matched the complete scientific QS and byte-identical BED/index files.
+The full nuclear operation used 51.14% less worker CPU with effectively unchanged
+process peak RSS; see the validation ledger for measurement scope and node
+colocation. Complete pipeline validation remains required.
 
 ### Final output
 

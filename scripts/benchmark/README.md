@@ -465,3 +465,55 @@ and argument removal/restoration. Diagnostic mode retains the actual source
 writer setting and records its effective value.
 Add `--preflight-only --pairs 2` to run just the configured-source and index
 fixtures on compute, without loading the real QS or running timed workers.
+
+## Coverage annotation validation and replay
+
+The workflow compiles `bin/annotateCoverage.cpp` in the pinned container and
+stages it as an explicit burden-task input. `calculateBurdens.R` accepts the
+optional `--coverage-annotator` path; direct calls without it retain the legacy
+annotation. A reference with any legacy-ambiguous contig name also uses that
+path. The original R BED writer and `chunk_runs=1e7` remain unchanged, as do
+the final QS and published BED/count schemas.
+
+Run these small fixtures on an allocated compute node in the pinned container,
+with `/hidef/bin` on PATH. Use fresh fixture output directories:
+
+```sh
+mkdir -p build
+g++ -O3 -std=c++17 -Wall -Wextra bin/annotateCoverage.cpp \
+  -o build/annotateCoverage -lhts -Wl,-rpath,/usr/local/lib
+python3 tests/test_annotate_coverage.py \
+  --helper build/annotateCoverage --output-dir test-results/coverage-helper
+Rscript --vanilla tests/test_coverage_annotation_dispatch.R \
+  bin/calculateBurdens.R build/annotateCoverage \
+  test-results/coverage-helper test-results/coverage-dispatch
+```
+
+The Python fixture compares the original reference preprocessing and complete
+BED annotation chain with the helper. The R fixture extracts actual production
+functions, CLI options and dispatch expression; it verifies fallback for an
+uncovered unsafe contig, a FAI without a final newline, aggregate/counts-only
+and empty output, quoted paths, and failure propagation through compression and
+indexing before downstream results can be saved.
+
+For a real-data complete-operation replay, use the **original baseline**
+`calculateBurdens.R`: the benchmark deliberately extracts its unchanged writer
+and original annotation expressions. It does not parse the integrated dispatch
+as a new legacy implementation.
+
+```sh
+python3 scripts/benchmark/benchmark_coverage_annotation.py \
+  --input /path/to/original.outputResults.qs2 \
+  --baseline-script /path/to/baseline/bin/calculateBurdens.R \
+  --helper build/annotateCoverage \
+  --chromgroup 1-22X --filtergroup strict --chromosomes all \
+  --output /path/to/new-coverage-replay --repeats 1 --allocated-cpus 4
+```
+
+This prepares a benchmark-only coverage packet, then freezes and measures each
+complete worker independently. It compares every decompressed BED byte, numeric
+context-count maps, Tabix contig lists and boundary queries. Preparation and
+scientific comparison are outside worker CPU timings. Distinguish process RSS,
+sampled summed process-group RSS (which may count shared pages repeatedly), and
+whole-job Slurm accounting. The completed full nuclear result and its node
+colocation limitation are documented in `docs/optimization-validation.md`.

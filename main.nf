@@ -327,7 +327,7 @@ workflow {
     processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
     extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
     filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R"), coverageAnnotatorSourceHash: fileSha256("${workflow.projectDir}/bin/annotateCoverage.cpp")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'coverageAnnotatorSourceHash', 'sharedFunctionsHash']),
     outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
   ]
 
@@ -997,7 +997,8 @@ workflow {
       }
 
   // Run process
-  calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch)
+  compileCoverageAnnotator(channel.value(file("${projectDir}/bin/annotateCoverage.cpp", checkIfExists: true)))
+  calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch, compileCoverageAnnotator.out)
 
   //******************
   // outputResultsSample
@@ -1892,6 +1893,26 @@ process filterCallsChunkChromgroupFiltergroup {
     """
 }
 
+/* Compile once; explicit source content identity is confined to burden tasks. */
+process compileCoverageAnnotator {
+    cpus 1
+    memory '1 GB'
+    time '10m'
+    container "${params.hidefseq_container}"
+    cache 'deep'
+
+    input:
+      path(annotatorSource)
+
+    output:
+      path('annotateCoverage')
+
+    script:
+    """
+    g++ -O3 -std=c++17 -Wall -Wextra ${annotatorSource} -o annotateCoverage -lhts -Wl,-rpath,/usr/local/lib
+    """
+}
+
 /*
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
@@ -1929,6 +1950,7 @@ process calculateBurdensChromgroupFiltergroup {
 
     input:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
+      path(coverageAnnotator)
 
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
@@ -1936,7 +1958,7 @@ process calculateBurdensChromgroupFiltergroup {
 
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    calculateBurdens.R --coverage-annotator './${coverageAnnotator}' -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 

@@ -23,6 +23,7 @@ STAGES = {
     **dict.fromkeys(("countAnalysisZMWs", "compileBamDispatcher", "splitBAM"), "bam_dispatch"),
     "extractCallsChunk": "extraction",
     "filterCallsChunkChromgroupFiltergroup": "filtering",
+    "compileCoverageAnnotator": "burdens",
     "calculateBurdensChromgroupFiltergroup": "burdens",
     "outputResultsSample": "output",
 }

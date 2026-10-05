@@ -1,4 +1,4 @@
-// Experimental component only; not wired into calculateBurdens.R.
+// Coverage annotation helper for calculateBurdens.R; legacy fallback stays in R.
 // g++ -O3 -std=c++17 annotateCoverage.cpp -o annotateCoverage -lhts
 // Read one sorted, non-overlapping, nonzero four-column coverage BED. Cache
 // only its current reference chromosome, emit optional five-column per-base

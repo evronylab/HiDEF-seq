@@ -138,8 +138,43 @@ colocated filter benchmark, and baseline CPU differed substantially between the
 two pairs; retain both results rather than treating either pair as a stable speed
 estimate. The interval lookup microbenchmark does not establish a complete
 extraction CPU improvement. Sources, metrics and exact comparison reports are in
-workspace `runs/extract-paired-interval/`. A separate profiled named-list lookup
-experiment is being evaluated before any further production extraction edit.
+workspace `runs/extract-paired-interval/`. The indexed lookup below addresses
+the remaining measured extraction cost.
+
+## Completed: indexed indel tag lookup, two whole-extraction pairs
+
+Diagnostic profiling localized about 48% of sampled original extraction time to
+six indel tag assignments. Each read group repeatedly searched named tag lists.
+The candidate resolves read names once with `match()` and uses integer indices
+for the existing sa/sm/sx assignments on both strands. It removes the temporary
+index before aggregation. The three tag lists originate from the same BAM rows
+with identical names and ordering. First duplicate-name matches and missing,
+empty or NA name behavior remain the same.
+
+Job `19200377` alternated two original/candidate pairs in separate R processes
+within one allocation on `cs612`, replaying real LIB1 chunk 1. The candidate also
+includes the direct Rle decoding and interval lookup described above. Both
+complete scientific QS comparisons passed exactly, with only `/run_metadata`
+ignored; all workers finished before comparison began.
+
+| Pair | Original CPU (s) | Candidate CPU (s) | Original peak RSS (KiB) | Candidate peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 731.129 | 391.982 | 12,214,900 | 9,529,492 |
+| 2 | 707.680 | 394.897 | 12,213,496 | 9,535,212 |
+
+Mean actual CPU decreased **45.31%**, from **719.405 to 393.440 s**; mean wall
+time decreased **45.74%**, from **737.400 to 400.116 s**. Mean peak process RSS
+decreased **21.96%**, from **12,214,198 to 9,532,352 KiB**. These measurements
+include startup, extraction and QS serialization; they do not establish an
+all-chunk or whole-pipeline improvement. Source snapshots, input/configuration
+identities, per-arm metrics, exact comparisons and aggregate metrics are retained
+in workspace `runs/extract-paired-index/`.
+
+The actual assignment fixture passed successful homogeneous integer/double tags,
+duplicate and absent names, empty queries, out-of-bounds positions, keys and row
+order. Mixed tag types that trigger a legacy truncation error retain that error.
+The additional integrated SA/extraction fixture remains queued at this entry;
+production promotion awaits that check.
 
 ## Completed: germline VCF annotation block, three pairs
 
@@ -196,6 +231,40 @@ It also does not measure multi-chunk accumulator scaling. Frozen sources,
 configuration, complete per-process metrics and comparison reports are retained
 in workspace `runs/burdens-one-chunk/`.
 
+## Completed: germline formatting, three fresh-process pairs
+
+Job `19194048` alternated three pairs of independent R workers on `cl012`, each
+loading the same benchmark packet containing only raw germline data and config.
+The actual formatter ASTs came from original/candidate `outputResults.R`.
+All three formatted **5,374,705-row × 56-column** tables matched with R
+`identical()`, including values, classes, attributes and row/column order.
+
+| Pair | Baseline formatting CPU (s) | Candidate formatting CPU (s) | Baseline process peak RSS (KiB) | Candidate process peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1,974.829 | 773.302 | 22,654,384 | 22,729,472 |
+| 2 | 1,387.397 | 711.664 | 22,653,780 | 22,728,184 |
+| 3 | 1,392.369 | 714.989 | 22,654,248 | 22,730,140 |
+
+Mean formatting CPU decreased **53.73%**, from **1,584.865 to 733.318 s**.
+Complete-worker CPU, including packet loading and formatted-table saving,
+decreased **51.42%**, from **1,645.095 to 799.124 s**. Mean worker wall time was
+**1,652.912 versus 802.874 s**. The first baseline was slower than the other two;
+retain every pair rather than reporting only the largest gain.
+
+Mean process peak RSS was **22,654,137 versus 22,729,265 KiB**, a **0.33%
+increase**; this optimization has no demonstrated formatter memory benefit.
+The profile resets HWM immediately before formatting and reconstructs complete
+worker peak from pre-reset and remaining peaks, including serialization. These
+fresh processes avoid the allocator-retention confound of the earlier shared-R
+experiment, but they do not retain coverage and are not full-output-stage memory
+measurements. Sources, phase/process metrics and all exact comparisons are in
+workspace `runs/germline-formatting-fresh/`.
+
+The earlier shared-process job `19190488` was intentionally canceled after one
+exact pair when this independent-process replacement was adopted. Its partial
+results are preserved; it was not a scientific failure and its memory values
+are not used as accepted independent-worker estimates.
+
 ## Completed: existing final LIB1 QS2 profile
 
 Job `19188581` profiled one existing final QS2. Its compressed size was **2.397
@@ -235,6 +304,16 @@ Slurm's sampled memory accounting was substantially larger than the dispatcher's
 private/process RSS; retain both rather than interpreting file-cache accounting
 as the helper's live heap. The shared compression pool has two workers, but
 HTSlib also creates background stream threads (64 OS threads were observed).
+
+The fresh full baseline subsequently completed all **120 original split tasks**
+for both samples. Their Slurm allocation records sum to **238,950.663 actual CPU
+seconds (66.375 CPU-hours)**, including indexing within each task. The two
+`countAnalysisZMWs` tasks add 30.031 CPU seconds. Native job IDs are deduplicated
+across trace files, and allocation/step CPU is not double-counted. The frozen
+trace and accounting snapshot is workspace
+`runtime/accounting-checkpoints/20261005T051136Z/baseline-6b6598b/`.
+This provides a measured two-sample baseline cost; comparison with the full
+two-sample candidate and all-chunk scientific validation remains pending.
 
 Follow-up job `19198407` strengthened the real chunk-1 check: all **173,355 ordered
 decompressed BAM record blocks** and the binary reference dictionary matched
@@ -370,10 +449,10 @@ per-group results are retained in `comparisons/four-group-summary.json`.
 - Compare complete nested scientific QS objects and every published scientific
   output, resolving all discrepancies and binary-file review findings.
 - Complete paired measurements and exact-output checks for the remaining
-  implementations. Combined filtering and BED annotation alternatives remain
-  experiments until separately accepted. BAM dispatch passed its component and
-  workflow gates; complete pipeline validation remains pending. Coordinate-sort
-  reuse and mitochondrial shared-session filtering were rejected above.
+  implementations. Full nuclear BED annotation remains an experiment until
+  separately accepted. BAM dispatch passed its component and workflow gates;
+  complete pipeline validation remains pending. Coordinate-sort reuse and both
+  mitochondrial and nuclear shared-session filtering were rejected above.
 - Validate cache/resume behavior, effective YAML parsing and scientific keys,
   including missing prepared artifacts and concurrent launches.
 
@@ -396,7 +475,14 @@ chunks above one million rows. Expression markers localized large temporary
 allocations to nonlogical INFO strings, the INFO matrix row collapse, and the
 fixed output-line strings. RSS was **32.67 GiB after loading**, **33.78 GiB at
 export entry**, and reached **59.09 GiB process peak**. This reproduces substantial
-export growth without preceding formatter allocator residue.
+export growth without preceding formatter allocator residue. The same job's
+Slurm batch MaxRSS was **69,231,192 KiB (66.02 GiB)**, which is a different
+whole-job accounting measure from the R process maximum. It must not be
+substituted into the paired per-worker RSS comparisons or compared directly
+with historical full-stage peaks from another metric source. The residual
+historical peak difference is not assigned wholly to formatter retention.
+Comparable complete-stage process and Slurm memory measurements remain required
+before lowering production memory requests.
 
 The diagnostic normalization/export region took **248.469 actual CPU seconds**
 and **252.735 wall seconds**; the complete worker, including loading, took
@@ -408,13 +494,51 @@ Every decompressed scientific VCF line matched the published original, ignoring
 only `fileDate`. Tabix chromosome names and first/last-record-position queries
 matched on all **23 chromosomes**. Frozen source hashes, installed writer methods,
 event metrics, payload disclosure and comparisons are in workspace
-`runs/germline-vcf-profile/`. Native writer-buffer job `19198553` is running
-two alternating fresh-process pairs with the same resident payload and no
-expression instrumentation; no improvement is yet accepted. Its actual pinned
-writer edge fixtures and original BGZF/index hash/stat immutability preflight
-passed. The earlier attempt `19198210` was intentionally canceled during its
-first worker, before comparisons, after review found that Rsamtools path
-normalization made symlink staging unsafe for index rebuilding. Its partial
-artifacts remain in `runs/germline-vcf-native/`; the corrected run stages physical
-scratch copies and writes to `runs/germline-vcf-native-v2/`. Published inputs were
-not modified.
+`runs/germline-vcf-profile/`.
+
+## Completed: native VCF writer buffer, two fresh-process pairs
+
+Job `19198553` alternated independent default→native and native→default workers
+on `cs648`, retaining the same complete final QS payload. Only the existing
+`writeVcf(..., nchunk=100000L)` argument changed; timed workers had no expression
+instrumentation. No QS rewriting, scientific output shards, or pipeline call
+batching was introduced.
+
+| Pair | Default whole-worker CPU (s) | Native whole-worker CPU (s) | Default process peak RSS (KiB) | Native process peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 405.871 | 374.196 | 61,973,644 | 51,508,468 |
+| 2 | 405.012 | 374.630 | 61,973,256 | 51,509,896 |
+
+Mean complete-worker CPU decreased **7.65%**, from **405.442 to 374.413 s**.
+Mean normalization/export CPU decreased **13.17%**, from **253.595 to 220.192 s**;
+input loading was outside that phase. Mean whole-worker wall time decreased
+**9.04%**, from **414.415 to 376.969 s**. Mean process peak RSS decreased
+**16.89%**, from **61,973,450 to 51,509,182 KiB**. These are focused export-worker
+measurements, not measured whole-output-stage or whole-pipeline improvements.
+Production memory requests remain unchanged pending comparable full-stage data.
+
+Both pairs matched every decompressed scientific VCF line against the published
+original and each other, ignoring only `fileDate`. All **2,992,350 records**,
+index chromosome lists and first/last-record-position queries on all **23
+chromosomes** matched. Every original and generated index also matched a pinned
+Rsamtools rebuild against its own BGZF encoding. Pinned fixtures covered mixed
+numeric magnitudes, missing values, flags, factors, anchored indels, duplicate
+loci, empty tables and indexed queries.
+
+The one-argument change is included in the production writer. The harness now
+explicitly removes only the known configured argument for its default arm and
+sets it for its native arm; it rejects unexpected settings and records effective
+writer ASTs. Job `19201862` passed those guards and fixtures against the
+actual configured production source (28 seconds, exit 0). Its saved default-arm
+AST removes the configured argument, and all eight original BGZF/index fixture
+hash/stat fingerprints remained unchanged. The configured-source preflight is in
+`runs/germline-vcf-production-preflight/`; paired sources, measurements,
+comparisons and original-fixture immutability proof are in
+`runs/germline-vcf-native-v2/`.
+
+The earlier attempt `19198210` was intentionally canceled during its first worker,
+before comparisons, after review found that Rsamtools path normalization made
+symlink staging unsafe for index rebuilding. Its partial artifacts remain in
+`runs/germline-vcf-native/`. The corrected run stages physical scratch copies;
+published inputs were not modified. Whole-job Slurm/cgroup accounting remains
+separate from the per-worker process RSS figures above.

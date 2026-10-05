@@ -1,6 +1,14 @@
 # Sourced in the pinned compute preflight, with the actual writer and buffer
 # modifier already resolved. Fake seqinfo suffices: this tests export, not getSeq.
-original_writer <- eval(writer)
+source_writer <- eval(writer)
+original_writer <- with_native_buffer(source_writer, NULL)
+configured_writer <- with_native_buffer(original_writer, 100000L)
+# Cover a production writer that already carries the native buffer setting:
+# default removes it; candidate retains/restores it. Never compare native/native.
+stopifnot(identical(body(with_native_buffer(configured_writer, NULL)), body(original_writer)),
+          identical(body(with_native_buffer(configured_writer, 100000L)), body(configured_writer)))
+invalid_writer <- with_native_buffer(original_writer, 17L)
+stopifnot(inherits(try(with_native_buffer(invalid_writer, NULL), silent = TRUE), "try-error"))
 small_writer <- with_native_buffer(original_writer, 1L)
 medium_writer <- with_native_buffer(original_writer, 3L)
 stopifnot(identical(as.list(body(original_writer))[-length(body(original_writer))],
@@ -26,10 +34,11 @@ read_scientific <- function(path) {
 }
 for(empty in c(FALSE, TRUE)) {
   input_fixture <- if(empty) calls_fixture[FALSE, ] else calls_fixture
-  paths <- paste0(prefix, ".fixture.", empty, ".", c("default", "one", "three"), ".vcf")
+  paths <- paste0(prefix, ".fixture.", empty, ".", c("default", "one", "three", "configured"), ".vcf")
   original_writer(input_fixture, "fixture_genome", paths[[1]])
   small_writer(input_fixture, "fixture_genome", paths[[2]])
   medium_writer(input_fixture, "fixture_genome", paths[[3]])
+  configured_writer(input_fixture, "fixture_genome", paths[[4]])
   for(path in paths[-1L]) {
     stopifnot(identical(read_scientific(paste0(paths[[1]], ".bgz")),
                         read_scientific(paste0(path, ".bgz"))))

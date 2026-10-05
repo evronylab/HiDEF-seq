@@ -87,6 +87,7 @@ def main():
     parser.add_argument("--filtergroup", default="lenient")
     parser.add_argument("--pairs", type=int, default=0,
                         help="0: unchanged diagnostic profile; positive: alternating fresh default/native buffer pairs")
+    parser.add_argument("--preflight-only", action="store_true", help="Freeze sources and validate fixtures without loading the real QS")
     args = parser.parse_args()
     if args.pairs < 0:
         parser.error("pairs must be nonnegative")
@@ -111,7 +112,9 @@ def main():
                     input_size=args.input.stat().st_size, source_sha256=hashes,
                     hostname=os.uname().nodename, slurm_job_id=os.environ.get("SLURM_JOB_ID"),
                     chromgroup=args.chromgroup, filtergroup=args.filtergroup, pairs=args.pairs,
-                    native_nchunk=100000 if args.pairs else None)
+                    native_nchunk=100000 if args.pairs else None, preflight_only=args.preflight_only,
+                    writer_arm_normalization=("default removes only absent/known100000 nchunk; native sets100000; "
+                                              "unexpected source settings fail") if args.pairs else "actual source unchanged")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     worker = str(code / "profile_germline_vcf.R")
     preflight = ["Rscript", "--vanilla", worker, str(code), "--preflight",
@@ -123,8 +126,8 @@ def main():
         # Actual pinned BGZF/index fixtures establish scratch-copy immutability
         # before any large QS is loaded or any published file is compared.
         fixture_paths = sorted(output.glob("preflight.fixture.FALSE.*.vcf.bgz"))
-        if len(fixture_paths) != 3:
-            raise AssertionError("Expected three native-buffer BGZF fixtures")
+        if len(fixture_paths) != 4:
+            raise AssertionError("Expected four native-buffer BGZF fixtures")
         fixture_inputs = fixture_paths + [Path(str(path) + ".tbi") for path in fixture_paths]
         before = {str(path): fingerprint(path) for path in fixture_inputs}
         for path in fixture_paths:
@@ -135,6 +138,9 @@ def main():
         (output / "preflight-input-immutability.json").write_text(json.dumps(
             dict(unchanged=True, before=before, after=after), indent=2) + "\n")
         print("Pinned index rebuild and original BGZF/index hash/stat immutability passed", flush=True)
+
+    if args.preflight_only:
+        return
 
     def run(prefix, mode):
         subprocess.run([sys.executable, str(code / "measure.py"), "--out", str(prefix) + ".metrics",

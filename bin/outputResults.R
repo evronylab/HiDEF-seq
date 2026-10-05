@@ -199,7 +199,7 @@ write_vcf_from_calls <- function(calls, BSgenome_name, out_vcf){
 	)
 	header(vcf) <- hdr
 	
-	VariantAnnotation::writeVcf(vcf, filename = out_vcf, index = TRUE)
+	VariantAnnotation::writeVcf(vcf, filename = out_vcf, index = TRUE, nchunk = 100000L)
 }
 
 ######################

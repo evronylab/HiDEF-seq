@@ -434,7 +434,17 @@ compared between different BGZF encodings. Comparisons run outside worker timing
 
 Index rebuilds stage physical scratch BGZF copies: Rsamtools normalizes paths,
 so symlinks could resolve to original files. Before real-data work, compute
-preflight rebuilds three actual fixture indices and verifies the original
+preflight rebuilds four actual fixture indices and verifies the original
 BGZF/index SHA256, device, inode, mode, size, mtime and ctime stay unchanged.
 Read access time is excluded because reads may update it. The same invariant is
 covered by `python3 tests/test_vcf_export_harness.py`.
+
+The paired harness explicitly removes only an absent or known `nchunk=100000L`
+argument for its default arm and sets `100000L` for the native arm. It rejects
+unexpected configured values. Thus it remains a legacy-versus-native benchmark
+after the production writer gains that argument. The manifest and each effective
+writer AST record this normalization; fixtures cover configured production calls
+and argument removal/restoration. Diagnostic mode retains the actual source
+writer setting and records its effective value.
+Add `--preflight-only --pairs 2` to run just the configured-source and index
+fixtures on compute, without loading the real QS or running timed workers.

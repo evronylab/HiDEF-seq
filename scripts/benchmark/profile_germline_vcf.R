@@ -61,14 +61,21 @@ capture.output({
 with_native_buffer <- function(fn, rows) {
   expressions <- as.list(body(fn))
   last <- expressions[[length(expressions)]]
-  stopifnot(is.call(last), identical(last[[1]], quote(VariantAnnotation::writeVcf)),
-            is.null(last$nchunk))
-  last$nchunk <- rows
-  expressions[[length(expressions)]] <- last
+  stopifnot(is.call(last), identical(last[[1]], quote(VariantAnnotation::writeVcf)))
+  arguments <- as.list(last)
+  stopifnot(sum(names(arguments) == "nchunk") <= 1L,
+            is.null(arguments$nchunk) || identical(arguments$nchunk, 100000L))
+  if(!is.null(rows)) stopifnot(is.integer(rows), length(rows) == 1L, !is.na(rows), rows > 0L)
+  # Explicit legacy normalization: remove only the known configured argument.
+  # Assigning NULL to a list removes the element rather than passing NULL to R.
+  arguments$nchunk <- rows
+  expressions[[length(expressions)]] <- as.call(arguments)
   body(fn) <- as.call(expressions)
   fn
 }
+if(mode == "default") write_vcf_from_calls <- with_native_buffer(write_vcf_from_calls, NULL)
 if(mode == "100000") write_vcf_from_calls <- with_native_buffer(write_vcf_from_calls, 100000L)
+effective_nchunk <- as.list(body(write_vcf_from_calls))[[length(body(write_vcf_from_calls))]]$nchunk
 capture.output(print(write_vcf_from_calls), file = paste0(prefix, ".effective-writer.R.txt"))
 if(mode == "profile") {
   for(name in internal_names[-1L]) {
@@ -104,7 +111,7 @@ writeLines(c(paste("selected_rows", nrow(formatted)),
              "This conservatively retains later-group formatted/final results absent at the first real export.",
              "No explicit GC or HWM reset is performed.",
              paste("writer_mode", mode),
-             paste("native_nchunk", if(mode == "100000") "100000" else "default"),
+             paste("native_nchunk", if(is.null(effective_nchunk)) "default" else effective_nchunk),
              paste("expression_instrumentation", mode == "profile")),
            paste0(prefix, ".payload.txt"))
 profile_event("export:begin")

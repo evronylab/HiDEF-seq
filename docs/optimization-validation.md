@@ -359,6 +359,21 @@ indexing; operation-only phase metrics and sampled concurrent process-group RSS
 are also retained under workspace `runs/coverage-annotation-chr22/`. Full nuclear
 job `19194115` will assess scaling before production adoption.
 
+The proposed R integration remains confined to a runtime candidate tree.
+Pinned-container jobs `19206485` and `19207026` passed fixtures extracting the
+actual candidate R functions and dispatch expression. They cover aggregate and
+counts-only rows, empty indexed output, all 125 normalized contexts, terminal
+bases, small contigs, fractional/large depths and quoted paths. An unsafe name
+in an **uncovered** reference contig selects the unchanged legacy block before
+the helper is invoked. A late malformed BED row, compressor failure and indexer
+failure each stop R before a downstream save sentinel; source BEDs remain for
+diagnosis. The final fixture also proves a valid FAI without a trailing newline
+works under `options(warn=2)`. Frozen source, tests and results are in workspace
+`runs/coverage-annotation-dispatch-v3/`. Initial job `19206382` failed before R
+fixtures because the clean container PATH omitted `/hidef/bin/seqkit`; the
+replacement explicitly includes `/hidef/bin`. These fixtures establish dispatch
+and failure behavior, not full nuclear output equivalence or production adoption.
+
 ## Rejected: coordinate-sort reuse
 
 The completed tiny fixture matched ordered SAM records for one input but failed
@@ -438,12 +453,40 @@ remained strict.
 These replays used **different nodes**, so the CPU effects remain preliminary.
 Nuclear CPU fell 40.99% / 38.61%, with peak RSS 43.82% / 48.10% lower;
 mitochondrial CPU fell 79.71% / 78.39%, with peak RSS about 67.5% lower.
-Same-allocation job `19196053` is running two alternating nuclear-lenient pairs
-to assess the complete-filter CPU effect under better matched conditions.
+The completed same-allocation nuclear-lenient comparison is reported below.
 The measured operations include script startup, filtering and QS serialization;
 new shared-cache preparation and scientific comparison are outside these timings.
 This is not a whole-pipeline or preparation-inclusive result. Wall times and
 per-group results are retained in `comparisons/four-group-summary.json`.
+
+## Completed: matched complete nuclear-lenient filtering, two pairs
+
+Job `19196053` completed two alternating pairs of independent R workers on
+`cl017`, using the same full chunk-1 extraction and identical prepared YAML for
+both source versions. Pair 1 ran baseline then candidate; pair 2 reversed the
+order. Sources, input identity, config hash, logs, measurements and comparisons
+are frozen in workspace `runs/filter-paired/`.
+
+| Pair | Baseline CPU (s) | Candidate CPU (s) | Baseline peak RSS (KiB) | Candidate peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 4,097.287 | 1,971.739 | 26,488,152 | 14,499,304 |
+| 2 | 2,923.138 | 2,223.242 | 26,487,048 | 14,047,936 |
+
+Both complete scientific QS comparisons passed exactly, including the config,
+calls, ordinary and germline-excluded coverage trackers, genome tracker and
+region/molecule statistics. Each comparison reports zero failures, zero numeric
+reviews and zero ignored differences. The comparator was configured with the
+usual `/run_metadata` whitelist; it was not broadened for these comparisons.
+
+Mean actual worker CPU fell from **3,510.213 to 2,097.491 seconds (40.25%)**;
+mean wall time fell from 3,384.005 to 2,096.194 seconds (38.06%). Mean process
+peak RSS fell from **26,487,600 to 14,273,620 KiB (46.11%)**. Both pairs are shown
+because baseline runtime varied substantially even within the same allocation.
+These measurements include R startup, filtering and QS serialization; shared
+preparation and scientific comparison are outside worker timings. They do not
+measure total pipeline CPU or preparation-inclusive speedup. Whole-job Slurm
+batch `MaxRSS` was 33,548,272 KiB and is separate from the worker/descendant RSS
+above; neither is a measurement of the complete pipeline's peak memory.
 
 ## Pending before overall conclusions
 

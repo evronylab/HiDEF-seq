@@ -223,14 +223,45 @@ three historical PDFs with compressed object/XRef streams: date-only rewrites
 preserving the PDF header passed, and all three changed-drawing versions failed.
 Those validation artifacts are in workspace `runs/pdf-real-validation-v2/`.
 
-BAM comparison must stream ordered SAM records exactly, preserving tags and all
-non-provenance headers. If command provenance differs, exclude only the `CL`
-field of `@PG` records explicitly; do not discard entire `@PG` lines or other
-header fields. A matched record multiset does not establish matched order.
-Index byte differences remain review findings. Validate Tabix/BAI/PBI readability
-and representative boundary/empty-region queries against their associated data;
-the BED harness already exercises Tabix queries. Matching compressed scientific
-contents alone does not prove a changed index is valid.
+`compare_bam.py` compares raw decompressed BAM record blocks in order, including
+every tag byte and float bit. It does not reserialize through SAM or a BAM writer,
+so it cannot hide differences through text precision or long-CIGAR transport
+normalization. BGZF compression may differ. Header fields/order and the binary
+reference dictionary remain exact, except the explicit `CL` field of `@PG`
+records. Other `@PG` provenance/count/order differences require manual review;
+they are never silently removed. Other header or raw-record differences fail.
+The framing follows the [SAM/BAM specification](https://samtools.github.io/hts-specs/SAMv1.pdf).
+`samtools quickcheck` checks header/EOF before streaming, gzip validates CRCs,
+and malformed/truncated frames fail. Frames over 64 MiB or oversized reference
+dictionaries require review rather than unbounded allocation.
+
+```sh
+python3 scripts/benchmark/compare_bam.py REFERENCE.bam CANDIDATE.bam \
+  --output NEW_SCRATCH_DIRECTORY --samtools samtools --pbindex pbindex --rebuild-indexes
+python3 -m unittest discover -s tests -p test_bam_comparison.py -v
+python3 tests/test_bam_comparison_tools.py --output NEW_TINY_FIXTURE_DIRECTORY \
+  --samtools samtools --pbindex pbindex --bgzip bgzip
+```
+
+The optional index check rebuilds BAI and PBI against **each BAM's own scratch
+symlink**, then compares that BAM's published index with its rebuilt index (PBI
+decompressed, BAI bytes). It never compares offsets across differently compressed
+BAMs. Input indices must remain untouched; file metadata is checked before and
+after. Mismatches require review because they can reflect an invalid index or a
+different valid index encoding. Missing indices or rebuild failures fail.
+Without `--rebuild-indexes`, BAM contents can pass but the overall report remains
+review-required for unchecked indices. Exit codes are 0 pass, 1 failure, 2 review.
+Scratch rebuilding adds full BAM reads and must run on compute **outside measured
+pipeline work**. No full BAM validation job is launched by the utility itself.
+Pinned-tool fixture job `19196140` passed: both BAI/PBI scratch rebuilds matched,
+source BAMs/indices remained byte-identical, reordered/changed records and a
+truncated BAM failed, and a stale PBI required review. A one-ULP float-tag mutation
+rendered identically in SAM but was correctly rejected by raw-record comparison.
+Artifacts and frozen source hashes are in workspace `runs/bam-comparison-fixtures-v2/`.
+
+The BED harness already exercises Tabix boundary/empty-region queries. Matching
+compressed scientific contents alone does not prove a changed index is valid;
+retain these format-specific reports alongside the published-file inventory.
 
 ## Effective YAML verification
 
@@ -277,6 +308,24 @@ only complete filtering QS objects are scientific outputs of these tasks.
 Whole-process RSS is a process high-water metric, not summed simultaneous
 memory across all child processes. Allocation/accounting for the complete job,
 including validation overhead, can additionally be recorded with `collect_sacct.py`.
+
+## Paired complete extraction or filtering
+
+`benchmark_extraction.py` runs alternating pairs of independent R processes in
+one allocation. Supply `--bam INPUT.bam` for extraction, or
+`--extract-qs INPUT.qs2 --chromgroup GROUP --filtergroup GROUP` for filtering.
+Both modes require `--baseline-repo`, `--candidate-repo`, `--config`, `--sample`,
+`--output` (a new directory), and the appropriate `--allocated-cpus` value.
+The default is two pairs. Source/configuration snapshots, input identities and
+per-process metrics are retained; full scientific QS comparisons run afterward,
+outside the timed operations.
+
+Filtering gives both arms the same prepared configuration and the exact relative
+input name `extractCalls.chunk1.qs2`, since the script records that argument in its
+output. The original script ignores the new preparation fields and performs its
+usual inline work. The comparison retains every configuration field; only the
+normal `/run_metadata` exception applies. Run on compute with enough memory for
+the original operation as well as the subsequent comparison.
 
 ## Germline VCF annotation block benchmark
 

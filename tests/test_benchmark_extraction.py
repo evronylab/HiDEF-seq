@@ -14,14 +14,14 @@ spec.loader.exec_module(driver)
 
 
 class ExtractionDriverTests(unittest.TestCase):
-    def run_driver(self, comparison_status=0):
+    def run_driver(self, comparison_status=0, filtering=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         for mode in ("baseline", "candidate"):
             folder = root / mode / "bin"
             folder.mkdir(parents=True)
-            for name in ("extractCalls.R", "sharedFunctions.R"):
+            for name in ("extractCalls.R", "filterCalls.R", "sharedFunctions.R"):
                 (folder / name).write_text(f"# {mode} frozen source\n")
         (root / "input.bam").write_bytes(b"fixture")
         (root / "config.yaml").write_text("fixture: true\n")
@@ -38,8 +38,10 @@ class ExtractionDriverTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, status)
 
         args = ["--baseline-repo", str(root / "baseline"), "--candidate-repo", str(root / "candidate"),
-                "--bam", str(root / "input.bam"), "--config", str(root / "config.yaml"),
+                "--extract-qs" if filtering else "--bam", str(root / "input.bam"), "--config", str(root / "config.yaml"),
                 "--sample", "fixture", "--output", str(root / "output"), "--allocated-cpus", "2"]
+        if filtering:
+            args.extend(["--chromgroup", "1-22X", "--filtergroup", "lenient"])
         with patch.object(driver.platform, "platform", return_value="test-platform"), \
                 patch.object(driver.subprocess, "run", side_effect=fake_run):
             if comparison_status:
@@ -69,6 +71,19 @@ class ExtractionDriverTests(unittest.TestCase):
         results = json.loads((root / "output/results.json").read_text())
         self.assertEqual(len(results["measurements"]), 4)
         self.assertEqual(results["validation"][0]["status"], 2)
+
+    def test_filtering_uses_same_relative_input_and_full_config_comparison(self):
+        root, commands = self.run_driver(filtering=True)
+        measures = [(c, k) for c, k in commands if "--out" in c]
+        self.assertEqual(len(measures), 4)
+        for command, kwargs in measures:
+            self.assertEqual(command[command.index("-f") + 1], "extractCalls.chunk1.qs2")
+            self.assertEqual((kwargs["cwd"] / "extractCalls.chunk1.qs2").resolve(), root / "input.bam")
+            self.assertEqual(command[command.index("-c") + 1], str(root / "output/config.yaml"))
+            self.assertEqual(command[command.index("-o") + 1], "filterCalls.qs2")
+        comparisons = [c for c, _ in commands if "compare" in c]
+        self.assertEqual(len(comparisons), 2)
+        self.assertTrue(all(not any(p.startswith("--ignore=") for p in c) for c in comparisons))
 
 
 if __name__ == "__main__":

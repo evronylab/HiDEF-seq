@@ -57,6 +57,13 @@ probes also matched their signed Unix inode and size. Full-workflow preview
 Evidence is in `runs/prepared-input-identity/` and `runs/cache-identity-preview/`.
 Migration of existing development-run cache entries requires separate checksum
 verification and exact comparison of every other identity field before reuse.
+The development-run migration passed 18 focused fixtures, then job `19208174`
+verified and atomically published 17 completed bundles under the new identities.
+All product checksums and the original manifests remained exact. The only allowed
+identity changes were removal of the device number and explicit dependency-key
+updates to other proven bundles. This is a one-time development migration, not a
+production compatibility path. The two unfinished germline bundles were excluded.
+Evidence is in `runs/prepared-device-migration-v2/`.
 
 ## Completed: full-reference summary preparation
 
@@ -217,7 +224,9 @@ Each pair matched all **1,023,018 annotated calls** and the entire
 **10,772,319-row filtered germline table** using `identical()`. The latter remains
 unchanged for downstream per-file filters and whole-genome statistics. Mean
 actual CPU was **264.986 s baseline** and **14.246 s candidate**, a **94.62%**
-reduction for this block only. Full-filter and whole-pipeline gains remain pending.
+reduction for this block only. The complete filter comparisons below measure its
+combined effect with the other filtering changes; whole-pipeline gains remain
+pending.
 
 Observed phase peak RSS was 11,746,588 / 11,394,356 / 10,184,904 KiB for baseline
 and 8,903,732 / 8,945,940 / 8,967,980 KiB for candidate. The Linux high-water reset
@@ -392,6 +401,22 @@ works under `options(warn=2)`. Frozen source, tests and results are in workspace
 fixtures because the clean container PATH omitted `/hidef/bin/seqkit`; the
 replacement explicitly includes `/hidef/bin`. These fixtures establish dispatch
 and failure behavior, not full nuclear output equivalence or production adoption.
+
+Runtime integration job `19207217` then completed the full nuclear-lenient
+one-chunk burden operation with the fixture-passed R dispatch and compiled
+helper. It used the unchanged original YAML and filtered chunk, reusing the
+original baseline output from `runs/burdens-one-chunk/` without rerunning it.
+Every scientific QS component matched exactly, including YAML, coverage,
+spectra, burdens and sensitivity; only `/run_metadata` was ignored. The single
+published coverage BED gzip and its tabix index were both **byte-identical**.
+Original baseline file identities remained unchanged. Frozen source/helper,
+measurements and comparison reports are in `runs/burdens-annotation-integrated/`.
+The integrated worker used 737.208 CPU seconds, 694.923 wall seconds and
+21,304,252 KiB peak process RSS; Slurm batch `MaxRSS` was separately 21,789,872 KiB.
+It ran on `cs602`, whereas the reused baseline ran on `cl011`, so this is an
+integration correctness result, **not a matched performance estimate**. The
+full nuclear eight-row annotation experiment and complete pipeline/QS checks
+remain required before final adoption and overall conclusions.
 
 ## Rejected: coordinate-sort reuse
 

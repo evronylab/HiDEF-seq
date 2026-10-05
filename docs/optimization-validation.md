@@ -39,6 +39,25 @@ Reproducible commands and comparator details are in the
 identity and current conservative downstream invalidation are documented in
 [workflow optimization](workflow-optimization.md).
 
+## Verified: cache identities across shared-filesystem mounts
+
+The same immutable filtered input was recorded with device number 59 in
+`runs/burdens-one-chunk/manifest.json` and 57 in
+`runs/burdens-annotation-integrated/manifest.json`; inode, path, size and nanosecond
+timestamps matched. Java's Unix file key includes this node-local device number,
+which could unnecessarily invalidate prepared caches after moving the controller.
+The identity now records the Unix inode separately and excludes the device.
+It remains a metadata identity, with the limitations documented above.
+
+Job `19207641` exercised the actual production Nextflow function: repeated reads
+and symlink aliases matched; mtime changes, size changes, and a same-path,
+same-size, same-mtime file replacement invalidated the identity. Three real input
+probes also matched their signed Unix inode and size. Full-workflow preview
+`19207702` completed and emitted 19 expected prepared-artifact identities.
+Evidence is in `runs/prepared-input-identity/` and `runs/cache-identity-preview/`.
+Migration of existing development-run cache entries requires separate checksum
+verification and exact comparison of every other identity field before reuse.
+
 ## Completed: full-reference summary preparation
 
 Job `19190017` compared the original reference scans with the reusable reference

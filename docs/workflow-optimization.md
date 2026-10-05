@@ -40,8 +40,10 @@ order, repeated selections, types, and equivalence of the earlier chromosome
 restriction in call loading.
 
 Large external files use an explicitly labeled identity comprising canonical
-path, size, modification time, change time where supported, and filesystem file
-key. These are **metadata identities, not input content hashes**. No full BAM,
+path, size, modification time, and Unix change time and inode where supported.
+Node-local device numbers are excluded: the same file on Torch's shared filesystem
+has different device numbers on different nodes. These are **metadata identities,
+not input content hashes**. No full BAM,
 reference, or container checksum is computed on the orchestration node. Small
 scripts use SHA256. Existing external executable paths have metadata identities;
 commands supplied by the container use its identity plus configured command.

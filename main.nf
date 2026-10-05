@@ -112,14 +112,22 @@ def preparedInputIdentity(rawPath) {
   def source = file(rawPath).toRealPath()
   def attrs = java.nio.file.Files.readAttributes(source, java.nio.file.attribute.BasicFileAttributes)
   def changed = null
+  def inode = null
   try {
     changed = java.nio.file.Files.getAttribute(source, 'unix:ctime').toString()
   } catch (UnsupportedOperationException ignored) {
     changed = null
   }
-  return [kind: 'canonical-path-size-mtime-ctime', path: source.toString(),
+  try {
+    // UnixFileKey includes st_dev, which is local to a node's mount table.
+    // The same shared file can therefore have different fileKeys on Torch.
+    inode = java.nio.file.Files.getAttribute(source, 'unix:ino').toString()
+  } catch (UnsupportedOperationException ignored) {
+    inode = null
+  }
+  return [kind: 'canonical-path-size-mtime-ctime-inode', path: source.toString(),
           bytes: attrs.size(), modified: attrs.lastModifiedTime().toString(),
-          changed: changed, fileKey: attrs.fileKey()?.toString()]
+          changed: changed, inode: inode]
 }
 
 def canonicalCacheValue(value) {

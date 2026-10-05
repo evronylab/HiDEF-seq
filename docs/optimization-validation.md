@@ -343,8 +343,16 @@ seconds (66.375 CPU-hours)**, including indexing within each task. The two
 across trace files, and allocation/step CPU is not double-counted. The frozen
 trace and accounting snapshot is workspace
 `runtime/accounting-checkpoints/20261005T051136Z/baseline-6b6598b/`.
-This provides a measured two-sample baseline cost; comparison with the full
-two-sample candidate and all-chunk scientific validation remains pending.
+The two-sample candidate has now completed both dispatches and their indices,
+both enumerations and the shared compiler. That complete dispatch scope used
+**6,959.049 actual CPU seconds (1.933 CPU-hours)** versus **238,980.694 seconds
+(66.384 CPU-hours)** for the original splits plus enumerations: **97.09% less
+CPU**. The compiler is included in the candidate total. Allocated CPU-hours were
+1.993 versus 71.294; they are separate from actual CPU use. These are completed
+stage totals from the full runs, not paired node-controlled trials or complete
+pipeline totals. The updated frozen traces and accounting are in
+`runtime/accounting-checkpoints/20261005T082229Z/`; neither dispatch scope has
+unresolved accounting. Full downstream scientific validation remains pending.
 
 Follow-up job `19198407` strengthened the real chunk-1 check: all **173,355 ordered
 decompressed BAM record blocks** and the binary reference dictionary matched

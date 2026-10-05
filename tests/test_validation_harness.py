@@ -83,6 +83,32 @@ class PublishedContentsTest(unittest.TestCase):
             b.write_text("value\n2\n1.0000000000000\n")
             self.assertEqual(compare.compare_text(a, b)["status"], "failure")
 
+    def test_byte_fast_path_preserves_encoding_and_newline_exceptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory) / "a.bed.gz", Path(directory) / "b.bed.gz"
+            body = "chr1\t0\t1\t1\t€\nchr1\t1\t2\t2\tACG\n".encode()
+            a.write_bytes(gzip.compress(body))
+            b.write_bytes(gzip.compress(body[:13]) + gzip.compress(body[13:]))
+            self.assertTrue(compare.decompressed_bytes_equal(a, b, block_size=1))
+            self.assertEqual(compare.compare_text(a, b)["reason"], "decompressed text bytes identical")
+            b.write_bytes(gzip.compress(body.replace(b"\n", b"\r\n").rstrip(b"\r\n")))
+            self.assertFalse(compare.decompressed_bytes_equal(a, b, block_size=7))
+            self.assertEqual(compare.compare_text(a, b)["status"], "pass")
+
+    def test_byte_fast_path_checks_utf8_crc_and_truncation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory) / "a.tsv.gz", Path(directory) / "b.tsv.gz"
+            for payload, error in ((gzip.compress(b"invalid\xff\n"), UnicodeDecodeError),
+                                   (gzip.compress(b"valid\n")[:-4], EOFError)):
+                a.write_bytes(payload); b.write_bytes(payload)
+                with self.assertRaises(error):
+                    compare.compare_text(a, b)
+            payload = bytearray(gzip.compress(b"valid\n"))
+            payload[-8] ^= 1
+            a.write_bytes(payload); b.write_bytes(payload)
+            with self.assertRaises(gzip.BadGzipFile):
+                compare.compare_text(a, b)
+
 
 if __name__ == "__main__":
     unittest.main()

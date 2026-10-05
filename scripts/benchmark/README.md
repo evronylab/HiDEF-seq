@@ -161,9 +161,12 @@ python3 scripts/benchmark/compare_outputs.py REFERENCE_DIR CANDIDATE_DIR \
   --report /projects/work/evrong01/HiDEF-seq/codex/bench/published.json
 ```
 
-The comparator inventories all relative paths, checks byte identity, and compares
-TSV/CSV/text/BED/VCF/YAML (including gzip) line by line without numerical tolerance
-or sorting. Compression and line-ending differences are allowed. It excludes only
+The comparator inventories all relative paths and checks byte identity. For
+TSV/CSV/text/BED/VCF/YAML (including gzip), an exact decompressed-byte fast path
+avoids iterating through billions of matching BED lines. It checks gzip CRCs and
+strict UTF-8 across block boundaries. Byte differences fall back to line-by-line
+comparison without numerical tolerance or sorting. Compression and line-ending
+differences are allowed. It excludes only
 `*.run_metadata.tsv` and VCF `##fileDate=` by default; additional explicit metadata
 globs/VCF keys are recorded in the report. Configuration files remain strict unless
 specific run metadata is separately reviewed. Differing QS2, PDF, index, and other
@@ -360,3 +363,56 @@ outputs, metrics and session information are retained. Wrap the command with
 `measure.py` for the entire experiment's resource cost, keeping setup/validation
 cost separate from the per-block results. No full-pipeline gain is inferred from
 this focused benchmark.
+
+## Germline VCF export allocation profile
+
+Run `profile_germline_vcf.py` inside the pinned container on compute (the real
+LIB1 profile requests 96 GiB, two CPUs and two hours):
+
+```sh
+python3 scripts/benchmark/profile_germline_vcf.py \
+  --repo . --input ORIGINAL.outputResults.qs2 \
+  --reference-vcf ORIGINAL.1-22X.lenient.germlineVariantCalls.vcf.bgz \
+  --chromgroup 1-22X --filtergroup lenient --output NEW_PROFILE_DIRECTORY
+```
+
+The driver freezes the actual writer/normalizer source and harness with SHA256
+hashes, and records the input path and size, installed writer methods, package version and
+session details. A lightweight compute preflight precedes the large QS load.
+The worker retains **all** original final QS components while exporting the
+selected formatted table, including raw germline and coverage. This deliberately
+also retains later-group formatted/final results that may not yet exist at the
+first real export; the payload approximation is recorded explicitly.
+
+Expression-entry and function-exit markers report cumulative CPU, elapsed time,
+current RSS and process HWM. They do not retain result snapshots, force garbage
+collection, reset HWM or change the native writer buffer. CPU differences between
+nested events are inclusive and must not be summed across overlapping phases.
+These instrumented diagnostic timings are separate from accepted performance
+benchmarks. Whole-worker metrics include input loading; `export:begin/end` delimit
+the complete normalization and export operation.
+
+After the worker exits, the driver compares every decompressed VCF scientific
+line with the published reference, ignoring only `fileDate`. It also checks index
+chromosome lists and first/last-record-position tabix queries per chromosome.
+It records those checks separately from byte identity of compressed files or
+indices. No new pipeline batches or scientific output shards are introduced.
+
+For the focused native writer-buffer experiment, add `--pairs 2` to the same
+command and use a new output directory. This runs fresh workers in alternating
+`default → nchunk=100000L`, then reversed order. Both workers retain the same
+payload, and their actual writer AST differs only by that single argument.
+Expression instrumentation is disabled; load/export boundary events and complete
+worker CPU/RSS are retained. The original QS remains read-only. Pinned preflight
+fixtures cover mixed floating-point magnitudes, missing values, flags, factors,
+anchored indels, duplicate loci, empty tables and indexed queries. Each pair
+also rebuilds every index against its own BGZF encoding with pinned Rsamtools and
+requires identical decompressed index bytes. Compressed offsets are never
+compared between different BGZF encodings. Comparisons run outside worker timing.
+
+Index rebuilds stage physical scratch BGZF copies: Rsamtools normalizes paths,
+so symlinks could resolve to original files. Before real-data work, compute
+preflight rebuilds three actual fixture indices and verifies the original
+BGZF/index SHA256, device, inode, mode, size, mtime and ctime stay unchanged.
+Read access time is excluded because reads may update it. The same invariant is
+covered by `python3 tests/test_vcf_export_harness.py`.

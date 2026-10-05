@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Stream-compare published text; inventory every file and report unvalidated binaries."""
 import argparse
+import codecs
 import fnmatch
 import gzip
 import hashlib
@@ -32,7 +33,31 @@ def scientific_lines(path, vcf_ignore_keys=("fileDate",)):
             yield line_number, line.rstrip("\r\n")
 
 
+def decompressed_bytes_equal(reference, candidate, block_size=1024 * 1024):
+    """Prove the strongest equality cheaply before inspecting individual lines.
+
+    Matching coverage BEDs can contain billions of lines. Read gzip members to
+    EOF (including CRC checks), and preserve the text reader's strict UTF-8
+    requirement even when all bytes match. Incremental decoding handles a code
+    point split across blocks. A byte mismatch delegates metadata/newline rules
+    and discrepancy locations to the existing line comparator.
+    """
+    def opener(path):
+        return gzip.open(path, "rb") if path.suffix in GZIP_SUFFIXES else path.open("rb")
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    with opener(reference) as left, opener(candidate) as right:
+        while True:
+            a, b = left.read(block_size), right.read(block_size)
+            if a != b:
+                return False
+            decoder.decode(a, final=not a)
+            if not a:
+                return True
+
+
 def compare_text(reference, candidate, vcf_ignore_keys=("fileDate",)):
+    if decompressed_bytes_equal(reference, candidate):
+        return {"status": "pass", "reason": "decompressed text bytes identical"}
     for left, right in itertools.zip_longest(scientific_lines(reference, vcf_ignore_keys),
                                             scientific_lines(candidate, vcf_ignore_keys)):
         if left is None or right is None:

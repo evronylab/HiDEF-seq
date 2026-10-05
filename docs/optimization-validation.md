@@ -162,6 +162,26 @@ Actual ASTs, input/source fingerprints, session details, complete output tables,
 `runs/germline-vcf-block/`. The sourceable AST locator and benchmark commands are
 documented in the [benchmark harness](../scripts/benchmark/README.md).
 
+## Completed: one real nuclear lenient burden chunk
+
+Job `19194158` replayed complete `calculateBurdens.R` baseline and candidate
+processes within one allocation using the same original LIB1 chunk-1 nuclear
+lenient filter output. Both arms included the unchanged full coverage BED writer.
+
+| Metric | Baseline | Candidate |
+| --- | ---: | ---: |
+| Actual CPU (s) | 1,870.558 | 1,924.817 |
+| Wall time (s) | 1,730.558 | 1,761.718 |
+| Peak RSS (KiB) | 23,739,512 | 21,305,220 |
+
+The complete scientific QS comparison passed exactly, with only the explicit
+`/run_metadata` whitelist. The coverage BED gzip and its tabix index were both
+byte-identical. Peak RSS decreased **10.25%**, while actual CPU increased
+**2.90%**; this one-chunk replay does not establish a burden CPU improvement.
+It also does not measure multi-chunk accumulator scaling. Frozen sources,
+configuration, complete per-process metrics and comparison reports are retained
+in workspace `runs/burdens-one-chunk/`.
+
 ## Completed: existing final LIB1 QS2 profile
 
 Job `19188581` profiled one existing final QS2. Its compressed size was **2.397
@@ -261,24 +281,40 @@ Mitochondrial fusion is rejected; no production implementation is adopted.
 Nuclear results remain a separate pending experiment. Records and strict
 comparison reports are in workspace `runs/filter-chain-mito/`.
 
-## Running: complete current-candidate chunk filtering
+## Completed: all four complete chunk-filtering comparisons
 
-Job `19194137` replays all four chromosome/filtergroup combinations for the
-original LIB1 chunk-1 extraction with 24 GiB, two CPUs, and a four-hour limit.
+Job `19194137` replayed all four chromosome/filtergroup combinations for the
+original LIB1 chunk-1 extraction with 24 GiB and two CPUs. Both it and original
+replay job `19188367` completed successfully. All four complete scientific QS
+comparisons passed exactly.
 Workspace `runs/filter-candidate-current/` contains the frozen `code/bin` and
 benchmark scripts, per-file SHA256 manifest, prepared config, logs and metrics.
 The extraction argument remains the exact relative `extractCalls.chunk1.qs2`
 used by the original replay; its symlink resolves to the original extraction.
 
-Preflight requires every original parsed configuration value to match and exactly
-two added preparation fields. After each candidate group, available complete
-original outputs are compared with only
+Preflight required every original parsed configuration value to match and exactly
+two added preparation fields. Complete original outputs were compared with only
 `/config/yaml.config/reference_summary_file` and
 `/config/yaml.config/germline_coverage_filters` whitelisted. The full config,
 inherited run metadata, scientific schemas and within-group row order otherwise
-remain strict. `comparisons/status.json` distinguishes pending from passed groups;
-the saved comparator can be rerun on compute as remaining originals arrive.
-No complete-filter equivalence or performance result is claimed yet.
+remained strict.
+
+| Chromgroup / filtergroup | Baseline CPU (s) | Candidate CPU (s) | Baseline peak RSS (KiB) | Candidate peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Nuclear / lenient | 3,215.248 | 1,897.161 | 25,199,392 | 14,156,524 |
+| Nuclear / strict | 2,597.530 | 1,594.728 | 25,121,932 | 13,037,608 |
+| Mitochondrial / lenient | 843.808 | 171.237 | 21,726,896 | 7,061,936 |
+| Mitochondrial / strict | 796.762 | 172.205 | 21,725,876 | 7,064,580 |
+
+These replays used **different nodes**, so the CPU effects remain preliminary.
+Nuclear CPU fell 40.99% / 38.61%, with peak RSS 43.82% / 48.10% lower;
+mitochondrial CPU fell 79.71% / 78.39%, with peak RSS about 67.5% lower.
+Same-allocation job `19196053` is running two alternating nuclear-lenient pairs
+to assess the complete-filter CPU effect under better matched conditions.
+The measured operations include script startup, filtering and QS serialization;
+new shared-cache preparation and scientific comparison are outside these timings.
+This is not a whole-pipeline or preparation-inclusive result. Wall times and
+per-group results are retained in `comparisons/four-group-summary.json`.
 
 ## Pending before overall conclusions
 
@@ -299,3 +335,39 @@ The baseline source revision is
 each subsequent measurement. This initial ledger transcribes the completed
 reference and QS2 measurements from the workspace `WORK_LOG.md`; isolated runs
 and accounting artifacts are retained under the workspace `runs/` directory.
+
+## Diagnostic: unchanged germline VCF export with resident final payload
+
+Job `19197272` profiled the actual normalizer and VCF writer from the pinned
+sources on **2,992,350 nuclear lenient germline records**, retaining the complete
+original final QS object, including raw germline and coverage. This also retains
+later-group formatted/final results absent at the first real export, so it is a
+conservative payload approximation rather than a replay of the entire stage.
+
+The installed VariantAnnotation **1.52.0** writer defaults to two half-table
+chunks above one million rows. Expression markers localized large temporary
+allocations to nonlogical INFO strings, the INFO matrix row collapse, and the
+fixed output-line strings. RSS was **32.67 GiB after loading**, **33.78 GiB at
+export entry**, and reached **59.09 GiB process peak**. This reproduces substantial
+export growth without preceding formatter allocator residue.
+
+The diagnostic normalization/export region took **248.469 actual CPU seconds**
+and **252.735 wall seconds**; the complete worker, including loading, took
+**417.719 CPU seconds** and **425.063 wall seconds**. These instrumented timings
+are diagnostic, not an accepted optimized-versus-original performance comparison.
+There was no explicit GC, HWM reset, changed writer buffer, or production edit.
+
+Every decompressed scientific VCF line matched the published original, ignoring
+only `fileDate`. Tabix chromosome names and first/last-record-position queries
+matched on all **23 chromosomes**. Frozen source hashes, installed writer methods,
+event metrics, payload disclosure and comparisons are in workspace
+`runs/germline-vcf-profile/`. Native writer-buffer job `19198553` is running
+two alternating fresh-process pairs with the same resident payload and no
+expression instrumentation; no improvement is yet accepted. Its actual pinned
+writer edge fixtures and original BGZF/index hash/stat immutability preflight
+passed. The earlier attempt `19198210` was intentionally canceled during its
+first worker, before comparisons, after review found that Rsamtools path
+normalization made symlink staging unsafe for index rebuilding. Its partial
+artifacts remain in `runs/germline-vcf-native/`; the corrected run stages physical
+scratch copies and writes to `runs/germline-vcf-native-v2/`. Published inputs were
+not modified.

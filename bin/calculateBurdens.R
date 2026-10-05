@@ -1565,7 +1565,9 @@ indel_spectrum_chroms <- finalCalls.reftnc_spectra %>%
 	unlist(use.names = FALSE) %>%
 	unique
 BSgenome_for_indel.spectrum <- if(length(indel_spectrum_chroms) > 0L){
-	getSeq(get(BSgenome_name), names = indel_spectrum_chroms)
+	#BSgenome simplifies a single requested chromosome to DNAString. Context
+	#lookup requires a named DNAStringSet for one chromosome as well as many.
+	setNames(DNAStringSet(getSeq(get(BSgenome_name), names = indel_spectrum_chroms)), indel_spectrum_chroms)
 }else{
 	DNAStringSet()
 }

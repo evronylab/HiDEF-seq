@@ -171,11 +171,21 @@ must occur in its side's array; unknown paths fail. Mapping preserves token orde
 duplicate multiplicity, empty strings, NA, character-vector attributes and all
 other table data. It does not replace substrings or assembly labels. Add separate
 exact paths for other tables only after inspecting their actual provenance.
+The policy also supports the one reviewed derived-cache path column
+`/region_genome_filter_stats/region_filter_threshold_file`, with
+`"mode":"exact-path"` and paired `reference`/`candidate` arrays. These entries
+map complete field values, without comma splitting or substring replacement.
+Build the mapping from independently verified region-filter products and inspect
+the observed values first. Unknown paths, wrong products, changed NA positions,
+attributes, row order, and all other table values still fail. No other cache-path
+column is authorized by this mode.
+
 The policy changes validation in memory; source QS files remain untouched.
 Run its small regression fixture from the repository root:
 
 ```sh
 Rscript --vanilla tests/test_provenance_tokens.R
+Rscript --vanilla tests/test_provenance_paths.R .
 ```
 
 `--chromgroup-blocks` permits the known cross-chromgroup combined-table ordering

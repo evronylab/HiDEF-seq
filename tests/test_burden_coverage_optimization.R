@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 #Run inside the pipeline R environment on a compute node:
-#Rscript tests/test_burden_coverage_optimization.R [repository root]
+#Rscript tests/test_burden_coverage_optimization.R [repository root] [installed BSgenome package directory]
 suppressPackageStartupMessages({
   library(GenomicRanges)
   library(plyranges)
@@ -208,7 +208,9 @@ for(calls in list(indels, filter(indels, CHROM == "chrM"), indels[0,])) {
   env$requested_chroms <- NULL
   env$getSeq <- function(x, names) {
     env$requested_chroms <- names
-    x[names]
+    #Match the actual BSgenome method: a singleton character query simplifies
+    #to DNAString and loses its chromosome name. The old mock hid this case.
+    if(length(names) == 1L) x[[names]] else x[names]
   }
   env$finalCalls.reftnc_spectra <- tibble(
     call_class = c("SBS", "indel", "indel"),
@@ -217,6 +219,7 @@ for(calls in list(indels, filter(indels, CHROM == "chrM"), indels[0,])) {
                              tibble(seqnames = calls$CHROM)))
   eval(assignment(expressions, "indel_spectrum_chroms"), env)
   eval(assignment(expressions, "BSgenome_for_indel.spectrum"), env)
+  stopifnot(is(env$BSgenome_for_indel.spectrum, "DNAStringSet"))
   stopifnot(identical(as.character(names(env$BSgenome_for_indel.spectrum)), unique(calls$CHROM)))
   if(nrow(calls) == 0L) stopifnot(is.null(env$requested_chroms))
   for(spectrum_type in c("pyr", "template")) {
@@ -225,3 +228,34 @@ for(calls in list(indels, filter(indels, CHROM == "chrM"), indels[0,])) {
   }
 }
 cat("PASS: full/subset indel spectra, absent indels, nuclear/mitochondrial terminal contexts\n")
+
+#When an installed reference is supplied, verify the pinned BSgenome API itself
+#rather than only its faithful miniature mock. Only chrM and chrY are loaded.
+if(length(args) >= 2L) {
+  suppressPackageStartupMessages(library(BSgenome))
+  package_dir <- normalizePath(args[[2]], mustWork = TRUE)
+  package_name <- basename(package_dir)
+  suppressPackageStartupMessages(library(package_name, character.only = TRUE,
+                                         lib.loc = dirname(package_dir)))
+  genome <- get(package_name)
+  scalar <- getSeq(genome, names = "chrM")
+  stopifnot(is(scalar, "DNAString"), !is(scalar, "DNAStringSet"))
+  legacy_reference <- getSeq(genome, names = c("chrM", "chrY"))
+  stopifnot(is(legacy_reference, "DNAStringSet"),
+            identical(names(legacy_reference), c("chrM", "chrY")))
+  for(chroms in list("chrM", "chrY", c("chrY", "chrM"), character())) {
+    env <- new.env(parent = globalenv())
+    env$BSgenome_name <- package_name
+    env$indel_spectrum_chroms <- chroms
+    eval(assignment(expressions, "BSgenome_for_indel.spectrum"), env)
+    expected <- if(length(chroms)) legacy_reference[chroms] else DNAStringSet()
+    observed <- env$BSgenome_for_indel.spectrum
+    #XStringSet subsets can retain the unused backing sequence pool. Compare
+    #the exact ordered bases, names, widths and class, not pool allocation.
+    stopifnot(identical(class(observed), class(expected)),
+              identical(names(observed), names(expected)),
+              identical(width(observed), width(expected)),
+              identical(as.character(observed), as.character(expected)))
+  }
+  cat("PASS: actual BSgenome singleton simplification; named singleton/multiple/empty references exact\n")
+}

@@ -139,12 +139,36 @@ normalize_provenance_tokens <- function(x, rule, side) {
 normalize_provenance_column <- function(x, component, rules, side) {
   for(path in names(rules)) {
     pieces <- strsplit(sub("^/","",path),"/",fixed=TRUE)[[1]]
-    stopifnot(length(pieces)==2L, identical(pieces[[2]],"germline_vcf_files_detected"))
+    cache_path <- identical(path,"/region_genome_filter_stats/region_filter_threshold_file")
+    stopifnot(length(pieces)==2L,
+              identical(pieces[[2]],"germline_vcf_files_detected") || cache_path)
+    if(cache_path) stopifnot(identical(rules[[path]]$mode,"exact-path"))
+    else stopifnot(is.null(rules[[path]]$mode))
     if(identical(pieces[[1]],component)) {
       stopifnot(is.data.frame(x), sum(names(x)==pieces[[2]])==1L)
-      x[[pieces[[2]]]] <- normalize_provenance_tokens(x[[pieces[[2]]]],rules[[path]],side)
+      x[[pieces[[2]]]] <- if(cache_path)
+        normalize_cache_paths(x[[pieces[[2]]]],rules[[path]],side) else
+        normalize_provenance_tokens(x[[pieces[[2]]]],rules[[path]],side)
     }
   }
+  x
+}
+
+# Only the reviewed derived-region-file column uses whole-path relocation.
+# Preserve NA positions, vector attributes, row order and every other column.
+normalize_cache_paths <- function(x, rule, side) {
+  stopifnot(side %in% c("reference","candidate"),identical(rule$mode,"exact-path"))
+  old <- unlist(rule$reference,use.names=FALSE)
+  current <- unlist(rule$candidate,use.names=FALSE)
+  stopifnot(length(old)>0L,length(old)==length(current),
+            !anyNA(old),!anyNA(current),all(nzchar(old)),all(nzchar(current)),
+            !anyDuplicated(old),!anyDuplicated(current))
+  if(is.logical(x) && !is.object(x) && all(is.na(x))) return(x)
+  stopifnot(is.character(x), !is.object(x))
+  allowed <- if(side=="reference") old else current
+  selected <- !is.na(x) & nzchar(x)
+  stopifnot(all(x[selected] %in% allowed))
+  x[selected] <- old[match(x[selected],allowed)]
   x
 }
 

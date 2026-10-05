@@ -77,8 +77,102 @@ retained in a separate accounting-only supplemental trace. No stale R analysis
 was launched. Frozen source, logs, native-job accounting and completion proofs
 are in `runtime/checkpoint-evidence/final-drained-20261005T0951Z/`. Historical
 effective-YAML audit `19214158` confirmed all 57 original fields, four exact
-helper fields and 21 artifact paths against the 19 retained old bundles. The
-resumed run's new effective YAML still requires its own consumption binding.
+helper fields and 21 artifact paths against the 19 retained old bundles.
+Actual-run audit `19217206` then verified all 19 current product inventories and
+bound the resumed YAML (`8319091851aa5c61ed331999973893d8096c1ff0bbe149830ecc519ebc689f1c`)
+to all 57 unchanged source values and four exact helper fields/21 product paths.
+The actual task identities matched the reviewed inventory, and all 22 completed
+read-processing tasks were cache hits. Evidence is in
+`runs/resumed-effective-config-audit/`.
+
+All 22 prepared-cache comparison products are now scientifically validated.
+The 16 earlier comparisons are joined to the six remaining products by their
+verified immutable manifests and identical product checksums in
+`runs/combined-cache-validation-evidence.json`. The raw germline VCF comparison
+checked all **391,979,965,111 decompressed body bytes** exactly after its narrowly
+audited header provenance differences. The reference BED also matched every
+decompressed byte; the full germline BigWig and derived coverage QS matched.
+The initial reference-index comparison incorrectly inferred `tabix -p bed`;
+both actual pipeline versions use `-s1 -b2 -e3`. Corrected rebuilds in `19218720`
+matched each original index exactly against its own compressed file. Existing
+pipeline indexing semantics were preserved. The initial review remains recorded
+in `19217283`; its other five products passed. This establishes preparation
+equivalence, not final pipeline-publication equivalence.
+
+## Completed stages: both-sample extraction and filtering
+
+All 120 candidate extractions and 480 filters completed successfully before
+the singleton-reference correction. That correction changes only burden code,
+so the completed upstream work is reusable.
+
+| Stage | Original actual CPU-hours | Candidate actual CPU-hours | CPU decrease | Original maximum Slurm RSS (KiB) | Candidate maximum Slurm RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Extraction, 120 tasks | 29.314 | 17.394 | 40.66% | 15,020,132 | 13,359,224 |
+| Filtering, 480 tasks | 257.643 | 161.463 | 37.33% | 38,828,464 | 29,138,900 |
+
+These complete-stage totals have no missing or unresolved accounting. They span
+different nodes and are distinct from the controlled paired process-RSS trials.
+Allocated CPU-hours were 30.228 versus 18.568 for extraction and 263.865 versus
+164.018 for filtering. Frozen accounting is in
+`runtime/accounting-checkpoints/20261005T115110Z/` and
+`runtime/accounting-checkpoints/20261005T135308Z/`, with the original completed
+stage snapshot in `20261005T082229Z/`.
+
+The candidate controller finished with failure after the discovered burden bug;
+all healthy filtering tasks were allowed to finish and remain cached. Failed and
+deliberately stopped development burden attempts are retained separately, with
+signal-interrupted CPU marked as a lower bound. Full successful-workload CPU,
+nuclear burden peaks, and final publication equivalence remain pending.
+
+## Corrected and verified: singleton indel reference and four mitochondrial burdens
+
+The full candidate exposed a singleton-reference bug in strict mitochondrial
+burden job `19219429`: BSgenome `getSeq()` returns a `DNAString` when exactly one
+chromosome is requested, while indel context lookup requires a named
+`DNAStringSet`. The targeted-reference optimization now explicitly constructs
+that set and restores the requested chromosome names. This also covers nuclear
+groups whose indel calls occur on only one chromosome; multiple-chromosome and
+empty-reference behavior remain unchanged.
+
+Fixture job `19221726` passed the actual installed BSgenome API checks for chrM,
+chrY, reordered multiple chromosomes and empty input. It also passed the six
+barcode scenarios, coverage accumulator and invariant checks, and exact
+full/subset indel spectra with terminal mitochondrial and nuclear contexts. The
+earlier miniature mock incorrectly always returned a set; it now reproduces
+BSgenome's singleton simplification. Failed fixture records are retained:
+`19221187` lacked a frozen fixture dependency, and `19221461` compared internal
+sequence backing pools directly. The corrected actual-reference assertion
+compares exact ordered bases, names, widths and class. Neither failure ran a
+scientific replay.
+
+Job `19221727` replayed both complete strict mitochondrial burdens using all 60
+originally ordered candidate filter outputs, the unchanged effective YAML and
+the compiled annotation helper. Both workers completed successfully. Their QS
+objects and the two previously completed lenient mitochondrial objects were
+compared with the corresponding original pipeline outputs. Initial comparisons
+identified only the relocated `region_filter_threshold_file` provenance column;
+the driver therefore returned failure under its original policy. The input
+identity checks passed, and all initial reports remain preserved.
+
+Independent audit `19222187` checked all four observed columns: each has 13 rows,
+six unchanged missing values and seven relocated paths, with unchanged column
+attributes and order. Complete paths were checked against the 13 scientifically
+verified region-filter product pairs and the actual effective configuration.
+Mutations covering wrong products, foreign paths, missing values, order, types
+and attributes were rejected. Job `19222615` then passed all four comparisons
+through the actual shared comparator and its current provenance fixtures:
+**zero failures and zero numeric reviews** per object. Each comparison reports
+nine reviewed configuration/run-metadata exclusions; saved configurations are
+independently bound to their exact reviewed YAML. The cache-path rule checks
+complete values in that one named column, and the existing germline provenance
+rules remain unchanged.
+
+Evidence is in `runs/mito-singleton-fix-v3/`, `runs/mito-cache-path-audit/` and
+`runs/mito-reviewed-path-comparison/`; earlier failure snapshots remain in the
+preceding directories. This is real 60-chunk mitochondrial downstream proof.
+These groups skip the configured nuclear sensitivity calculation, so full
+nuclear burden/sensitivity, combined final publication, and whole-pipeline
+performance comparisons remain pending.
 
 ## Completed: full-reference summary preparation
 

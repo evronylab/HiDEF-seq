@@ -139,6 +139,28 @@ after verifying that the field is run-specific. Paths use slash-separated names
 with JSON-pointer escaping; positional list entries use `[[N]]`. Every whitelist
 hit is reported. No whole-configuration whitelist is supplied.
 
+`--token-policy=/absolute/path/rules.json` permits a value-checked source-path
+relocation only in explicitly named top-level table columns named
+`germline_vcf_files_detected`. For example:
+
+```json
+{"columns":{"/germlineVariantCalls/germline_vcf_files_detected":{
+  "reference":["/old/a.vcf.gz","/old/b.vcf.gz"],
+  "candidate":["/new/a.vcf.gz","/new/b.vcf.gz"]}}}
+```
+
+The paired arrays define complete comma-delimited tokens. Every nonempty token
+must occur in its side's array; unknown paths fail. Mapping preserves token order,
+duplicate multiplicity, empty strings, NA, character-vector attributes and all
+other table data. It does not replace substrings or assembly labels. Add separate
+exact paths for other tables only after inspecting their actual provenance.
+The policy changes validation in memory; source QS files remain untouched.
+Run its small regression fixture from the repository root:
+
+```sh
+Rscript --vanilla tests/test_provenance_tokens.R
+```
+
 `--chromgroup-blocks` permits the known cross-chromgroup combined-table ordering
 variation by stably grouping data-frame rows on `chromgroup`. It preserves order
 within each chromgroup, including filtergroup order, and does not sort scientific

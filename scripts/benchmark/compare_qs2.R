@@ -117,11 +117,42 @@ scientific_compare <- function(reference, candidate, path = "", ignore = "/run_m
     data.frame(path = character(), status = character(), reason = character(), max_relative = double()))
 }
 
+# Validate and normalize only complete, ordered tokens in explicitly named
+# provenance columns. Scientific values and column/vector attributes stay intact.
+normalize_provenance_tokens <- function(x, rule, side) {
+  stopifnot(is.character(x), !is.object(x), side %in% c("reference","candidate"))
+  old <- unlist(rule$reference,use.names=FALSE)
+  current <- unlist(rule$candidate,use.names=FALSE)
+  stopifnot(length(old)>0L, length(old)==length(current), !anyDuplicated(old), !anyDuplicated(current))
+  allowed <- if(side=="reference") old else current
+  values <- unique(x)
+  normalized <- vapply(values,function(value) {
+    if(is.na(value) || identical(value,"")) return(value)
+    tokens <- strsplit(value,",",fixed=TRUE)[[1]]
+    stopifnot(identical(paste(tokens,collapse=","),value), all(tokens %in% allowed))
+    paste(old[match(tokens,allowed)],collapse=",")
+  },character(1),USE.NAMES=FALSE)
+  x[] <- normalized[match(x,values)]
+  x
+}
+
+normalize_provenance_column <- function(x, component, rules, side) {
+  for(path in names(rules)) {
+    pieces <- strsplit(sub("^/","",path),"/",fixed=TRUE)[[1]]
+    stopifnot(length(pieces)==2L, identical(pieces[[2]],"germline_vcf_files_detected"))
+    if(identical(pieces[[1]],component)) {
+      stopifnot(is.data.frame(x), sum(names(x)==pieces[[2]])==1L)
+      x[[pieces[[2]]]] <- normalize_provenance_tokens(x[[pieces[[2]]]],rules[[path]],side)
+    }
+  }
+  x
+}
+
 comparison_main <- function(args) {
   if (length(args) < 3L) stop(paste(
     "Usage: compare_qs2.R stage REFERENCE.qs2 NEW_SCRATCH_DIR",
     "or: compare_qs2.R compare SCRATCH_DIR CANDIDATE.qs2 REPORT.tsv",
-    "[--chromgroup-blocks] [--ignore=/exact/path]", sep = "\n"))
+    "[--chromgroup-blocks] [--ignore=/exact/path] [--token-policy=rules.json]", sep = "\n"))
   suppressPackageStartupMessages(library(qs2))
   if (args[[1]] == "stage") {
     if (dir.exists(args[[3]])) stop("Scratch directory already exists")
@@ -142,7 +173,10 @@ comparison_main <- function(args) {
   if (!file.exists(file.path(args[[2]], "COMPLETE"))) stop("Reference staging incomplete")
   if (file.exists(args[[4]])) stop("Report already exists")
   flags <- if (length(args) > 4L) args[5:length(args)] else character()
-  if (any(!flags %in% "--chromgroup-blocks" & !startsWith(flags, "--ignore="))) stop("Unknown option")
+  if (any(!flags %in% "--chromgroup-blocks" & !startsWith(flags, "--ignore=") & !startsWith(flags, "--token-policy="))) stop("Unknown option")
+  token_flags <- flags[startsWith(flags,"--token-policy=")]
+  stopifnot(length(token_flags)<=1L)
+  token_rules <- if(length(token_flags)) jsonlite::fromJSON(sub("^--token-policy=","",token_flags),simplifyVector=FALSE)$columns else list()
   ignore <- c("/run_metadata", sub("^--ignore=", "", flags[startsWith(flags, "--ignore=")]))
   manifest <- readRDS(file.path(args[[2]], "manifest.rds"))
   candidate <- qs2::qs_read(args[[3]])
@@ -154,6 +188,8 @@ comparison_main <- function(args) {
   for (i in seq_along(candidate)) {
     reference_part <- qs2::qs_read(file.path(args[[2]], sprintf("%04d.qs2", i)))
     nm <- if (is.null(names(candidate))) paste0("[[", i, "]]") else names(candidate)[[i]]
+    reference_part <- normalize_provenance_column(reference_part,nm,token_rules,"reference")
+    candidate[[i]] <- normalize_provenance_column(candidate[[i]],nm,token_rules,"candidate")
     result <- scientific_compare(reference_part, candidate[[i]], path = paste0("/", nm),
                                  ignore = ignore, chromgroup_blocks = "--chromgroup-blocks" %in% flags)
     counts <- counts + result$counts

@@ -1,6 +1,6 @@
 # Optimization validation ledger
 
-This living ledger records the optimization measurements available on 2026-10-04.
+This living ledger records the optimization measurements available on 2026-10-05.
 Completed component results do **not** establish a whole-pipeline improvement.
 Full scientific equivalence, total pipeline CPU, and high-memory-stage RSS
 comparisons remain pending.
@@ -97,7 +97,7 @@ implementation that constructs an Rle slice at each query, before the interval
 lookup change below. Sources, per-arm metrics and both comparison reports are
 retained in workspace `runs/extract-paired/`.
 
-## Completed: real sa query lookup; interval extraction validation running
+## Completed: real sa query lookup and interval extraction validation
 
 Job `19195014` replayed **182,949 real read/category query groups**, containing
 **1,533,808 own-strand positions**, from the original LIB1 chunk-1 extraction.
@@ -122,10 +122,24 @@ extraction-source hash are in workspace `runs/sa-lookup/`.
 The validated lookup now finds run values from cumulative run endpoints while
 retaining direct Rle decoding and the original unusual-index dense fallback.
 Job `19195412` passed both fixture suites against the **actual production helper**
-and is running two alternating original-versus-interval full extraction pairs
-with 24 GiB and two CPUs. Its independent-process metrics and complete scientific
-QS comparisons in `runs/extract-paired-interval/` remain pending; the microbenchmark
-alone does not establish that the matched full-extraction CPU regression is resolved.
+and completed two alternating original-versus-interval full extraction pairs
+within one allocation on `cl017`. Both complete scientific QS comparisons passed
+exactly, with only `/run_metadata` ignored.
+
+| Pair | Baseline CPU (s) | Interval CPU (s) | Baseline peak RSS (KiB) | Interval peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 937.473 | 1,106.634 | 12,210,968 | 9,538,772 |
+| 2 | 1,278.315 | 1,265.165 | 12,214,704 | 9,535,276 |
+
+Mean actual CPU increased **7.04%**, from **1,107.894 to 1,185.899 s**; mean wall
+time increased **7.00%**, from **1,120.690 to 1,199.123 s**. Mean peak RSS decreased
+**21.91%**, from **12,212,836 to 9,537,024 KiB**. The first baseline preceded a
+colocated filter benchmark, and baseline CPU differed substantially between the
+two pairs; retain both results rather than treating either pair as a stable speed
+estimate. The interval lookup microbenchmark does not establish a complete
+extraction CPU improvement. Sources, metrics and exact comparison reports are in
+workspace `runs/extract-paired-interval/`. A separate profiled named-list lookup
+experiment is being evaluated before any further production extraction edit.
 
 ## Completed: germline VCF annotation block, three pairs
 
@@ -222,6 +236,16 @@ private/process RSS; retain both rather than interpreting file-cache accounting
 as the helper's live heap. The shared compression pool has two workers, but
 HTSlib also creates background stream threads (64 OS threads were observed).
 
+Follow-up job `19198407` strengthened the real chunk-1 check: all **173,355 ordered
+decompressed BAM record blocks** and the binary reference dictionary matched
+exactly. Both BAI/PBI payloads matched independent rebuilds against their own BAM.
+Its raw report requested review solely for program-header provenance: the legacy
+`zmwfilter` record is absent, and fields within one `samtools` program record are
+reordered. A separate value-checked audit accepts these allowed metadata changes;
+all remaining ordered program records have identical field values except command
+provenance. The unmodified report, exact headers and audit are retained in
+`runs/dispatch-bam-raw/`. This does not relax checks on non-program headers.
+
 Nextflow fixture job `19194083` passed 12-chunk, single-chunk and empty-sample
 cases, exact legacy comparisons for all 13 emitted BAMs, index and tuple checks,
 and publication checks. Published files were hard links to retained work files.
@@ -278,8 +302,31 @@ mitochondrial source snapshot already included the germline VCF annotation
 
 The single pair saved 6.46% actual CPU but increased peak RSS by 40.42%.
 Mitochondrial fusion is rejected; no production implementation is adopted.
-Nuclear results remain a separate pending experiment. Records and strict
-comparison reports are in workspace `runs/filter-chain-mito/`.
+Records and strict comparison reports are in workspace `runs/filter-chain-mito/`.
+The separate nuclear experiment is described below.
+
+## Rejected: nuclear shared-session filtering
+
+Job `19191877` completed one paired replay of the full nuclear lenient→strict
+chain on the original LIB1 extraction chunk. Both full QS outputs matched
+exactly, with **no metadata or floating-point exceptions** in these comparisons.
+The shared session read the extraction once and recorded one cache hit for the
+second group.
+
+| Complete two-group chain | Actual CPU (s) | Wall (s) | Peak RSS (KiB) |
+| --- | ---: | ---: | ---: |
+| Separate processes | 4,052.435 | 4,106.104 | 16,177,948 |
+| Shared session | 4,005.754 | 4,002.416 | 16,464,072 |
+
+Actual CPU decreased only **1.15%**, while peak RSS increased **1.77%**. This
+single pair does not justify the additional shared-session state and workflow
+complexity; nuclear fusion is rejected and production remains unfused.
+The frozen `filterCalls.R` hash
+`5dd7b3c00ddbb6f9261f3409b0cd5580cd0194e1bdf47b53d0f1f70a4618e162`
+**predates the germline annotation `semi_join` optimization**. These results
+therefore describe that frozen prototype, not an estimate of fusion on the
+current filtering source. Sources, complete measurements, cache-use counts and
+both exact comparisons are retained in workspace `runs/filter-chain-1-22X/`.
 
 ## Completed: all four complete chunk-filtering comparisons
 

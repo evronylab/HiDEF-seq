@@ -85,6 +85,30 @@ class WorkflowAccountingTests(unittest.TestCase):
             dict(records=[self.allocation(State="PREEMPTED")]),dict(records=[self.allocation()])])
         self.assertEqual(result["cpu_lower_bound_jobs"],["1"])
 
+    def test_allocation_below_combined_steps_stays_unresolved_without_imputation(self):
+        records = [self.allocation(), self.allocation("1.batch",actual_cpu_seconds=60),
+                   self.allocation("1.0",actual_cpu_seconds=60),
+                   self.allocation("1.extern",actual_cpu_seconds=0)]
+        # Repeated snapshots must not duplicate any step in the consistency sum.
+        result = MODULE.summarize({"1":self.task()},[dict(records=records),dict(records=records)])
+        self.assertEqual(result["unresolved_jobs"],["1"])
+        self.assertEqual(result["cpu_lower_bound_jobs"],["1"])
+        self.assertEqual(result["tasks"][0]["reported_step_cpu_seconds"],120)
+        self.assertEqual(result["observed_actual_cpu_hours"],100/3600)
+        result = MODULE.summarize({"1":self.task()},[dict(records=records),
+            dict(records=[self.allocation(actual_cpu_seconds=120)])])
+        self.assertEqual(result["unresolved_jobs"],[])
+        self.assertEqual(result["observed_actual_cpu_hours"],120/3600)
+
+    def test_long_cpu_display_truncation_is_allowed_but_real_gap_is_not(self):
+        allocation = self.allocation(actual_cpu_seconds=3600,TotalCPU="01:00:00")
+        for last_step, unresolved in ((.8,[]),(2.5,["1"])):
+            result = MODULE.summarize({"1":self.task()},[dict(records=[allocation,
+                self.allocation("1.batch",actual_cpu_seconds=3599.8),
+                self.allocation("1.0",actual_cpu_seconds=last_step)])])
+            self.assertEqual(result["unresolved_jobs"],unresolved)
+            self.assertEqual(result["observed_actual_cpu_hours"],1)
+
     def test_preparation_downstream_and_unsuccessful_attempts_separate(self):
         jobs = {"1":self.task(process="installBSgenome",stage="preparation"),
                 "2":self.task(status="FAILED",exit="1"),"3":self.task()}

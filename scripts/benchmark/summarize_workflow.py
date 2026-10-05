@@ -96,8 +96,14 @@ def summarize(jobs, accounting, include_cached=True):
         allocated = allocation.get("allocated_cpu_hours") if allocation else None
         interrupted = sorted(key for key in interrupted_records if key == job or key.startswith(job + "."))
         step_cpus = [r["actual_cpu_seconds"] for r in steps if r.get("actual_cpu_seconds") is not None]
-        # Small allowance for separately rounded sacct fields; no CPU is imputed.
-        lagging = cpu is not None and any(value > cpu + 0.01 for value in step_cpus)
+        # sacct aggregates CPU across completed steps. Compare the deduplicated
+        # step sum with the allocation, without adding it to reported workload
+        # CPU. Slurm prints TotalCPU >= 1h without subsecond precision; that
+        # truncation can make a consistent allocation slightly below its steps.
+        raw_cpu = allocation.get("TotalCPU", "") if allocation else ""
+        rounding = 1.0 if "-" in raw_cpu or raw_cpu.count(":") >= 2 else 0.01
+        reported_step_cpu = sum(step_cpus)
+        lagging = cpu is not None and reported_step_cpu > cpu + rounding
         active_steps = [r["JobIDRaw"] for r in steps if state_name(r) not in TERMINAL_STATES]
         reasons = []
         if not complete:
@@ -122,6 +128,8 @@ def summarize(jobs, accounting, include_cached=True):
                     trace_status=trace["status"], accounting_state=allocation.get("State") if allocation else None,
                     successful=success, terminal_accounting=complete, actual_cpu_seconds=cpu,
                     cpu_measurement_complete=cpu_complete, cpu_incomplete_reasons=reasons,
+                    reported_step_cpu_seconds=reported_step_cpu if step_cpus else None,
+                    allocation_cpu_rounding_allowance_seconds=rounding,
                     interrupted_accounting_records=interrupted, nonterminal_steps=active_steps,
                     allocated_cpu_hours=allocated, slurm_peak_rss_kib=max(rss) if rss else None,
                     trace_peak_rss=trace.get("peak_rss"), node=allocation.get("NodeList") if allocation else None)
@@ -199,6 +207,7 @@ def main():
                          "Preparation and common downstream costs are separate; scope labels alone do not establish comparability.",
                          "Actual totals include all supplied attempts; unsuccessful CPU includes failed retries and live/incomplete work.",
                          "Signal-interrupted steps may omit child CPU; reported totals remain observed lower bounds.",
+                         "Allocation CPU is checked against deduplicated step CPU sums with sacct display-rounding allowance; step CPU is never added again.",
                          "workflow-complete asserts termination only, not scientific or cache equivalence.",
                          "RSS is the maximum recorded task/step RSS, not simultaneous pipeline memory.",
                          "Allocated CPU-hours and actual CPU-hours are distinct; wall time is not summed here."])

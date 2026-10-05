@@ -89,8 +89,11 @@ scientific correctness, cache equivalence, or completeness of unrecorded work.
 Signal-interrupted jobs/steps remain CPU-incomplete even when numeric `TotalCPU`
 exists: [Slurm documents](https://slurm.schedmd.com/sacct.html) that interrupted
 steps may omit child-process CPU. Their observed cost is retained as a lower bound.
-An allocation reporting less CPU than one of its steps, or an allocation with
-still-live steps, also remains unresolved. Later accounting snapshots can resolve
+An allocation reporting less CPU than the sum of its deduplicated steps, or an
+allocation with still-live steps, also remains unresolved. The consistency check
+allows Slurm's loss of subsecond precision when displaying CPU durations of an
+hour or longer; it never adds step CPU to the allocation total. Later accounting
+snapshots can resolve
 ordinary lag; evidence of signal interruption is retained across snapshots.
 Peak RSS is reported per task and stage, not summed across tasks. Wall time
 requires the workflow/controller records.

@@ -152,7 +152,7 @@ comparison_main <- function(args) {
   if (length(args) < 3L) stop(paste(
     "Usage: compare_qs2.R stage REFERENCE.qs2 NEW_SCRATCH_DIR",
     "or: compare_qs2.R compare SCRATCH_DIR CANDIDATE.qs2 REPORT.tsv",
-    "[--chromgroup-blocks] [--ignore=/exact/path] [--token-policy=rules.json]", sep = "\n"))
+    "[--chromgroup-blocks] [--ignore=/exact/path] [--token-policy=rules.json] [--config-policy=policy.json]", sep = "\n"))
   suppressPackageStartupMessages(library(qs2))
   if (args[[1]] == "stage") {
     if (dir.exists(args[[3]])) stop("Scratch directory already exists")
@@ -173,7 +173,15 @@ comparison_main <- function(args) {
   if (!file.exists(file.path(args[[2]], "COMPLETE"))) stop("Reference staging incomplete")
   if (file.exists(args[[4]])) stop("Report already exists")
   flags <- if (length(args) > 4L) args[5:length(args)] else character()
-  if (any(!flags %in% "--chromgroup-blocks" & !startsWith(flags, "--ignore=") & !startsWith(flags, "--token-policy="))) stop("Unknown option")
+  if (any(!flags %in% "--chromgroup-blocks" & !startsWith(flags, "--ignore=") & !startsWith(flags, "--token-policy=") & !startsWith(flags,"--config-policy="))) stop("Unknown option")
+  config_flags <- flags[startsWith(flags,'--config-policy=')]
+  stopifnot(length(config_flags)<=1L)
+  config_policy <- NULL
+  if(length(config_flags)) {
+    config_policy <- jsonlite::fromJSON(sub('^--config-policy=','',config_flags),simplifyVector=FALSE)
+    script <- sub('^--file=','',grep('^--file=',commandArgs(),value=TRUE)[[1]])
+    source(file.path(dirname(normalizePath(script)),'compare_config_bindings.R'))
+  }
   token_flags <- flags[startsWith(flags,"--token-policy=")]
   stopifnot(length(token_flags)<=1L)
   token_rules <- if(length(token_flags)) jsonlite::fromJSON(sub("^--token-policy=","",token_flags),simplifyVector=FALSE)$columns else list()
@@ -183,11 +191,16 @@ comparison_main <- function(args) {
   candidate_manifest <- list(attributes = attributes(candidate), length = length(candidate),
                              type = typeof(candidate), class = class(candidate))
   if (!identical(manifest, candidate_manifest)) stop("Root list schema/attributes differ")
+  if(!is.null(config_policy)) stopifnot(sum(names(candidate)=='yaml.config')==1L)
   counts <- c(failure = 0L, review = 0L, ignored = 0L)
   reports <- list()
   for (i in seq_along(candidate)) {
     reference_part <- qs2::qs_read(file.path(args[[2]], sprintf("%04d.qs2", i)))
     nm <- if (is.null(names(candidate))) paste0("[[", i, "]]") else names(candidate)[[i]]
+    if(!is.null(config_policy) && identical(nm,'yaml.config')) {
+      validate_config_binding(reference_part,'reference',config_policy)
+      validate_config_binding(candidate[[i]],'candidate',config_policy)
+    }
     reference_part <- normalize_provenance_column(reference_part,nm,token_rules,"reference")
     candidate[[i]] <- normalize_provenance_column(candidate[[i]],nm,token_rules,"candidate")
     result <- scientific_compare(reference_part, candidate[[i]], path = paste0("/", nm),

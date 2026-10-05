@@ -142,6 +142,20 @@ after verifying that the field is run-specific. Paths use slash-separated names
 with JSON-pointer escaping; positional list entries use `[[N]]`. Every whitelist
 hit is reported. No whole-configuration whitelist is supplied.
 
+For final saved configurations, `--config-policy=/absolute/path/policy.json`
+binds the already loaded `yaml.config` component to reviewed effective YAML on
+each side before applying metadata exclusions; it does not load either QS again.
+The component must exist. `config_helper_bindings.ready` must be true, and its
+`reference` and `candidate` entries each specify `effective_config`, the file's
+`sha256`, and the exact `helper_keys` set. The shared
+`compare_config_bindings.R` helper checks every helper value (including nested
+thresholds and artifact paths) plus all scientific configuration fields.
+`config_added_metadata` names the permitted helper fields; listing a field does
+not exempt its value from the binding check. Missing helpers, changed targets,
+stale YAML hashes, or scientific drift fail even if a corresponding `--ignore`
+path is present. `tests/test_config_bindings.R BENCHMARK_DIRECTORY OUTPUT_DIRECTORY`
+exercises these checks and the actual disk-staged QS interface on tiny fixtures.
+
 `--token-policy=/absolute/path/rules.json` permits a value-checked source-path
 relocation only in explicitly named top-level table columns named
 `germline_vcf_files_detected`. For example:

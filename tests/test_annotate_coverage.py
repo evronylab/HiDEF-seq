@@ -142,6 +142,33 @@ def main():
         if result.returncode == 0 or "legacy-fallback-required" not in result.stderr:
             raise AssertionError("Legacy-ambiguous reference contig was not rejected")
     results["legacy_ambiguous_contigs"] = "rejected for fallback"
+    # A valid first row followed by a bad row must fail after output starts.
+    # The caller must detect the failure despite bgzip successfully closing a
+    # partial stream; it must never treat absent fresh counts as a valid row.
+    late_bad = directory / "late-invalid.bed"
+    late_bad.write_text("chr1\t1\t3\t2\nchr1\t2\t4\t1\n")
+    late_counts = directory / "late-invalid.counts.tsv"
+    helper_args = [args.helper, "--bed", str(late_bad), "--fasta", str(reference),
+                   "--fai", str(reference) + ".fai", "--row-id", "late", "--counts", str(late_counts),
+                   "--bed-output", "-"]
+    rejected = subprocess.run(helper_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    expected_partial = "chr1\t1\t2\t2\tACG\nchr1\t2\t3\t2\tCGT\n"
+    if rejected.returncode == 0 or rejected.stdout != expected_partial or late_counts.exists():
+        raise AssertionError("Late-invalid row did not fail with partial BED and absent fresh counts")
+    if "non-overlapping" not in rejected.stderr:
+        raise AssertionError("Late-invalid fixture failed for an unrelated reason")
+    partial_gzip = directory / "late-invalid.partial.bed.gz"
+    success_marker = directory / "late-invalid.unexpected-success"
+    pipeline = " ".join(quote(item) for item in helper_args) + " | " + quote(args.bgzip) + " -c > " + quote(partial_gzip)
+    pipeline += "\nprintf 'unexpected success' > " + quote(success_marker)
+    result = subprocess.run(["/bin/bash", "-c", "set -euo pipefail\n" + pipeline],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode == 0 or late_counts.exists() or success_marker.exists():
+        raise AssertionError("pipefail did not stop the caller after annotation failed")
+    with gzip.open(partial_gzip, "rt") as partial:
+        if partial.read() != expected_partial:
+            raise AssertionError("Late failure fixture did not exercise a valid partial bgzip output")
+    results["late_invalid_row"] = "helper and pipefail caller failed; partial BED present, fresh counts and success marker absent"
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
 

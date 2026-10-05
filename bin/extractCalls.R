@@ -157,7 +157,10 @@ subset_tag_positions <- function(tag, positions){
   if(!inherits(tag, "Rle")){return(tag[positions])}
   if(is.numeric(positions) && !anyNA(positions) &&
      all(is.finite(positions) & positions >= 1 & positions <= length(tag) & positions == trunc(positions))){
-    return(as.vector(tag[positions]))
+    #Lookup run values directly: constructing a sliced Rle for each read is
+    #costly. Double endpoints also avoid integer cumulative-length overflow.
+    ends <- cumsum(as.double(runLength(tag)))
+    return(as.vector(runValue(tag))[findInterval(positions - 1, ends) + 1L])
   }
   as.vector(tag)[positions]
 }

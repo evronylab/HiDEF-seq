@@ -108,10 +108,21 @@ QNAME disagreement, one/many writers, original headers/tags/order, indexing and
 truncated input. `tests/test_dispatch_workflow.py` extracts the actual process
 and channel code for a small multi/single/empty-sample Nextflow replay; it checks
 all resulting tuples and compares each chunk with legacy `zmwfilter --include`.
-Run it on compute with the pinned tools, then repeat Nextflow with `-resume` to
-check retained task outputs. Integration remains pending the real-data exact
-record comparison and workflow replay; helper timings alone do not establish
-complete pipeline performance or correctness.
+The pinned Nextflow 26.04.0 replay passed actual execution and publication for
+12-chunk and one-chunk samples, skipped the empty sample, and cached all six tasks
+on `-resume` (job 19194083). All 13 published BAMs retained hardlinks to their
+work outputs. Full workflow preview and the 57-field scientific configuration
+comparison also passed (job 19194084). Evidence is in
+`runs/dispatch-workflow-v3/{validation.json,first.trace.tsv,resume.trace.tsv}`.
+
+The full LIB1 replay produced all 60 chunks in 2,161.59 actual CPU seconds
+(1,092.32 wall seconds; 526,472 KiB maximum process RSS). Quickcheck and PBI/BAI
+indexing passed for all chunks and used another 1,499.20 actual CPU seconds.
+Chunk 1's complete ordered SAM record stream matched the legacy chunk SHA256
+`b09dc1de7a0fdc777326febf672a3dbfe1163190a119e1dc9f7e9d15948b8490`.
+These measurements and hashes are retained in `runs/dispatch-benchmark/`. This
+is an exact real-data record comparison for chunk 1, not a claim that every
+real-data chunk was compared or that a complete optimized pipeline was validated.
 
 ## Focused local validation
 
@@ -128,3 +139,22 @@ repository. Tests exercise identity changes, exact serialized identity handling,
 concurrent publication, failure cleanup, cache hits, corruption, and symlink
 rejection. Workflow/container smoke tests and scientific equivalence benchmarks
 are separate requirements before production use.
+
+
+`tests/test_prepared_cache_workflow.py` is a compute-only integration fixture for
+actual region and germline-coverage preparation processes. It extracts their
+production definitions, identity construction, `cachedBuild`, and completion
+barrier, then uses tiny real BigWig tracks. The protocol checks cold builds, warm
+`-resume` restores, a rebuild after renaming one entry inside its own test cache,
+and concurrent launches sharing a fresh cache with separate work directories.
+It counts real tool executions, verifies complete manifests and unchanged
+unrelated entries, and compares imported BigWig/GRanges scientific objects.
+Two individuals share one coverage input, with a duplicate threshold and a
+fractional threshold to exercise scoping and identity serialization.
+
+Fixture job 19194716 passed all phases: eight cold builds, zero warm-resume builds, one rebuild for the renamed entry, and eight total builds across two
+concurrent workflows with 16 preparation tasks. All scientific objects and
+manifest checks passed. Evidence is in
+`runs/prepared-cache-workflow-v1/results.json`, the per-phase traces, and
+`scientific.log` files. This exercises actual cache publication and restoration
+without replacing the separate full-reference workflow validation.

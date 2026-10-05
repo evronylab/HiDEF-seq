@@ -7,8 +7,10 @@ Missing-tag/QNAME disagreement probes verify the observed legacy behavior:
 missing zm is indexed as zero and an existing zm takes precedence over QNAME.
 """
 import argparse
+import gzip
 import json
 from pathlib import Path
+import struct
 import subprocess
 
 
@@ -17,9 +19,9 @@ def run(command, **kwargs):
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **kwargs)
 
 
-def fixture(samtools, directory, name, records):
+def fixture(samtools, directory, name, records, reference_length=1000):
     sam = directory / (name + ".sam")
-    header = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:1000",
+    header = ["@HD\tVN:1.6\tSO:coordinate", f"@SQ\tSN:chr1\tLN:{reference_length}",
               "@RG\tID:00000001\tPL:PACBIO\tPU:movieA\tDS:READTYPE=CCS",
               "@RG\tID:00000002\tPL:PACBIO\tPU:movieB\tDS:READTYPE=CCS",
               "@CO\tHeader comment survives dispatch"]
@@ -72,6 +74,32 @@ def compare(args, directory, bam, header, ids, label, chunks, max_writers=16):
     return {"chunks": chunks, "records_per_chunk": counts, "dispatcher_stdout": result.stdout}
 
 
+def has_long_cigar_transport(bam, operation_count):
+    """Confirm this fixture exercises BAM's CG:B:I transport representation."""
+    data = gzip.decompress(bam.read_bytes())
+    if data[:4] != b"BAM\x01":
+        raise AssertionError("Fixture is not BAM")
+    offset = 8 + struct.unpack_from("<i", data, 4)[0]
+    references = struct.unpack_from("<i", data, offset)[0]
+    offset += 4
+    for _ in range(references):
+        name_length = struct.unpack_from("<i", data, offset)[0]
+        offset += 4 + name_length + 4
+    while offset < len(data):
+        block_length = struct.unpack_from("<i", data, offset)[0]
+        record_bytes = data[offset + 4:offset + 4 + block_length]
+        name_length = struct.unpack_from("<I", record_bytes, 8)[0] & 255
+        cigar_count = struct.unpack_from("<I", record_bytes, 12)[0] & 65535
+        sequence_length = struct.unpack_from("<i", record_bytes, 16)[0]
+        aux_offset = 32 + name_length + cigar_count * 4 + (sequence_length + 1) // 2 + sequence_length
+        aux = record_bytes[aux_offset:]
+        tag = aux.find(b"CGBI")
+        if cigar_count == 2 and tag >= 0 and struct.unpack_from("<I", aux, tag + 4)[0] == operation_count:
+            return True
+        offset += 4 + block_length
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dispatcher", required=True)
@@ -102,6 +130,24 @@ def main():
                                             [11, 7, 11, 13, 22], "writer_groups_one", 3, max_writers=1)
     results["writer_groups_two"] = compare(args, directory, bam, header,
                                             [11, 7, 11, 13, 22], "writer_groups_two", 3, max_writers=2)
+    # More than 65,535 CIGAR operations are represented using CG:B:I in BAM.
+    # Compare interpreted records/tags and order, never compressed BAM bytes.
+    long_fields = record("movieA", 77, 10).split("\t")
+    long_fields[5] = "1M1I" * 32768
+    long_fields[9] = "AC" * 32768
+    long_fields[10] = "I" * 65536
+    long_bam, long_header = fixture(args.samtools, directory, "long_cigar", [
+        record("movieA", 1, 1), "\t".join(long_fields), record("movieB", 2, 50000)], reference_length=100000)
+    if not has_long_cigar_transport(long_bam, 65536):
+        raise AssertionError("Long-CIGAR fixture did not produce CG:B:I transport encoding")
+    run([args.pbindex, long_bam])
+    long_ids = [int(item) for item in run([args.zmwfilter, "--show-all", long_bam]).stdout.splitlines()]
+    results["long_cigar"] = compare(args, directory, long_bam, long_header, long_ids, "long_cigar_compare", 1)
+    original_records = run([args.samtools, "view", "--no-PG", long_bam]).stdout
+    dispatched_records = run([args.samtools, "view", "--no-PG", directory / "long_cigar_compare.chunk1.bam"]).stdout
+    if original_records != dispatched_records or long_fields[5] not in dispatched_records:
+        raise AssertionError("Long CIGAR, source tags, or ordered records changed")
+    results["long_cigar"]["transport_operations"] = 65536
     compatibility_failures = []
     # Deliberately probe records that distinguish tag and QNAME semantics.
     for label, item in [("missing_zm", record("movieA", 11, 1, zm=False)),

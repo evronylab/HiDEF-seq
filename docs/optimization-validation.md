@@ -70,11 +70,62 @@ QS contents matched exactly; only the explicit `/run_metadata` whitelist applied
 | Peak RSS (KiB) | 12,205,592 | 9,047,372 |
 
 This single real-chunk comparison used **27.65% less actual CPU** and **25.88%
-less peak RSS**. It is not a repeated benchmark or a whole-pipeline result.
+less peak RSS**, but the arms ran on different nodes. The apparent CPU gain is
+**not confirmed** by the completed same-allocation replay below; it must not be
+used as the accepted speed estimate. This is not a whole-pipeline result.
 Measurements are in workspace `runs/chunk-replay/extract.json` and
 `runs/extract-candidate/extract.json`; the exact scientific comparison report is
 `runs/extract-candidate/comparison.tsv`. Allocated CPU-hours above cover the timed
 command, not its containing job's setup or validation overhead.
+
+## Completed: matched extraction with compressed Rle slicing
+
+Job `19193173` froze both source trees and alternated two pairs of independent
+extraction processes within one allocation on `cl014`. Both complete scientific
+QS comparisons passed exactly, with only `/run_metadata` ignored.
+
+| Pair | Baseline CPU (s) | Candidate CPU (s) | Baseline peak RSS (KiB) | Candidate peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 658.724 | 733.030 | 12,214,684 | 9,047,936 |
+| 2 | 626.403 | 720.260 | 12,216,424 | 9,052,344 |
+
+Mean actual CPU increased **13.09%**, from **642.563 to 726.645 s**. Mean wall
+time increased **12.82%**, from **651.427 to 734.960 s**. Mean peak RSS decreased
+**25.91%**, from **12,215,554 to 9,050,140 KiB**. These matched-node results
+supersede the earlier unpaired CPU estimate. They measure the compressed-tag
+implementation that constructs an Rle slice at each query, before the interval
+lookup change below. Sources, per-arm metrics and both comparison reports are
+retained in workspace `runs/extract-paired/`.
+
+## Completed: real sa query lookup; interval extraction validation running
+
+Job `19195014` replayed **182,949 real read/category query groups**, containing
+**1,533,808 own-strand positions**, from the original LIB1 chunk-1 extraction.
+Reconstructed SBS/MDB, insertion and deletion queries first matched saved
+`calls$sa` values exactly; every timed result then matched those same values.
+
+| Repeat | Rle slicing CPU (s) | Interval lookup CPU (s) | Selected-tag dense lookup CPU (s) |
+| --- | ---: | ---: | ---: |
+| 1 | 44.532 | 2.677 | 2.133 |
+| 2 | 43.285 | 2.991 | 2.469 |
+| 3 | 43.047 | 2.764 | 5.544 |
+
+Median interval lookup CPU was **2.764 s versus 43.285 s**, a **93.61%** reduction
+for this lookup operation. The dense comparator expands only tags with selected
+queries; it is a lower-bound lookup comparator, not the full original extraction.
+This replay does not measure opposite-strand coordinate mapping or claim a
+whole-extraction gain. Full fixtures also preserved types, reversed runs, unusual
+indices and fallback errors, including cumulative run endpoints beyond `INT_MAX`.
+Results, source/function snapshots, SHA256 hashes and the prior `fad3028`
+extraction-source hash are in workspace `runs/sa-lookup/`.
+
+The validated lookup now finds run values from cumulative run endpoints while
+retaining direct Rle decoding and the original unusual-index dense fallback.
+Job `19195412` passed both fixture suites against the **actual production helper**
+and is running two alternating original-versus-interval full extraction pairs
+with 24 GiB and two CPUs. Its independent-process metrics and complete scientific
+QS comparisons in `runs/extract-paired-interval/` remain pending; the microbenchmark
+alone does not establish that the matched full-extraction CPU regression is resolved.
 
 ## Completed: germline VCF annotation block, three pairs
 
@@ -131,6 +182,57 @@ The selected design retains **one final QS2 per sample**, along with existing
 TSV, VCF, PDF, BED.gz, and Tabix products. No call batching or output sharding is
 introduced, and no scientific schema change is authorized by these measurements.
 
+## Completed: BAM dispatch and Nextflow integration
+
+Job `19191730` dispatched the full LIB1 analysis BAM into 60 chunks. All chunks
+passed BAM readability checks and received PacBio and samtools indices. Chunk 1
+matched legacy ordered SAM records and tags exactly; the remaining 59 chunks
+have not each been compared by independently rerunning the legacy splitter.
+
+| Phase | Actual CPU (s) | Wall (s) | Process/descendant peak RSS (KiB) |
+| --- | ---: | ---: | ---: |
+| All 60 dispatch outputs | 2,161.586 | 1,092.321 | 526,472 |
+| All 60 PBI/BAI index sets | 1,499.199 | 764.531 | 63,596 |
+
+Dispatch plus indexing consumed **1.017 actual CPU-hours**. The original measured
+one-chunk split consumed 1,666.483 CPU seconds before its separate indexing.
+That single-chunk measurement is not an independently measured 60-chunk total.
+Slurm's sampled memory accounting was substantially larger than the dispatcher's
+private/process RSS; retain both rather than interpreting file-cache accounting
+as the helper's live heap. The shared compression pool has two workers, but
+HTSlib also creates background stream threads (64 OS threads were observed).
+
+Nextflow fixture job `19194083` passed 12-chunk, single-chunk and empty-sample
+cases, exact legacy comparisons for all 13 emitted BAMs, index and tuple checks,
+and publication checks. Published files were hard links to retained work files.
+All six tasks were reused on `-resume`. Preview job `19194084` also verified all
+57 original configuration keys exactly. The integrated checkpoint is
+`fad3028563f70e37dcb958d7d27e87ca4e78e3a6`; full remote candidate job `19194442`
+uses `-r optimization -latest` and records its resolved revision separately.
+
+## Completed: chromosome 22 coverage annotation experiment
+
+Job `19192378` alternated two complete legacy/candidate operation pairs for all
+eight strict coverage rows on actual LIB1 chromosome 22. Both used the unchanged
+original R BED writer and `chunk_runs=1e7`. The candidate substitutes direct FASTA
+annotation for the large reference-BED intersection; production still uses the
+legacy annotation pending the full nuclear benchmark.
+
+| Pair | Baseline process CPU (s) | Candidate process CPU (s) | Baseline wall (s) | Candidate wall (s) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 782.175 | 134.502 | 688.412 | 112.771 |
+| 2 | 895.969 | 134.966 | 786.281 | 113.348 |
+
+Every decompressed BED byte and numeric context count matched in both pairs;
+Tabix contig lists and boundary queries also matched. Mean process CPU was
+83.94% lower. Process RSS was approximately 0.70 GiB in both arms, so this
+experiment establishes no annotation-memory reduction. Separate whole-final-QS
+preparation peaked at 32.03 GiB and is excluded from these operation timings.
+The process metrics include packet loading, writing, annotation, compression and
+indexing; operation-only phase metrics and sampled concurrent process-group RSS
+are also retained under workspace `runs/coverage-annotation-chr22/`. Full nuclear
+job `19194115` will assess scaling before production adoption.
+
 ## Rejected: coordinate-sort reuse
 
 The completed tiny fixture matched ordered SAM records for one input but failed
@@ -186,8 +288,9 @@ No complete-filter equivalence or performance result is claimed yet.
   output, resolving all discrepancies and binary-file review findings.
 - Complete paired measurements and exact-output checks for the remaining
   implementations. Combined filtering and BED annotation alternatives remain
-  experiments until separately accepted; BAM dispatch integration requires its
-  real-data and workflow checks. Coordinate-sort reuse was rejected above.
+  experiments until separately accepted. BAM dispatch passed its component and
+  workflow gates; complete pipeline validation remains pending. Coordinate-sort
+  reuse and mitochondrial shared-session filtering were rejected above.
 - Validate cache/resume behavior, effective YAML parsing and scientific keys,
   including missing prepared artifacts and concurrent launches.
 

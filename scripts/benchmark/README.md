@@ -53,6 +53,48 @@ Preserve records rather than filling missing values with zero. Sum task-level GN
 time CPU over the same executed workflow scope, including retries; do not compare
 a cached/resumed run against a complete run.
 
+`summarize_workflow.py` joins one or more Nextflow traces to saved accounting.
+It deduplicates original job IDs across resumed traces and uses allocation CPU
+totals without adding their `.batch` or other steps a second time. Failed attempts
+remain in total expenditure and are separated from successful-workload CPU.
+Missing accounting stays unresolved rather than becoming zero. For example:
+
+```sh
+job_ids=$(python3 scripts/benchmark/summarize_workflow.py --trace TRACE.tsv --job-ids-only)
+python3 scripts/benchmark/collect_sacct.py --jobs "$job_ids" --out ACCOUNTING_PREFIX
+python3 scripts/benchmark/summarize_workflow.py --trace TRACE.tsv \
+  --accounting ACCOUNTING_PREFIX.json --preparation-scope cold --report WORKFLOW_METRICS.json
+```
+
+Repeat `--trace` to include earlier attempts and `--accounting` to supply later
+accounting snapshots. By default, cached task records retain their original
+measured workload cost. `--exclude-cached` requires exactly one supplied trace so
+that it measures recorded new work in a single invocation; an executed record in
+any supplied trace otherwise counts once, even if a later invocation cached it.
+
+Classify preparation explicitly with `--preparation-scope cold|verified-cache|historical-unverified|mixed|unknown`
+(default `unknown`). Preparation reused by `storeDir` without trace records and
+historical cache construction have no measured cost here. The report separates
+preparation from common downstream CPU, and successful from unsuccessful attempts
+within each scope. Total observed CPU includes failed retries and incomplete work;
+success-only CPU is an additional diagnostic, not total expenditure. A baseline
+importing historical caches and a cold candidate do not establish a comparable
+end-to-end cost: report preparation separately, compare matched downstream work,
+and account for preparation independently. No scope label alone establishes
+comparability; reports explicitly leave that conclusion unasserted.
+
+Reports remain partial unless `--workflow-complete` is supplied after verifying
+termination and the recorded accounting is resolved. That flag does not establish
+scientific correctness, cache equivalence, or completeness of unrecorded work.
+Signal-interrupted jobs/steps remain CPU-incomplete even when numeric `TotalCPU`
+exists: [Slurm documents](https://slurm.schedmd.com/sacct.html) that interrupted
+steps may omit child-process CPU. Their observed cost is retained as a lower bound.
+An allocation reporting less CPU than one of its steps, or an allocation with
+still-live steps, also remains unresolved. Later accounting snapshots can resolve
+ordinary lag; evidence of signal interruption is retained across snapshots.
+Peak RSS is reported per task and stage, not summed across tasks. Wall time
+requires the workflow/controller records.
+
 ## Profile one existing final QS2
 
 ```sh
@@ -136,6 +178,59 @@ Small harness checks (R/Bioconductor checks use the pipeline environment):
 python3 -m unittest discover -s tests -p test_validation_harness.py -v
 Rscript --vanilla tests/test_scientific_compare.R
 ```
+
+### PDF content and binary indices
+
+`compare_pdf.py` provides a conservative format-specific check for changed PDFs.
+The pinned production container had no qpdf, Poppler, Ghostscript, Python PDF
+parser, or R qpdf/pdftools package. Validation therefore uses **pypdf 6.19.0** and
+**typing_extensions 4.15.0** in a separate workspace environment; these are not
+production dependencies. Hash-pinned wheels are listed in
+`requirements-pdf-validation.txt`. The current workspace installation and verified
+download manifest are under `runtime/pdf-validation/`. The parser's strict reader
+API is documented by [pypdf](https://pypdf.readthedocs.io/en/latest/modules/PdfReader.html).
+
+```sh
+PYTHONPATH=/projects/work/evrong01/HiDEF-seq/codex/runtime/pdf-validation/site-packages \
+  python3 scripts/benchmark/compare_pdf.py REFERENCE.pdf CANDIDATE.pdf --report pdf.json
+PYTHONPATH=/projects/work/evrong01/HiDEF-seq/codex/runtime/pdf-validation/site-packages \
+  python3 -m unittest discover -s tests -p test_pdf_comparison.py -v
+```
+
+The check compares the rooted parsed PDF object graph, preserving indirect-object
+sharing, arrays, dictionary values, page geometry and font attributes. It hashes
+every decoded reachable stream exactly, including drawing commands, text and
+embedded font programs. Object numbers, dictionary-key order and supported stream
+compression encoding may differ. The pinned reader retains exact original decimal
+values before conversion to binary floats, so small coordinate differences cannot
+silently disappear. It is not a raster approximation or a general PDF conformance
+validator, and does not compare obsolete/unreachable objects outside the rooted
+document graph.
+
+Only `/Info/CreationDate` and `/Info/ModDate` are ignored by default, and every
+ignored key is reported. Additional proven provenance-only Info fields require
+an explicit `--ignore-info-key EXACT_KEY`; a document identifier requires
+`--ignore-document-id`. These options never replace paths, dates or text inside
+page content, fonts or XMP streams. Non-whitelisted differences fail. Unsupported
+filters (anything beyond unfiltered/Flate streams), encryption, detected
+incremental revisions, active/interactive features and parser warnings require
+review; no broad byte-regex normalization is used. Exit codes are 0 pass, 1
+difference, 2 review. The general output inventory still reports differing PDFs
+for review; retain the separate PDF reports as evidence resolving those entries.
+Five adversarial fixtures cover metadata, compression, drawing/text/font changes,
+indirect sharing and decimal precision. Compute job `19194972` additionally parsed
+three historical PDFs with compressed object/XRef streams: date-only rewrites
+preserving the PDF header passed, and all three changed-drawing versions failed.
+Those validation artifacts are in workspace `runs/pdf-real-validation-v2/`.
+
+BAM comparison must stream ordered SAM records exactly, preserving tags and all
+non-provenance headers. If command provenance differs, exclude only the `CL`
+field of `@PG` records explicitly; do not discard entire `@PG` lines or other
+header fields. A matched record multiset does not establish matched order.
+Index byte differences remain review findings. Validate Tabix/BAI/PBI readability
+and representative boundary/empty-region queries against their associated data;
+the BED harness already exercises Tabix queries. Matching compressed scientific
+contents alone does not prove a changed index is valid.
 
 ## Effective YAML verification
 

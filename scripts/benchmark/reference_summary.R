@@ -8,9 +8,10 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(Biostrings)
   library(qs2)
+  library(tidyverse)
   library(args[[2]], character.only = TRUE, lib.loc = args[[1]])
 })
-source(file.path(args[[5]], "bin", "referenceSummaryFunctions.R"))
+source(file.path(args[[5]], "bin", "sharedFunctions.R"))
 genome <- get(args[[2]])
 if (args[[3]] == "baseline") {
   n_ranges <- GenomicRanges::reduce(vmatchPattern("N", genome), ignore.strand = TRUE)

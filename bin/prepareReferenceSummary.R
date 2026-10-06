@@ -12,7 +12,6 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 source(Sys.which("sharedFunctions.R"))
-source(Sys.which("referenceSummaryFunctions.R"))
 options(warn = 2)
 option_list <- list(
   make_option(c("-c", "--config"), type = "character"),

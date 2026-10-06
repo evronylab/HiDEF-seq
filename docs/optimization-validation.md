@@ -74,6 +74,28 @@ their original stat tuples; the supplement retains current metadata fingerprints
 and this continuity check. Twenty-one adversarial fixtures passed. No additional
 production run or changed pipeline processing was needed for this acceptance.
 
+## Subsequent reference-function consolidation
+
+After the complete benchmark, the three functions from
+`referenceSummaryFunctions.R` were moved unchanged into `sharedFunctions.R` at
+the user's request. The separate file and redundant source calls were removed;
+the preparation cache dependency list, focused benchmark and existing fixture
+were updated. Job `19289528` passed exact parsed-definition checks for all three
+moved functions and every pre-existing shared definition, verified that caller
+expressions differ only by the removed source calls, parsed all production R
+files, and passed the existing reference-summary and burden-consumer fixtures.
+The standalone benchmark now explicitly loads `tidyverse`, as production callers
+already did. The initial focused check `19289492` caught that missing benchmark
+import; its failure is retained alongside the corrected passing check.
+
+Before/after source snapshots and test evidence are retained under workspace
+`runs/reference-functions-consolidation/`. The complete scientific comparison and
+resource measurements below remain attributed to revision `3911047`; historical
+reports and checksums were not rewritten against the consolidated source. The
+shared-source hash change intentionally refreshes affected preparation and
+downstream cache identities. No new large-data performance claim is made for this
+source organization change.
+
 ## Complete workload resource measurements
 
 The two-sample `PacBio_8-27-26_SM-MPX-2` workload used 60 analysis chunks per

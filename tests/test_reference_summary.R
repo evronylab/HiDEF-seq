@@ -10,7 +10,6 @@ options(warn = 2)
 args <- commandArgs(trailingOnly = TRUE)
 repo <- if(length(args)) args[[1]] else "."
 source(file.path(repo, "bin", "sharedFunctions.R"))
-source(file.path(repo, "bin", "referenceSummaryFunctions.R"))
 
 sequences <- DNAStringSet(c(nfree = "ACGTACGT", allN = "NNNNNN",
                            linear = "NNACGNNTN", circular = "NACGTN"))

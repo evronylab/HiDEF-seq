@@ -378,7 +378,7 @@ workflow {
     [fasta: params.genome_fasta], ['installBSgenome.R', 'sharedFunctions.R'], [])
   referenceSummaryEntry = makeCacheEntry.call('reference-summary', 'prepareReferenceSummary',
     [reference: referenceEntry.key], [:],
-    ['prepareReferenceSummary.R', 'referenceSummaryFunctions.R', 'sharedFunctions.R'], ['referenceSummary.qs2'])
+    ['prepareReferenceSummary.R', 'sharedFunctions.R'], ['referenceSummary.qs2'])
   trinucleotideEntry = makeCacheEntry.call('trinucleotides', 'extractGenomeTrinucleotides',
     [seqkit: params.seqkit_bin, bgzip: params.bgzip_bin, tabix: params.tabix_bin],
     [fasta: params.genome_fasta], [], ["${file(params.genome_fasta).name}.bed.gz".toString(), "${file(params.genome_fasta).name}.bed.gz.tbi".toString()])

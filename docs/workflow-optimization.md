@@ -32,9 +32,12 @@ first controller or its workers are still active. An explicit
 launch directory. Use distinct report/trace filenames for repeated tests.
 
 The completed candidate ran production revision
-`391104794588819601f89bf6acfe588fc6c579bc`; subsequent documentation and validation
-tooling do not change that tested production code. To reproduce that code exactly,
-set `HIDEFSEQ_GITTAG` to the full revision instead of the branch name. Final
+`391104794588819601f89bf6acfe588fc6c579bc`. The branch subsequently consolidated
+the three reference-summary functions into `sharedFunctions.R` without changing
+their definitions; focused container checks passed in job `19289528`. That source
+organization change was not another full-workload benchmark. To reproduce the
+fully benchmarked source exactly, set `HIDEFSEQ_GITTAG` to the full revision
+instead of the branch name. Final
 validation passed under the approved BAM rule: logical records, multiplicities,
 coordinates and coordinate ordering remain exact; only relative ordering at
 identical coordinates may differ. See the validation ledger for the complete
@@ -92,6 +95,13 @@ YAML without `reference_summary_file` retains the original reference scans.
 `tests/test_reference_summary.R` checks empty/N-free/all-N references, chromosome
 order, repeated selections, types, and equivalence of the earlier chromosome
 restriction in call loading.
+
+These reference-summary functions live in the single common
+`bin/sharedFunctions.R` file. The separate helper file has been removed, and its
+production callers, benchmark and cache dependency list use the common file.
+The consolidation changes that file's hash, so affected prepared artifacts and
+downstream tasks receive new cache identities on the next run. Existing cache
+bundles are retained; they are not silently reused under changed source hashes.
 
 Large external files use an explicitly labeled identity comprising canonical
 path, size, modification time, and Unix change time and inode where supported.

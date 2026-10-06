@@ -1083,7 +1083,6 @@ coverage_rows <- coverage_rows %>%
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
 reference_summary <- if(!is.null(yaml.config$reference_summary_file)){
-	source(Sys.which("referenceSummaryFunctions.R"))
 	qs_read(yaml.config$reference_summary_file)
 }else{
 	NULL

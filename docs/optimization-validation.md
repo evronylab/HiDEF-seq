@@ -3,9 +3,45 @@
 This living ledger records the optimization measurements available on 2026-10-06.
 Both full workflows completed successfully. Their common downstream workload used
 **48.53% less actual CPU**, and the maximum burden-task Slurm RSS fell **55.64%**.
-The final scientific publication comparison is still running; resource results
-alone do not establish scientific equivalence. Both complete LIB1 nuclear burden
-groups have passed strict scientific comparison with no numerical discrepancies.
+The full publication comparison has finished: all **705 non-BAM scientific
+outputs passed**, but both processed BAMs failed strict ordered-record comparison.
+Final acceptance remains blocked by the BAM ordering question described below.
+Both final QS2 objects passed all 18 components with zero numerical discrepancies.
+
+## Publication comparison and unresolved BAM order
+
+Comparison job `19254880` accounted for all 711 required scientific paths. It
+passed 441 text/VCF/BED outputs, 168 PDFs, 92 Tabix index pairs, two final QS2
+objects and two published configurations. All 184 own-file Tabix rebuild checks
+passed. Effective configuration bindings, actual producer provenance and all 13
+frozen comparison-source hashes passed. The separate 22-product prepared-cache
+proof also passed.
+
+The two processed BAMs have matching record counts, headers and reference
+dictionaries, but their raw records differ in order. The original comparison
+therefore correctly failed both BAMs and skipped their own BAI/PBI rebuilds;
+its four delegated BAM-index inventory rows are not accepted passes. That failed
+report remains preserved in `runs/full-publication-comparison-3911047/`.
+
+LIB1 diagnostic `19279510` subsequently checked all 10,382,760 raw records over
+5,779,641 coordinate groups. Raw record bytes and duplicate multiplicities match
+at every coordinate; 977 coordinate groups differ only in record order. Both
+BAMs' own BAI and PBI rebuilds then passed, and the input files remained
+unchanged. Evidence is in `runs/bam-coordinate-diagnosis-lib1/`. The first observed
+changes are forward/reverse CCS swaps, but the full diagnostic establishes only
+the broader coordinate-group property; it does not assert that every permutation
+has that narrower form.
+
+The LIB2 ordered comparison found 10,878,071 records per side and a first
+difference at record 7,017. Its complete record/index diagnosis is running as
+job `19285205`. Actual alignment and merge/sort commands are unchanged between
+the original and optimized pipeline; no optimization command directly generates
+different processed-BAM contents.
+
+Allowing order permutations within identical BAM coordinates would revise the
+earlier ordered-record requirement. That decision is pending; no acceptance rule
+has changed. The diagnostics alone do not turn either original failure into a
+pass. Scientific table and QS2 order requirements remain unchanged.
 
 ## Complete workload resource measurements
 
@@ -287,8 +323,8 @@ so the audit now also binds each output task's sample argument and output prefix
 to its publication directory; inode or copied-byte checks remain unchanged.
 The correction passed 38 focused fixtures and the complete candidate audit.
 This proves inventory and producer identity, not scientific contents. The full
-scientific publication/index comparison is running after both workflows completed
-successfully.
+scientific publication/index comparison has finished with the BAM order failures
+described above; all other required scientific artifacts passed.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 

@@ -4,7 +4,8 @@ The optimization branch changes repeated work and intermediate allocations while
 retaining the scientific output schemas and one final QS2 per sample. TSV, VCF,
 PDF and indexed coverage BED outputs are retained. The
 [validation ledger](optimization-validation.md) distinguishes completed component
-benchmarks from the full-workflow comparisons that are still in progress.
+benchmarks, complete-workload measurements and the unresolved BAM ordering
+decision in final validation.
 
 ## Torch launch and resource settings
 
@@ -33,8 +34,8 @@ launch directory. Use distinct report/trace filenames for repeated tests.
 The completed candidate ran production revision
 `391104794588819601f89bf6acfe588fc6c579bc`; later documentation-only commits do not
 change that tested code. To reproduce that code exactly, set `HIDEFSEQ_GITTAG` to
-the full revision instead of the branch name. Scientific publication validation
-is still in progress; see the validation ledger for its current status.
+the full revision instead of the branch name. Final acceptance is pending the BAM
+ordering decision and remaining diagnostic checks; see the validation ledger.
 
 The two-sample, 60-chunk-per-sample Torch comparison used the existing
 `hidef-seq_3.0.sif` and matched these allocations between baseline and candidate:

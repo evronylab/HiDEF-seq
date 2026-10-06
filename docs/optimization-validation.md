@@ -3,12 +3,15 @@
 This living ledger records the optimization measurements available on 2026-10-06.
 Both full workflows completed successfully. Their common downstream workload used
 **48.53% less actual CPU**, and the maximum burden-task Slurm RSS fell **55.64%**.
-The full publication comparison has finished: all **705 non-BAM scientific
-outputs passed**, but both processed BAMs failed strict ordered-record comparison.
-Final acceptance remains blocked by the BAM ordering question described below.
-Both final QS2 objects passed all 18 components with zero numerical discrepancies.
+All **711 required scientific publication paths are accepted** under the agreed
+comparison rules: 705 passed the original comparison, and two BAMs plus their
+four index paths passed separately bound coordinate-order diagnostics. Both final
+QS2 objects passed all 18 components with zero numerical discrepancies. All 22
+prepared-cache comparison products passed. The
+[machine-readable summary](benchmarks/torch-2026-10-06.json) records measurements,
+source revisions, comparison scope and evidence checksums.
 
-## Publication comparison and unresolved BAM order
+## Publication comparison and approved BAM coordinate ordering
 
 Comparison job `19254880` accounted for all 711 required scientific paths. It
 passed 441 text/VCF/BED outputs, 168 PDFs, 92 Tabix index pairs, two final QS2
@@ -20,8 +23,9 @@ proof also passed.
 The two processed BAMs have matching record counts, headers and reference
 dictionaries, but their raw records differ in order. The original comparison
 therefore correctly failed both BAMs and skipped their own BAI/PBI rebuilds;
-its four delegated BAM-index inventory rows are not accepted passes. That failed
-report remains preserved in `runs/full-publication-comparison-3911047/`.
+its four delegated BAM-index inventory rows did not establish index acceptance.
+That failed report remains preserved in
+`runs/full-publication-comparison-3911047/`; it has not been rewritten as a pass.
 
 LIB1 diagnostic `19279510` subsequently checked all 10,382,760 raw records over
 5,779,641 coordinate groups. Raw record bytes and duplicate multiplicities match
@@ -44,10 +48,31 @@ Actual alignment and merge/sort commands are unchanged between the original and
 optimized pipeline. Both complete BAM diagnostics found matching raw record
 contents, multiplicities and coordinates; all eight own-file index checks passed.
 
-Allowing order permutations within identical BAM coordinates would revise the
-earlier ordered-record requirement. That decision is pending; no acceptance rule
-has changed. The diagnostics alone do not turn either original failure into a
-pass. Scientific table and QS2 order requirements remain unchanged.
+On 2026-10-06 the user explicitly approved this rule:
+
+> BAMs must contain exactly the same logical records with the same multiplicities
+> and coordinates, and coordinate ordering must be preserved. Records whose
+> genomic sort coordinates are identical may occur in a different relative order.
+
+The diagnostics establish the stronger condition that every full raw BAM record
+matches, including all tags and floating-point bits. They preserve duplicate
+multiplicities, enforce monotone coordinate order, and compare each exact
+`(reference, position)` group, including unmapped records. No record field is
+normalized. Scientific table and QS2 order requirements remain unchanged.
+
+The supplemental acceptance report in
+`runs/bam-coordinate-acceptance-3911047/acceptance.json` binds exactly these two
+failed BAM paths and four owner-linked index paths to their completed diagnostics.
+Its plan pins the original reports, policy, manifests and sources, the approval,
+and both diagnostic reports/sources. The gate requires zero content/coordinate
+differences, matching counts/headers/dictionaries, all eight successful own-file
+index checks, correct input paths, unchanged inputs and preserved producer
+provenance. Current input timestamps predate diagnostic startup; candidate inode,
+size and timestamps also match the frozen publication audit. Node-local device
+numbers are excluded. The diagnostics recorded input-stability assertions, not
+their original stat tuples; the supplement retains current metadata fingerprints
+and this continuity check. Twenty-one adversarial fixtures passed. No additional
+production run or changed pipeline processing was needed for this acceptance.
 
 ## Complete workload resource measurements
 
@@ -131,7 +156,11 @@ no per-step 5% threshold. Maintainability matters alongside measured gains.
 
 Scientific data, schemas, records, formats, filenames, and within-group order must
 be preserved. Existing nondeterminism in combined cross-chromgroup row order may
-be normalized explicitly. Run metadata and compressed encoding may differ.
+be normalized explicitly. BAM coordinate ordering is preserved; records at
+identical coordinates may differ in relative order under the approved rule above.
+Run metadata and compressed encoding may differ. Generic text comparison permits
+line-ending normalization; scientific values and published numeric precision
+remain exact.
 Internal floating-point differences at relative error up to `1e-12` require
 investigation rather than automatic acceptance; published numeric precision must
 match exactly. Configuration comparison checks every original scientific key
@@ -221,11 +250,11 @@ Allocated CPU-hours were 30.228 versus 18.568 for extraction and 263.865 versus
 `runtime/accounting-checkpoints/20261005T135308Z/`, with the original completed
 stage snapshot in `20261005T082229Z/`.
 
-The candidate controller finished with failure after the discovered burden bug;
+An earlier candidate controller finished with failure after the discovered burden bug;
 all healthy filtering tasks were allowed to finish and remain cached. Failed and
 deliberately stopped development burden attempts are retained separately, with
 signal-interrupted CPU marked as a lower bound. Complete successful-workload CPU
-and memory are summarized above; final publication equivalence remains pending.
+and memory, along with final publication acceptance, are summarized above.
 
 ## Completed: first full 60-chunk nuclear burden comparison
 
@@ -331,7 +360,8 @@ The correction passed 38 focused fixtures and the complete candidate audit.
 This proves inventory and producer identity, not scientific contents. The full
 scientific publication/index comparison has finished with the BAM order failures
 described above; all 705 non-BAM scientific artifacts passed. The four BAM-index
-companion rows remain unaccepted under the original comparison.
+companion rows remain delegated in the original comparison; their acceptance
+comes from the separate own-file rebuild evidence and approved supplement above.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 
@@ -382,8 +412,8 @@ preceding directories. This is real 60-chunk mitochondrial downstream proof.
 These groups skip the configured nuclear sensitivity calculation. The separate
 complete LIB1 lenient and strict nuclear checks above cover that calculation.
 Both final QS2 objects and all other non-BAM scientific publications subsequently
-passed; complete-workload resource measurements and the unresolved BAM ordering
-decision are reported at the top of this ledger.
+passed; complete-workload resource measurements and the approved BAM ordering
+rule are reported at the top of this ledger.
 
 ## Completed: full-reference summary preparation
 
@@ -672,7 +702,8 @@ CPU**. The compiler is included in the candidate total. Allocated CPU-hours were
 stage totals from the full runs, not paired node-controlled trials or complete
 pipeline totals. The updated frozen traces and accounting are in
 `runtime/accounting-checkpoints/20261005T082229Z/`; neither dispatch scope has
-unresolved accounting. Full downstream scientific validation remains pending.
+unresolved accounting. Full downstream scientific acceptance is now recorded at
+the top of this ledger.
 
 Follow-up job `19198407` strengthened the real chunk-1 check: all **173,355 ordered
 decompressed BAM record blocks** and the binary reference dictionary matched
@@ -794,7 +825,8 @@ The integrated worker used 737.208 CPU seconds, 694.923 wall seconds and
 21,304,252 KiB peak process RSS; Slurm batch `MaxRSS` was separately 21,789,872 KiB.
 It ran on `cs602`, whereas the reused baseline ran on `cl011`, so this is an
 integration correctness result, **not a matched performance estimate**. The
-complete pipeline/QS checks remain required before overall conclusions.
+subsequent complete pipeline/QS checks and workload measurements are recorded at
+the top of this ledger.
 
 Combined workflow check `19216785` passed after integration with the inode-only
 cache fix. Full-workflow preview emitted the same 19 prepared identities; a cold
@@ -919,16 +951,16 @@ measure total pipeline CPU or preparation-inclusive speedup. Whole-job Slurm
 batch `MaxRSS` was 33,548,272 KiB and is separate from the worker/descendant RSS
 above; neither is a measurement of the complete pipeline's peak memory.
 
-## Remaining acceptance work
+## Completed acceptance evidence
 
 Both full workflows, workload accounting, final QS2 comparisons, prepared-cache
 comparisons, cache/resume checks and effective-YAML audits are complete. The
-complete BAM record/index diagnostics are also finished. The remaining work is
-an explicit decision on whether to allow record permutations within identical
-BAM coordinates, including the unmapped group. Preserve the failed original
-ordered-record comparison regardless of that decision; any approved exception
-requires separately bound acceptance evidence. The current state is described
-at the top of this ledger.
+complete BAM record/index diagnostics are also finished. The approved
+coordinate-tie rule and separately bound supplemental report resolve the two BAM
+failures and four delegated index paths, while preserving the original failed
+comparison. All 711 required scientific paths and 22 prepared-cache products
+are accepted. The compact summary at the top of this ledger retains the original
+failure counts separately from the final acceptance result.
 
 The baseline source revision is
 `6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a`; completed candidate production is

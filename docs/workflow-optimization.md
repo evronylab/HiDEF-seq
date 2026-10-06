@@ -3,9 +3,9 @@
 The optimization branch changes repeated work and intermediate allocations while
 retaining the scientific output schemas and one final QS2 per sample. TSV, VCF,
 PDF and indexed coverage BED outputs are retained. The
-[validation ledger](optimization-validation.md) distinguishes completed component
-benchmarks, complete-workload measurements and the unresolved BAM ordering
-decision in final validation.
+[validation ledger](optimization-validation.md) records completed component
+benchmarks, complete-workload measurements and acceptance of all 711 required
+scientific outputs under the agreed comparison rules.
 
 ## Torch launch and resource settings
 
@@ -32,11 +32,13 @@ first controller or its workers are still active. An explicit
 launch directory. Use distinct report/trace filenames for repeated tests.
 
 The completed candidate ran production revision
-`391104794588819601f89bf6acfe588fc6c579bc`; later documentation-only commits do not
-change that tested code. To reproduce that code exactly, set `HIDEFSEQ_GITTAG` to
-the full revision instead of the branch name. Final acceptance is pending the BAM
-ordering decision; both complete record/index diagnostics have finished. See the
-validation ledger for the exact comparison scope and remaining acceptance work.
+`391104794588819601f89bf6acfe588fc6c579bc`; subsequent documentation and validation
+tooling do not change that tested production code. To reproduce that code exactly,
+set `HIDEFSEQ_GITTAG` to the full revision instead of the branch name. Final
+validation passed under the approved BAM rule: logical records, multiplicities,
+coordinates and coordinate ordering remain exact; only relative ordering at
+identical coordinates may differ. See the validation ledger for the complete
+comparison scope and preserved original strict-order report.
 
 The two-sample, 60-chunk-per-sample Torch comparison used the existing
 `hidef-seq_3.0.sif` and matched these allocations between baseline and candidate:

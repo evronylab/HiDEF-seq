@@ -1,0 +1,211 @@
+{
+  "schema_version": 2,
+  "created_utc": "2026-10-06T14:11:01.728594+00:00",
+  "workload": {
+    "analysis_id": "PacBio_8-27-26_SM-MPX-2",
+    "samples": 2,
+    "chunks_per_sample": 60,
+    "chromgroups": [
+      "1-22X",
+      "mito"
+    ],
+    "filtergroups": [
+      "lenient",
+      "strict"
+    ],
+    "nextflow_version": "26.04.0",
+    "container": "/projects/rps/evrong01/evronylab/bin/HiDEF-seq/hidef-seq_3.0.sif"
+  },
+  "revisions": {
+    "reference": "6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a",
+    "candidate": "391104794588819601f89bf6acfe588fc6c579bc"
+  },
+  "matched_resources": {
+    "extraction": {
+      "memory_yaml": "32GB",
+      "time_yaml": "1h",
+      "cpus": 1
+    },
+    "filtering": {
+      "memory_yaml": "48GB",
+      "time_yaml": "2h",
+      "cpus": 1
+    },
+    "burdens": {
+      "memory_yaml": "288GB",
+      "time_yaml": "30h",
+      "cpus": 2
+    },
+    "output": {
+      "memory_yaml": "96GB",
+      "time_yaml": "4h",
+      "cpus": 1
+    }
+  },
+  "scientific_validation": {
+    "status": "pass",
+    "required_publications": 711,
+    "required_by_kind": {
+      "qs2": 2,
+      "config": 2,
+      "text": 441,
+      "tabix": 92,
+      "pdf": 168,
+      "bam": 2,
+      "bam_index": 4
+    },
+    "original_report_status": "failure",
+    "original_result_counts": {
+      "pass": 709,
+      "ignored": 774,
+      "failure": 2,
+      "covered": 4
+    },
+    "original_non_bam_publications_passed": 705,
+    "supplemental_bams_accepted": 2,
+    "supplemental_bam_index_paths_accepted": 4,
+    "own_file_bam_index_checks_passed": 8,
+    "prepared_cache_products": 22,
+    "allowed_differences": [
+      "Explicit run/provenance metadata and encoding",
+      "Explicitly normalized pre-existing cross-chromgroup block ordering",
+      "BAMs must contain exactly the same logical records with the same multiplicities and coordinates, and coordinate ordering must be preserved. Records whose genomic sort coordinates are identical may occur in a different relative order."
+    ],
+    "numeric_tolerance_auto_acceptance": false
+  },
+  "common_downstream": {
+    "baseline_cpu_hours": 447.193176111111,
+    "candidate_cpu_hours": 230.18784833333348,
+    "actual_cpu_decrease_percent": 48.526082098323364
+  },
+  "conservative_cold_charge": {
+    "candidate_cpu_hours": 239.1994144444446,
+    "baseline_downstream_only_cpu_hours": 447.193176111111,
+    "actual_cpu_decrease_percent": 46.51094264796822
+  },
+  "stages": {
+    "bam_dispatch": {
+      "baseline": {
+        "tasks": 122,
+        "actual_cpu_hours": 66.38352611111111,
+        "allocated_cpu_hours": 71.29416666666664,
+        "maximum_slurm_rss_gib": 7.995628356933594
+      },
+      "candidate": {
+        "tasks": 5,
+        "actual_cpu_hours": 1.9330691666666666,
+        "allocated_cpu_hours": 1.9930555555555554,
+        "maximum_slurm_rss_gib": 7.995292663574219
+      },
+      "actual_cpu_decrease_percent": 97.08802879281956,
+      "maximum_slurm_rss_decrease_percent": 0.0041984612639489605
+    },
+    "burdens": {
+      "baseline": {
+        "tasks": 8,
+        "actual_cpu_hours": 68.94098111111111,
+        "allocated_cpu_hours": 125.36166666666665,
+        "maximum_slurm_rss_gib": 287.9920349121094
+      },
+      "candidate": {
+        "tasks": 9,
+        "actual_cpu_hours": 25.4837575,
+        "allocated_cpu_hours": 48.681666666666665,
+        "maximum_slurm_rss_gib": 127.74785995483398
+      },
+      "actual_cpu_decrease_percent": 63.03540058571516,
+      "maximum_slurm_rss_decrease_percent": 55.64187738948384
+    },
+    "extraction": {
+      "baseline": {
+        "tasks": 120,
+        "actual_cpu_hours": 29.31388333333332,
+        "allocated_cpu_hours": 30.22805555555555,
+        "maximum_slurm_rss_gib": 14.32431411743164
+      },
+      "candidate": {
+        "tasks": 120,
+        "actual_cpu_hours": 17.393860277777776,
+        "allocated_cpu_hours": 18.56750000000001,
+        "maximum_slurm_rss_gib": 12.740348815917969
+      },
+      "actual_cpu_decrease_percent": 40.66340484476542,
+      "maximum_slurm_rss_decrease_percent": 11.0578788521965
+    },
+    "filtering": {
+      "baseline": {
+        "tasks": 480,
+        "actual_cpu_hours": 257.6430119444443,
+        "allocated_cpu_hours": 263.86499999999995,
+        "maximum_slurm_rss_gib": 37.02970886230469
+      },
+      "candidate": {
+        "tasks": 480,
+        "actual_cpu_hours": 161.4629755555557,
+        "allocated_cpu_hours": 164.01749999999987,
+        "maximum_slurm_rss_gib": 27.789020538330078
+      },
+      "actual_cpu_decrease_percent": 37.330737466160336,
+      "maximum_slurm_rss_decrease_percent": 24.95479604858951
+    },
+    "output": {
+      "baseline": {
+        "tasks": 2,
+        "actual_cpu_hours": 1.624726111111111,
+        "allocated_cpu_hours": 1.6511111111111112,
+        "maximum_slurm_rss_gib": 88.21767807006836
+      },
+      "candidate": {
+        "tasks": 2,
+        "actual_cpu_hours": 1.0242711111111111,
+        "allocated_cpu_hours": 1.0463888888888888,
+        "maximum_slurm_rss_gib": 76.25707626342773
+      },
+      "actual_cpu_decrease_percent": 36.957305966441524,
+      "maximum_slurm_rss_decrease_percent": 13.558055560180037
+    },
+    "read_processing": {
+      "baseline": {
+        "tasks": 17,
+        "actual_cpu_hours": 23.2870475,
+        "allocated_cpu_hours": 26.63972222222222,
+        "maximum_slurm_rss_gib": 31.99627685546875
+      },
+      "candidate": {
+        "tasks": 17,
+        "actual_cpu_hours": 22.889914722222223,
+        "allocated_cpu_hours": 26.78277777777778,
+        "maximum_slurm_rss_gib": 31.996444702148438
+      },
+      "actual_cpu_decrease_percent": 1.7053805458926319,
+      "maximum_slurm_rss_decrease_percent": -0.0005245819082233538
+    }
+  },
+  "limitations": [
+    "Cached task costs included once by original native ID.",
+    "Cold comparison charges candidate first construction plus final restore; original cold construction is unmeasured. This is a conservative bound, not a matched-cold trial.",
+    "Controller, failed/canceled development, earlier restore, cache migration and validation costs are separate.",
+    "Maximum Slurm task RSS is not simultaneous pipeline memory or R heap.",
+    "Tasks ran on different nodes; this is one complete workload comparison.",
+    "Real second-round Lima was not benchmarked; six barcode-orientation fixtures passed.",
+    "The memory requests were not reduced during this comparison.",
+    "Full reports and data remain in the Torch workspace; this compact artifact contains summary measurements and evidence checksums."
+  ],
+  "evidence_root": "/projects/work/evrong01/HiDEF-seq/codex",
+  "evidence_sha256": {
+    "runtime/accounting-checkpoints/baseline-complete-6b6598b/comparison.json": "b451f0be7428467f4ead43790a6cd2728daee1d0954319b1f6122af75fad183c",
+    "runs/full-publication-comparison-3911047/summary.json": "9f93e3d7c026105cfa7e7a6e70b2634f91575fba89339731c5aae162a11d8d06",
+    "runs/full-publication-comparison-3911047/results.json": "b85d18938cfd5a8378d4a45d48d16928b2cd8ddca17c1206b2de60a8a416d55f",
+    "runs/full-publication-comparison-3911047/publication-source-audit.json": "009b1a728195d24ee0abbd4b4242a0df883d239d80e1f4d10ee60c1b9d8cfec2",
+    "runs/full-publication-comparison-3911047-inputs/manifest.json": "df2d7cb05e9a40dafb1f70505957e6ca9ef7fa3829875b8cc8c87ac25a36b30a",
+    "runs/full-publication-comparison-3911047-inputs/completed-runs.json": "b44039a437db3e705d6f7e10ddbbeaf008a30a70f327aa81180aecd76a1475b6",
+    "runs/full-publication-comparison-3911047-inputs/submission-plan.json": "eecf45837f73debfaf026c2c9207a38d1aa64dff39dfa5fcae3ed22d78cef616",
+    "runs/full-publication-comparison-3911047-inputs/policy.json": "bd21c8714b9ccab7f6adc40722c59da94623790c7fe45ee35c6b258d1e50444a",
+    "runs/bam-coordinate-acceptance-3911047/acceptance.json": "abbf4208bb8944bcad454db985fd52c43ea0ab408a255f431efa6a6a717d3c01",
+    "/projects/work/evrong01/HiDEF-seq/codex/runs/bam-coordinate-acceptance-3911047/plan.json": "b097e297df88cb1646ede5d887cbd3d0d855eb79807c4d33ada5e6d45b6badc0",
+    "/projects/work/evrong01/HiDEF-seq/codex/repo/scripts/benchmark/accept_bam_coordinate_diagnoses.py": "440eaf836c966862c2dbbd63a2aa5ceb5ed28fce3f76a544cd35504e98b73385",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/write-final-validation-summary.py": "09ca9bf3fac3c7fcd238a3e850f429e080528efbdbda5f110a7e5e63bb5cb76d",
+    "runs/combined-cache-validation-evidence.json": "00b4c27891ec5b6d2e1a4d47bfcf5acbe720975cb0f5eaea914b90bc8f8b8cb4",
+    "runtime/accounting-development-final/summary.json": "29e63e555939b08ac1161b5fdddaea3de95fcda145c96733b72a83909a77823b"
+  }
+}

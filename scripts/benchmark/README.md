@@ -311,6 +311,37 @@ truncated BAM failed, and a stale PBI required review. A one-ULP float-tag mutat
 rendered identically in SAM but was correctly rejected by raw-record comparison.
 Artifacts and frozen source hashes are in workspace `runs/bam-comparison-fixtures-v2/`.
 
+The original ordered comparator remains unchanged for reproducibility. The
+completed Torch comparison also has an explicitly approved coordinate-tie rule:
+all logical records, multiplicities, coordinates and coordinate ordering must
+match, but records at identical coordinates may have a different relative order.
+Full raw-record diagnostics checked that rule for both processed BAMs and rebuilt
+all eight own-file BAI/PBI indexes. The original failed ordered report is retained.
+
+`accept_bam_coordinate_diagnoses.py` validates the pinned supplemental evidence
+for that completed two-sample workload. It accepts only its two exact BAM paths
+and four owner-linked index paths; all 705 other required scientific paths must
+already pass. This is an evidence gate, not a replacement BAM scanner. It requires
+the explicit approval, pinned original reports and diagnostic code, exact input
+bindings, zero record/coordinate differences, complete successful index checks,
+input timestamps predating diagnosis, and candidate identity continuity with the
+frozen producer audit. It does not relax any record field or numeric comparison.
+
+```sh
+python3 scripts/benchmark/accept_bam_coordinate_diagnoses.py PINNED_PLAN.json \
+  --output NEW_ACCEPTANCE_REPORT.json
+python3 -m unittest discover -s tests -p test_bam_coordinate_acceptance.py -v
+```
+
+The retained plan/report live under workspace
+`runs/bam-coordinate-acceptance-3911047/`; the full diagnostic code and reports are
+under `runs/bam-coordinate-diagnosis-lib1/` and `runs/bam-coordinate-diagnosis-lib2/`.
+Twenty-one synthetic acceptance and rejection tests cover altered records,
+missing/failed indexes, wrong files/owners, incomplete evidence, changed inputs,
+and extra scientific failures. See the
+[validation ledger](../../docs/optimization-validation.md) for final acceptance
+and the unchanged original failure counts.
+
 The BED harness already exercises Tabix boundary/empty-region queries. Matching
 compressed scientific contents alone does not prove a changed index is valid;
 retain these format-specific reports alongside the published-file inventory.

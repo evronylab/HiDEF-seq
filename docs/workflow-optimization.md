@@ -329,3 +329,35 @@ manifest checks passed. Evidence is in
 `runs/prepared-cache-workflow-v1/results.json`, the per-phase traces, and
 `scientific.log` files. This exercises actual cache publication and restoration
 without replacing the separate full-reference workflow validation.
+
+## Pending work — awaiting user instruction
+
+Recorded on 2026-10-06. These items are proposals only. Do not implement or
+benchmark them until the user instructs us to proceed.
+
+1. **Port `artifactCache.py` to R.** Put reusable functions in
+   `sharedFunctions.R` where appropriate. Preserve cache identity, locking,
+   verification, atomic publication, failure handling and restore behavior.
+   Measure actual CPU time, elapsed time and peak memory against the Python
+   implementation, including cold preparation and warm restoration.
+2. **Move `annotateCoverage.cpp` functionality into R.** Integrate it into the
+   relevant R scripts or `sharedFunctions.R`, as appropriate. Preserve coverage
+   records, context counts, ordering and indexed output behavior. Measure CPU
+   time, elapsed time and peak memory against the current C++ implementation,
+   including the complete annotation/compression/index operation.
+3. **Evaluate `data.table` / `dtplyr` in expensive R operations.** Explore
+   material reductions in CPU-hours and peak memory from fewer copies and more
+   efficient joins, grouping and aggregation. Preserve scientific values,
+   output types and required ordering; avoid broad rewrites without measured
+   benefit.
+4. **Evaluate targeted Rcpp functions for heavy steps.** Consider only candidates
+   with the potential for dramatic CPU-hour and memory reductions. Do not add
+   compiled helpers for incremental gains. Compare complete affected operations,
+   including conversion and allocation overhead, with the current implementation.
+
+For all four items, retain the agreed scientific comparison rules and record
+performance regressions as well as improvements. Judge aggregate performance by
+actual user-plus-system CPU-hours across the pipeline, with significantly lower
+peak memory in the currently expensive steps. An individual step may become
+more than 5% slower; there is no per-step 5% acceptance limit. Preserve the single
+final QS2 and the existing TSV, VCF, PDF and indexed BED outputs.

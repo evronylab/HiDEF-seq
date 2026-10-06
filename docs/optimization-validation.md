@@ -1,10 +1,12 @@
 # Optimization validation ledger
 
-This living ledger records the optimization measurements available on 2026-10-05.
+This living ledger records the optimization measurements available on 2026-10-06.
 Completed component results do **not** establish a whole-pipeline improvement.
 Full scientific equivalence, total pipeline CPU, and the remaining high-memory
-stage comparisons remain pending. The first complete nuclear burden group has
-passed strict scientific comparison and shows substantial CPU/RSS reductions.
+stage comparisons remain pending. Both complete LIB1 nuclear burden groups have
+passed strict scientific comparison and show substantial CPU/RSS reductions.
+The full candidate run has completed; the original run and final publication
+comparison are still in progress.
 
 ## Measurement and acceptance
 
@@ -155,8 +157,66 @@ Input file identities remained unchanged throughout comparison. Frozen source,
 commands and reports are in `runs/full-nuclear-burden-lib1-lenient/`.
 
 This establishes the complete lenient nuclear burden object for one sample.
-Coverage BED/index publications, strict groups, combined final QS/TSV/VCF/PDF
-outputs and whole-pipeline totals still require their pending comparisons.
+Coverage BED/index publications, combined final QS/TSV/VCF/PDF outputs and
+whole-pipeline totals still require their pending comparisons.
+
+## Completed: full LIB1 strict nuclear burden comparison
+
+Baseline job `19210451` and candidate `19223765` both completed the full 60-chunk
+strict nuclear calculation successfully. Comparison job `19261320` then matched
+the complete burden QS objects with **zero failures and zero numeric reviews**,
+strict row order, the same nine reviewed metadata exclusions and saved-YAML/path
+bindings used in the lenient test. Source files remained unchanged. Evidence is
+in `runs/full-nuclear-burden-lib1-strict/`.
+
+| Metric | Baseline | Candidate | Decrease |
+| --- | ---: | ---: | ---: |
+| Actual user + system CPU-hours | 20.9361 | 9.3028 | 55.57% |
+| Slurm-reported maximum RSS (KiB) | 301,981,536 | 125,981,960 | 58.28% |
+| Slurm-reported maximum RSS (GiB) | 287.992 | 120.146 | 58.28% |
+| Nextflow sampled peak RSS (KiB) | 241,732,676 | 51,527,288 | 78.68% |
+| Allocation elapsed time | 18:46:11 | 8:47:42 | 53.14% |
+
+Both tasks requested two CPUs and 288 GiB, on `cl017` and `cl015` respectively.
+The baseline's Slurm memory measurement reached its allocation limit; it finished
+without an OOM error. Slurm accounting and Nextflow's sampled process metrics
+measure different aspects of memory and must not be interpreted as R heap size
+or used interchangeably. This is one completed pair on different nodes.
+Allocation/step evidence is in
+`runtime/accounting-checkpoints/lib1-strict-nuclear-20261005/`.
+
+## Full candidate completed; final comparison pending
+
+Candidate controller `19223438` completed production revision `3911047` with
+29 newly completed and 623 cached tasks, zero failed tasks and zero retries.
+All 652 original or current native task IDs have resolved successful accounting:
+**230.2022 actual CPU-hours**, including **51.780 CPU seconds** for the final 19
+cache verification/restoration tasks. Cached tasks retain their original CPU
+cost; this is not the cost of only the final resumed invocation. Allocated CPU
+time was 261.1728 hours. The final controller itself used another 65.831 CPU
+seconds. Evidence is in
+`runtime/accounting-checkpoints/candidate-complete-3911047/`.
+
+The candidate's first successful construction of all 19 prepared bundles cost
+**8.9972 additional CPU-hours**. The separately reviewed preparation plan includes
+the derived-coverage worker that finished after its original controller stopped:
+`runtime/accounting-preparation-review/cold-preparation-plan.json`. Thus cold
+construction plus the final successful worker workload is 239.1994 CPU-hours.
+This still excludes failed/canceled development, earlier restoration, migration,
+other controller invocations and validation expenditure. The original cold cache
+construction was not measured; final reporting must compare matched downstream
+work separately. Charging the candidate's cold construction while charging no
+original cold preparation can establish a conservative worker-CPU bound, not a
+matched cold-versus-cold speedup.
+
+The candidate has exactly the 711 expected scientific publication paths. A
+provenance audit binds every candidate publication to its actual completed or
+cached producer. Generic genome-spectrum filenames are shared across samples,
+so the audit now also binds each output task's sample argument and output prefix
+to its publication directory; inode or copied-byte checks remain unchanged.
+The correction passed 38 focused fixtures and the complete candidate audit.
+This proves inventory and producer identity, not scientific contents. The full
+scientific publication/index comparison remains queued behind the original run.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 

@@ -324,7 +324,8 @@ to its publication directory; inode or copied-byte checks remain unchanged.
 The correction passed 38 focused fixtures and the complete candidate audit.
 This proves inventory and producer identity, not scientific contents. The full
 scientific publication/index comparison has finished with the BAM order failures
-described above; all other required scientific artifacts passed.
+described above; all 705 non-BAM scientific artifacts passed. The four BAM-index
+companion rows remain unaccepted under the original comparison.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 
@@ -373,9 +374,10 @@ Evidence is in `runs/mito-singleton-fix-v3/`, `runs/mito-cache-path-audit/` and
 `runs/mito-reviewed-path-comparison/`; earlier failure snapshots remain in the
 preceding directories. This is real 60-chunk mitochondrial downstream proof.
 These groups skip the configured nuclear sensitivity calculation. The separate
-complete LIB1 lenient nuclear check above covers that calculation; the other
-nuclear groups, combined final publication and whole-pipeline performance
-comparisons remain pending.
+complete LIB1 lenient and strict nuclear checks above cover that calculation.
+Both final QS2 objects and all other non-BAM scientific publications subsequently
+passed; complete-workload resource measurements and the unresolved BAM ordering
+decision are reported at the top of this ledger.
 
 ## Completed: full-reference summary preparation
 
@@ -537,8 +539,8 @@ Each pair matched all **1,023,018 annotated calls** and the entire
 unchanged for downstream per-file filters and whole-genome statistics. Mean
 actual CPU was **264.986 s baseline** and **14.246 s candidate**, a **94.62%**
 reduction for this block only. The complete filter comparisons below measure its
-combined effect with the other filtering changes; whole-pipeline gains remain
-pending.
+combined effect with the other filtering changes; the completed workload totals
+at the top of this ledger measure the overall CPU reduction.
 
 Observed phase peak RSS was 11,746,588 / 11,394,356 / 10,184,904 KiB for baseline
 and 8,903,732 / 8,945,940 / 8,967,980 KiB for candidate. The Linux high-water reset
@@ -911,25 +913,21 @@ measure total pipeline CPU or preparation-inclusive speedup. Whole-job Slurm
 batch `MaxRSS` was 33,548,272 KiB and is separate from the worker/descendant RSS
 above; neither is a measurement of the complete pipeline's peak memory.
 
-## Pending before overall conclusions
+## Remaining acceptance work
 
-- Complete comparable baseline and candidate runs for both samples; compare
-  total actual CPU, wall time, allocated CPU-hours, and high-memory-stage RSS.
-- Compare complete nested scientific QS objects and every published scientific
-  output, resolving all discrepancies and binary-file review findings.
-- Complete paired measurements and exact-output checks for the remaining
-  implementations. Full nuclear BED annotation passed its full-operation and
-  integration checks. BAM dispatch passed its component and workflow gates;
-  complete pipeline validation remains pending. Coordinate-sort reuse and both
-  mitochondrial and nuclear shared-session filtering were rejected above.
-- Validate cache/resume behavior, effective YAML parsing and scientific keys,
-  including missing prepared artifacts and concurrent launches.
+Both full workflows, workload accounting, final QS2 comparisons, prepared-cache
+comparisons, cache/resume checks and effective-YAML audits are complete. The
+remaining work is the full LIB2 BAM record/index diagnosis and an explicit
+decision on whether to allow record permutations within identical BAM
+coordinates. Preserve the failed original ordered-record comparison regardless
+of that decision; any approved exception requires separately bound evidence.
+The current state is described at the top of this ledger.
 
 The baseline source revision is
-`6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a`. Candidate revisions must be recorded with
-each subsequent measurement. This initial ledger transcribes the completed
-reference and QS2 measurements from the workspace `WORK_LOG.md`; isolated runs
-and accounting artifacts are retained under the workspace `runs/` directory.
+`6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a`; completed candidate production is
+`391104794588819601f89bf6acfe588fc6c579bc`. Individual component measurements retain
+their own recorded source revisions. Isolated runs and accounting artifacts are
+retained under the workspace `runs/` and `runtime/` directories.
 
 ## Diagnostic: unchanged germline VCF export with resident final payload
 
@@ -950,8 +948,9 @@ whole-job accounting measure from the R process maximum. It must not be
 substituted into the paired per-worker RSS comparisons or compared directly
 with historical full-stage peaks from another metric source. The residual
 historical peak difference is not assigned wholly to formatter retention.
-Comparable complete-stage process and Slurm memory measurements remain required
-before lowering production memory requests.
+The completed workload's stage-level Slurm measurements are reported at the top
+of this ledger. Production memory requests were retained for that comparison;
+this diagnostic alone does not establish suitable lower requests.
 
 The diagnostic normalization/export region took **248.469 actual CPU seconds**
 and **252.735 wall seconds**; the complete worker, including loading, took
@@ -984,7 +983,8 @@ input loading was outside that phase. Mean whole-worker wall time decreased
 **9.04%**, from **414.415 to 376.969 s**. Mean process peak RSS decreased
 **16.89%**, from **61,973,450 to 51,509,182 KiB**. These are focused export-worker
 measurements, not measured whole-output-stage or whole-pipeline improvements.
-Production memory requests remain unchanged pending comparable full-stage data.
+The subsequent complete-stage measurements are reported at the top of this
+ledger. Production memory requests remained unchanged for that comparison.
 
 Both pairs matched every decompressed scientific VCF line against the published
 original and each other, ignoring only `fileDate`. All **2,992,350 records**,

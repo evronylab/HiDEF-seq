@@ -244,6 +244,9 @@ types with asymmetric final-round barcodes, where the downstream summaries consu
 them. The observed orientation incorporates both demultiplexing rounds; asymmetric
 round-2 outputs remain supported. Aggregate duplex coverage and the existing
 plus/minus and even-depth consistency checks remain in place.
+Six barcode scenarios, including both rounds, passed regression fixtures. The
+measured real-data workload had no second-round Lima; a real second-round run
+was not benchmarked.
 
 Sensitivity retains coverage only at selected high-confidence germline variant
 positions instead of accumulating extra genome-wide coverage tracks. The original

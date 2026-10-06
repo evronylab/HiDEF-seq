@@ -209,6 +209,19 @@ work separately. Charging the candidate's cold construction while charging no
 original cold preparation can establish a conservative worker-CPU bound, not a
 matched cold-versus-cold speedup.
 
+Separate accounting reconciles all 703 distinct worker submissions across the
+three candidate invocations, including the orphan preparation task. Their
+observed cost is **239.8723 CPU-hours**, of which **0.6729 hours** is additional
+work beyond the final successful workload plus first cold preparation. That
+additional work comprises earlier restores, two completed burden jobs absent
+from the final trace, two failed burden attempts and nine deliberately canceled
+attempts. All three controllers add 172.523 CPU seconds; the two successful
+cache-identity migration allocations add 211.053 seconds. Canceled workers and
+one controller have incomplete child accounting, so totals containing them are
+lower bounds. Validation, benchmarks and other development activity are excluded;
+these figures are not a complete development-cost total. Evidence and disjoint
+job categories are in `runtime/accounting-development-final/`.
+
 The candidate has exactly the 711 expected scientific publication paths. A
 provenance audit binds every candidate publication to its actual completed or
 cached producer. Generic genome-spectrum filenames are shared across samples,

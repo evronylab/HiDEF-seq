@@ -147,22 +147,29 @@ The pipeline is run using Nextflow, which pulls from this GitHub repository all 
 
 Launch the pipeline as follows:
 
-```
-HIDEFSEQ_GITREPO=evronylab/hidef-seq
-HIDEFSEQ_GITTAG=3.0
+```bash
+HIDEFSEQ_GITREPO=evronylab/HiDEF-seq
+HIDEFSEQ_GITTAG=optimization
 NEXTFLOW_CONFIG=/path/to/nextflow.config
 YAML=/path/to/analysis.yaml
 WORK_DIR=/path/to/nextflow_work
 
-nextflow -config $NEXTFLOW_CONFIG \
-  run $HIDEFSEQ_GITREPO \
-  -r $HIDEFSEQ_GITTAG \
+nextflow -config "$NEXTFLOW_CONFIG" \
+  run "$HIDEFSEQ_GITREPO" \
+  -r "$HIDEFSEQ_GITTAG" \
   -latest \
-  -params-file $YAML \
-  -resume \ #optional if resuming prior runs
-  -work-dir "$WORK_DIR"
-  -with-report #optional to produce report of resource usage
+  -params-file "$YAML" \
+  -resume \
+  -work-dir "$WORK_DIR" \
+  -with-report
 ```
+
+`-r optimization -latest` fetches the current optimization branch for each test.
+Omit `-resume` for a new execution; keep the same launch directory and work
+directory when resuming. If several runs share a launch directory, use
+`-resume <session-UUID>` to select the intended run. `-with-report` is optional.
+See [Torch launch and measured resource settings](docs/workflow-optimization.md#torch-launch-and-resource-settings)
+for the SLURM command, tested source revision, and workload-specific allocations.
 
 Refer to the <a href="https://www.nextflow.io/docs/latest/cli.html#run" target="_blank" rel="noopener noreferrer">Nextflow CLI documentation</a> for additional Nextflow runtime options.
 

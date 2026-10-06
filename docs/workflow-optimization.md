@@ -6,6 +6,56 @@ PDF and indexed coverage BED outputs are retained. The
 [validation ledger](optimization-validation.md) distinguishes completed component
 benchmarks from the full-workflow comparisons that are still in progress.
 
+## Torch launch and resource settings
+
+For each test, launch from its own run directory with its own work directory.
+Keep both directories and the run's `.nextflow` state for resume. This example
+uses the current branch each time; set the two run paths before submitting:
+
+```bash
+RUN_DIR=/path/to/test-run
+RUN_PARAMETERS=/path/to/test-run/parameters.yaml
+NEXTFLOW_TORCH_CONFIG=/projects/rps/evrong01/evronylab/bin/HiDEF-seq/nextflow.torch.config
+HIDEFSEQ_GITTAG=optimization
+
+cd "$RUN_DIR"
+sbatch --time=48:00:00 --mem=4G --cpus-per-task=1 \
+  --account=torch_pr_285_general \
+  --wrap "module purge && module load nextflow/26.04.0 && nextflow -config \"$NEXTFLOW_TORCH_CONFIG\" run evronylab/HiDEF-seq -r \"$HIDEFSEQ_GITTAG\" -latest -params-file \"$RUN_PARAMETERS\" -resume -work-dir \"$RUN_DIR/work\" -with-report -with-trace"
+```
+
+The outer allocation runs the Nextflow controller; each process receives its own
+SLURM allocation. Do not start a second controller for the same run while the
+first controller or its workers are still active. An explicit
+`-resume <session-UUID>` selects the intended session when several runs share a
+launch directory. Use distinct report/trace filenames for repeated tests.
+
+The completed candidate ran production revision
+`391104794588819601f89bf6acfe588fc6c579bc`; later documentation-only commits do not
+change that tested code. To reproduce that code exactly, set `HIDEFSEQ_GITTAG` to
+the full revision instead of the branch name. Scientific publication validation
+is still in progress; see the validation ledger for its current status.
+
+The two-sample, 60-chunk-per-sample Torch comparison used the existing
+`hidef-seq_3.0.sif` and matched these allocations between baseline and candidate:
+
+| YAML process suffix | Memory | Time | CPUs |
+| --- | ---: | ---: | ---: |
+| `extractCallsChunk` | `32GB` | `1h` | 1 |
+| `filterCallsChunkChromgroupFiltergroup` | `48GB` | `2h` | 1 |
+| `calculateBurdensChromgroupFiltergroup` | `288GB` | `30h` | 2 |
+| `outputResultsSample` | `96GB` | `4h` | 1 |
+
+Set the corresponding `mem_<suffix>` and `time_<suffix>` keys in the run YAML;
+CPU counts above come from the workflow process definitions. The template's
+64 GB burden/output requests are not validated for this workload. Candidate
+strict nuclear burden tasks reached about 120–128 GiB maximum Slurm RSS, and
+final output tasks reached about 69–76 GiB. Requests were kept unchanged for the
+comparison. Size future requests from representative full tasks with headroom;
+these peaks are workload-dependent and do not establish a universal lower limit.
+Slurm task RSS, Nextflow's sampled process RSS, and simultaneous pipeline memory
+are different measurements.
+
 ## Prepared caches and publication
 
 Prepared reference libraries, reference trinucleotide BEDs, per-individual VCF

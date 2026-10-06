@@ -1,12 +1,70 @@
 # Optimization validation ledger
 
 This living ledger records the optimization measurements available on 2026-10-06.
-Completed component results do **not** establish a whole-pipeline improvement.
-Full scientific equivalence, total pipeline CPU, and the remaining high-memory
-stage comparisons remain pending. Both complete LIB1 nuclear burden groups have
-passed strict scientific comparison and show substantial CPU/RSS reductions.
-The full candidate run has completed; the original run and final publication
-comparison are still in progress.
+Both full workflows completed successfully. Their common downstream workload used
+**48.53% less actual CPU**, and the maximum burden-task Slurm RSS fell **55.64%**.
+The final scientific publication comparison is still running; resource results
+alone do not establish scientific equivalence. Both complete LIB1 nuclear burden
+groups have passed strict scientific comparison with no numerical discrepancies.
+
+## Complete workload resource measurements
+
+The two-sample `PacBio_8-27-26_SM-MPX-2` workload used 60 analysis chunks per
+sample, nuclear and mitochondrial groups, and lenient and strict filters.
+Baseline revision `6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a` and candidate
+`391104794588819601f89bf6acfe588fc6c579bc` both completed with no failed tasks or
+retries in their final executions. The accounting covers 750 baseline and 652
+candidate tasks, including the original execution costs of cached tasks exactly
+once. Every successful-workload allocation and step has resolved accounting;
+none of these totals is an interrupted-job lower bound.
+
+| Stage | Baseline actual CPU-hours | Candidate actual CPU-hours | Decrease |
+| --- | ---: | ---: | ---: |
+| Read processing (unchanged code) | 23.287 | 22.890 | 1.71% |
+| BAM dispatch and indexing | 66.384 | 1.933 | 97.09% |
+| Extraction | 29.314 | 17.394 | 40.66% |
+| Filtering | 257.643 | 161.463 | 37.33% |
+| Burdens and coverage | 68.941 | 25.484 | 63.04% |
+| Final output | 1.625 | 1.024 | 36.96% |
+| **Common downstream total** | **447.193** | **230.188** | **48.53%** |
+
+Candidate dispatch and burden totals include their helper compilation jobs.
+The unchanged read-processing difference is measured variation, not a claimed
+optimization. Tasks ran on different nodes; these are one complete workload's
+measurements, supported by the separate controlled component trials below.
+Elapsed controller time is not a comparable end-to-end speed measurement because
+the candidate resumed retained work across development checkpoints.
+
+| Stage | Baseline maximum Slurm RSS (GiB) | Candidate maximum Slurm RSS (GiB) | Decrease |
+| --- | ---: | ---: | ---: |
+| Extraction | 14.324 | 12.740 | 11.06% |
+| Filtering | 37.030 | 27.789 | 24.95% |
+| Burdens | 287.992 | 127.748 | 55.64% |
+| Final output | 88.218 | 76.257 | 13.56% |
+
+Each cell is the maximum recorded task/step RSS within that stage. The two
+burden maxima come from different sample tasks; individual LIB1 strict results
+below provide a matched-task comparison. These measurements are not R heap size,
+Nextflow's sampled process RSS, or simultaneous memory across pipeline jobs.
+Resource requests stayed matched and unchanged; tested settings are in
+[Torch launch and resource settings](workflow-optimization.md#torch-launch-and-resource-settings).
+
+Preparation is accounted for separately. The candidate's first cold construction
+cost 8.9972 CPU-hours, and its final verification/restoration cost 51.780 CPU
+seconds. Charging both to the candidate raises its total to **239.1994 hours**,
+still **46.51% below the baseline downstream workload alone**. Original cold-cache
+construction is unmeasured, so this is a conservative bound, not a matched-cold
+trial. The baseline's 9.827 seconds of recorded preparation and candidate's final
+restore are excluded from the common downstream table. Controller CPU was
+174.077 seconds for the final baseline and 65.831 seconds for the final candidate;
+earlier attempts and other development costs are reported separately below.
+
+Raw traces, allocation/step accounting, per-task burden values and the comparison
+report are retained on Torch under
+`/projects/work/evrong01/HiDEF-seq/codex/runtime/accounting-checkpoints/`, in
+`baseline-complete-6b6598b/` and `candidate-complete-3911047/`.
+An independent review recomputed the totals from raw accounting and checked
+exact trace job coverage, source hashes, cached-job deduplication and CPU scopes.
 
 ## Measurement and acceptance
 
@@ -124,8 +182,8 @@ stage snapshot in `20261005T082229Z/`.
 The candidate controller finished with failure after the discovered burden bug;
 all healthy filtering tasks were allowed to finish and remain cached. Failed and
 deliberately stopped development burden attempts are retained separately, with
-signal-interrupted CPU marked as a lower bound. Full successful-workload CPU,
-the remaining nuclear burden peaks, and final publication equivalence remain pending.
+signal-interrupted CPU marked as a lower bound. Complete successful-workload CPU
+and memory are summarized above; final publication equivalence remains pending.
 
 ## Completed: first full 60-chunk nuclear burden comparison
 
@@ -157,8 +215,8 @@ Input file identities remained unchanged throughout comparison. Frozen source,
 commands and reports are in `runs/full-nuclear-burden-lib1-lenient/`.
 
 This establishes the complete lenient nuclear burden object for one sample.
-Coverage BED/index publications, combined final QS/TSV/VCF/PDF outputs and
-whole-pipeline totals still require their pending comparisons.
+Coverage BED/index publications and combined final QS/TSV/VCF/PDF outputs require
+the complete publication comparison. Whole-workload resource totals are above.
 
 ## Completed: full LIB1 strict nuclear burden comparison
 
@@ -185,7 +243,7 @@ or used interchangeably. This is one completed pair on different nodes.
 Allocation/step evidence is in
 `runtime/accounting-checkpoints/lib1-strict-nuclear-20261005/`.
 
-## Full candidate completed; final comparison pending
+## Full candidate accounting and publication validation progress
 
 Candidate controller `19223438` completed production revision `3911047` with
 29 newly completed and 623 cached tasks, zero failed tasks and zero retries.
@@ -229,7 +287,8 @@ so the audit now also binds each output task's sample argument and output prefix
 to its publication directory; inode or copied-byte checks remain unchanged.
 The correction passed 38 focused fixtures and the complete candidate audit.
 This proves inventory and producer identity, not scientific contents. The full
-scientific publication/index comparison remains queued behind the original run.
+scientific publication/index comparison is running after both workflows completed
+successfully.
 
 ## Corrected and verified: singleton indel reference and four mitochondrial burdens
 

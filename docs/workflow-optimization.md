@@ -35,7 +35,8 @@ The completed candidate ran production revision
 `391104794588819601f89bf6acfe588fc6c579bc`; later documentation-only commits do not
 change that tested code. To reproduce that code exactly, set `HIDEFSEQ_GITTAG` to
 the full revision instead of the branch name. Final acceptance is pending the BAM
-ordering decision and remaining diagnostic checks; see the validation ledger.
+ordering decision; both complete record/index diagnostics have finished. See the
+validation ledger for the exact comparison scope and remaining acceptance work.
 
 The two-sample, 60-chunk-per-sample Torch comparison used the existing
 `hidef-seq_3.0.sif` and matched these allocations between baseline and candidate:

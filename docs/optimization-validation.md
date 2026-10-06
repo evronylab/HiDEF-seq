@@ -33,10 +33,16 @@ the broader coordinate-group property; it does not assert that every permutation
 has that narrower form.
 
 The LIB2 ordered comparison found 10,878,071 records per side and a first
-difference at record 7,017. Its complete record/index diagnosis is running as
-job `19285205`. Actual alignment and merge/sort commands are unchanged between
-the original and optimized pipeline; no optimization command directly generates
-different processed-BAM contents.
+difference at record 7,017. Complete diagnostic `19285205` subsequently checked
+all those records across 5,999,788 coordinate groups: zero coordinate or raw-record
+multiset differences, with 1,280 groups differing only in order. All four own-file
+BAI/PBI rebuild checks passed, and the input files remained unchanged. Exact
+input-pair bindings and frozen diagnostic source hashes were independently
+verified. Evidence is in `runs/bam-coordinate-diagnosis-lib2/`.
+
+Actual alignment and merge/sort commands are unchanged between the original and
+optimized pipeline. Both complete BAM diagnostics found matching raw record
+contents, multiplicities and coordinates; all eight own-file index checks passed.
 
 Allowing order permutations within identical BAM coordinates would revise the
 earlier ordered-record requirement. That decision is pending; no acceptance rule
@@ -917,11 +923,12 @@ above; neither is a measurement of the complete pipeline's peak memory.
 
 Both full workflows, workload accounting, final QS2 comparisons, prepared-cache
 comparisons, cache/resume checks and effective-YAML audits are complete. The
-remaining work is the full LIB2 BAM record/index diagnosis and an explicit
-decision on whether to allow record permutations within identical BAM
-coordinates. Preserve the failed original ordered-record comparison regardless
-of that decision; any approved exception requires separately bound evidence.
-The current state is described at the top of this ledger.
+complete BAM record/index diagnostics are also finished. The remaining work is
+an explicit decision on whether to allow record permutations within identical
+BAM coordinates, including the unmapped group. Preserve the failed original
+ordered-record comparison regardless of that decision; any approved exception
+requires separately bound acceptance evidence. The current state is described
+at the top of this ledger.
 
 The baseline source revision is
 `6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a`; completed candidate production is

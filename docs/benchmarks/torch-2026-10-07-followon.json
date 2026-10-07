@@ -1,0 +1,817 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "component, combined extraction/filter chain and integrated regression evidence PASS; full-workflow acceptance pending",
+  "baseline_scientific_revision": "ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77",
+  "historical_full_workload_accepted_revision": "391104794588819601f89bf6acfe588fc6c579bc",
+  "full_workflow_acceptance": "pending",
+  "measurement_units": {
+    "cpu": "actual user+system seconds, including waited child processes for worker measurements",
+    "wall": "seconds",
+    "rss": "KiB, mean of process peaks where multiple arms; never summed and not aggregate Slurm memory"
+  },
+  "image": {
+    "path": "/projects/rps/evrong01/evronylab/bin/HiDEF-seq/hidef-seq_3.0.sif",
+    "stat": {
+      "size": 1569312768,
+      "mtime_ns": 1791349042467738505,
+      "ctime_ns": 1791349042471828203
+    },
+    "full_image_sha256_not_required_or_computed": true
+  },
+  "runtime_versions": {
+    "R": "4.4.2",
+    "tidyr": "1.3.1",
+    "dtplyr": "1.3.1",
+    "data.table": "1.17.6",
+    "evidence": [
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-filter-v2-current-profile/R-session.txt",
+        "sha256": "020dcbb21fee8c32e0569ae479e6d33f9c44e8b650d32d67977aeed5c3e9621d"
+      },
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v1/run-v1/result.json",
+        "sha256": "e68d8861b8f2acd4dc93fb6db21e01e1585c67c1ab4e3be6276f95001cd1b994"
+      }
+    ]
+  },
+  "selected_changes": [
+    "parser",
+    "vcf",
+    "dtplyr",
+    "output_lifecycle",
+    "compression"
+  ],
+  "components": [
+    {
+      "id": "parser",
+      "name": "Generated-field parsing",
+      "decision": "selected; component and combined-chain validation PASS",
+      "job_id": "19344420",
+      "measurement_kind": "whole extraction worker",
+      "scope": "two alternating complete-worker pairs on one LIB1 chunk; fresh processes; uncontrolled filesystem cache",
+      "means": {
+        "baseline": {
+          "actual_cpu_seconds": 414.8393695,
+          "wall_seconds": 422.5095539125614,
+          "max_rss_kib": 9075516.0
+        },
+        "candidate": {
+          "actual_cpu_seconds": 279.7498915,
+          "wall_seconds": 286.1511776695261,
+          "max_rss_kib": 8464920.0
+        }
+      },
+      "scientific_proof": {
+        "exact_QS_component_checks": 16,
+        "ignored_components": 0,
+        "numeric_tolerance": 0,
+        "baseline_current_reference_also_compared": true,
+        "synthetic_fixtures": 16
+      },
+      "reduction_percent": {
+        "actual_cpu_seconds": 32.56428582533558,
+        "wall_seconds": 32.27344209860276,
+        "max_rss_kib": 6.727948030723541
+      },
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-filter-v2-parser-paired-v1/summary.json",
+          "sha256": "6548880ffcc857cdacafc56260d4542c57ddd852b2749d3e4fe3dfa34259a981"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/parser-v2/pair-plan.json",
+          "sha256": "a0ba1a0ff43b3bc60772488f26bb1f20df59293e9d2aee21dd16d9f5933b6610"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/parser-v2/reviewed-result.json",
+          "sha256": "82c57f26e4354ceded5d4cd3f4bc688a6cc5a2f87ffb62ff9c6eb7be948698a1"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/parser-v2/pair-source-sha256.json",
+          "sha256": "d95d3acafae59df23cc3f4e4a3a0d44c9af7f9e4e2bf94db5b97b65fdc0a43af"
+        }
+      ]
+    },
+    {
+      "id": "vcf",
+      "name": "VCF region query",
+      "decision": "selected; component and combined-chain validation PASS",
+      "job_id": "19346317",
+      "measurement_kind": "whole strict nuclear filter worker",
+      "scope": "two alternating complete-worker pairs on one LIB1 chunk; fresh processes; uncontrolled filesystem cache",
+      "means": {
+        "baseline": {
+          "actual_cpu_seconds": 1412.0566709999998,
+          "wall_seconds": 1444.8374603515258,
+          "max_rss_kib": 12913580.0
+        },
+        "candidate": {
+          "actual_cpu_seconds": 812.7374645,
+          "wall_seconds": 817.8903375165537,
+          "max_rss_kib": 12959734.0
+        }
+      },
+      "scientific_proof": {
+        "exact_QS_component_checks": 28,
+        "ignored_components": 0,
+        "numeric_tolerance": 0,
+        "baseline_current_reference_also_compared": true,
+        "synthetic_fixtures": 32,
+        "all_fixtures_exact": true
+      },
+      "reduction_percent": {
+        "actual_cpu_seconds": 42.442999548705785,
+        "wall_seconds": 43.39222507993649,
+        "max_rss_kib": -0.35740669899440025
+      },
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-vcf-regions-v1-paired/summary.json",
+          "sha256": "67cd5ff6ed51a494d58120a64ce94f39fe0bce692d7583675edede521b498c5e"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-vcf-regions-v1/pair-plan.json",
+          "sha256": "f8bf3f0cc0bb103ec16fd779a5f99f107004805addff148c84e7ce6cb2a10276"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-vcf-regions-v2-fixtures/fixture-results.json",
+          "sha256": "6248856ef7dff9be87371c2299321661c19dad92b78f3d5a55d805e68e3f6b49"
+        }
+      ]
+    },
+    {
+      "id": "dtplyr",
+      "name": "Region aggregation",
+      "decision": "selected; component and combined-chain validation PASS",
+      "job_id": "19348509",
+      "measurement_kind": "grouping and ordered join operation; diagnostic process separately recorded, not a complete filter worker",
+      "scope": "Original region-read binnedAverage fractions and ordered full-bam flag joins for one LIB1 strict chunk; no full-filter claim",
+      "operation_metrics": {
+        "original": {
+          "cpu_seconds": 66.908,
+          "wall_seconds": 67.261
+        },
+        "tidyverse": {
+          "cpu_seconds": 3.574,
+          "wall_seconds": 3.592
+        },
+        "data_table": {
+          "cpu_seconds": 0.711,
+          "wall_seconds": 0.714
+        },
+        "dtplyr": {
+          "cpu_seconds": 0.761,
+          "wall_seconds": 0.767
+        }
+      },
+      "scientific_proof": {
+        "synthetic_comparisons": 432,
+        "real_alternative_mappings_exact": 3,
+        "reads": 124090,
+        "region_filters": 6,
+        "numeric_tolerance": 0
+      },
+      "limitations": [
+        "One current LIB1 strict chunk; no whole-filter or whole-pipeline speedup claim.",
+        "Group/join timer includes conversion, sorting, materialization, and full ordered bam joins.",
+        "Whole worker additionally includes libraries, packet load, exact assertions and mapping serialization.",
+        "Original binnedAverage preparation and fixtures are separate diagnostic costs.",
+        "No GForce variant; all candidate means call base::mean. No package installation."
+      ],
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v1/run-v1/result.json",
+          "sha256": "e68d8861b8f2acd4dc93fb6db21e01e1585c67c1ab4e3be6276f95001cd1b994"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v1/run-v1/postrun-review.json",
+          "sha256": "f12db0ce7f482a6aea00c97926b56fbca32a2291eaf9fb1cac9df58797fad4a9"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v1/run-v1/plan.json",
+          "sha256": "4ff2b5014a98accfdd90cf2d2c97040b231112bc12fb1a0966d8feb1ea65b309"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v2/candidate-proof.json",
+          "sha256": "841fb27a648faa05c35838a27457b42b4029dc67104d6ec6b74a4986e2057939"
+        }
+      ]
+    },
+    {
+      "id": "output_lifecycle",
+      "name": "Output object lifetime",
+      "decision": "selected; component validation PASS; not exercised by extraction/filter chains",
+      "job_id": "19343379",
+      "measurement_kind": "one complete outputResults stage pair with lightweight phase markers",
+      "scope": "One complete LIB1 output-stage pair, same allocation, fresh processes; historical candidate-optimization four burdens inputs and its effective config; ea8d06f code and current image",
+      "metrics": {
+        "baseline": {
+          "actual_cpu_seconds": 1930.723961,
+          "wall_seconds": 1989.1592460828833,
+          "max_rss_kib": 62420444
+        },
+        "candidate": {
+          "actual_cpu_seconds": 1819.266329,
+          "wall_seconds": 1840.88900659699,
+          "max_rss_kib": 45386376
+        }
+      },
+      "scientific_proof": {
+        "files_compared": 311,
+        "all_QS_components": 18,
+        "metadata_QS_ignored": false,
+        "numeric_tolerance": 0,
+        "approved_metadata_only": [
+          "VCF fileDate",
+          "PDF Info CreationDate",
+          "PDF Info ModDate"
+        ]
+      },
+      "cpu_reduction_percent": 5.772841392731842,
+      "rss_reduction_percent": 27.289245171021214,
+      "limitations": [
+        "One pair; baseline then candidate; filesystem cache uncontrolled",
+        "Earlier QS file creation changes failed-task intermediate timing; task failure must still prevent publication",
+        "311 scientific file comparisons do not mean all compressed/PDF file bytes identical"
+      ],
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-output-lifetime-v2/pair-v1/result.json",
+          "sha256": "f7853ff36e113ff4bfcf9b88121098d5c362b96d3b7f14f16d2aa481eb7ca256"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-output-lifetime-v2/pair-v1/postrun-review.json",
+          "sha256": "642ad2c9e4e0379fa637252d4bcde205b8b6b6fc91fcf80bda3488d9e6b6d126"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-output-lifetime-v2/pair-v1/comparison/report.json",
+          "sha256": "0fefd70c3f26ae32c920112a11e5bd966d7fffe9907b19bf7ba8987ee54c01a5"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-output-lifetime-v2/pair-v1/plan.json",
+          "sha256": "1d123cccaa0885aa51b11a5dde30e7f64bb8eab2de429f6da6287dbb75a9640a"
+        }
+      ]
+    },
+    {
+      "id": "compression",
+      "name": "Coverage BGZF level 1",
+      "decision": "selected; component validation PASS; not exercised by extraction/filter chains",
+      "job_id": "19345254",
+      "measurement_kind": "one full coverage-row pilot, not a complete calculateBurdens worker",
+      "scope": "One full nuclear SBS/mismatch-ss coverage-row pair; original chunk_runs1e7 and immutable ea8 R helpers",
+      "metrics": {
+        "default": {
+          "actual_cpu_seconds": 2004.909321,
+          "wall_seconds": 1918.5782835930586,
+          "max_rss_kib": 16629056
+        },
+        "level1": {
+          "actual_cpu_seconds": 1086.0937880000001,
+          "wall_seconds": 1029.533198715886,
+          "max_rss_kib": 16628820
+        }
+      },
+      "scientific_proof": {
+        "rows": 1509632319,
+        "decompressed_bytes": 45175589162,
+        "decompressed_sha256": "8f06611c3992feda6e0ff055342ab1be95c6412af42e7fa099d19fcf13dcbf8f",
+        "two_arms_and_historical_reference_exact": true,
+        "own_index_validation": {
+          "default": "pass",
+          "level1": "pass"
+        }
+      },
+      "cpu_reduction_percent": 45.82828377204198,
+      "rss_reduction_percent": 0.0014192026294268523,
+      "compressed_bytes": {
+        "default": 8038272657,
+        "level1": 10198489389
+      },
+      "compressed_size_increase_percent": 26.874141052167587,
+      "limitations": [
+        "One row and one pair; no whole-pipeline speedup claim.",
+        "Whole worker includes full-packet load, selection, original writer, annotation, compression and indexing.",
+        "R phases include child CPU; separate bgzip/tabix metrics are attribution only and MUST NOT be added to whole-worker or phase totals.",
+        "Unchanged logical records/order/counts; compressed bytes and index offsets can differ. Both own-file indexes validated.",
+        "One sequential default\u2192level1 pair; filesystem cache uncontrolled; compressed storage increases"
+      ],
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-bgzip-fullrow-v1/pair-v1/result.json",
+          "sha256": "43e0c10bad4091603da0c0d74295687aaded2e2749b09d255a4c93af87ba8ede"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-bgzip-fullrow-v1/pair-v1/postrun-review.json",
+          "sha256": "12ef7a948e5b4ab5abef5bb3cc3638b3bf7e1498b70cba35c71a7e242768f142"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-bgzip-fullrow-v1/pair-v1/validation.json",
+          "sha256": "cb4cb562e81ff80b89b660e65d09316c5ae42ea01c59b0f04ebe9718545b9c60"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-bgzip-fullrow-v1/pair-v1/plan.json",
+          "sha256": "75df5039b4a972bee557f03e892c09b465fabba321c58ead189460356cefe6d2"
+        }
+      ]
+    }
+  ],
+  "rejected_interval_approaches": [
+    {
+      "id": "ranges",
+      "decision": "excluded from combined candidate v3",
+      "measurement_kind": "whole strict nuclear filter worker",
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/ranges-paired-v1/reviewed-result.json",
+          "sha256": "658e840d0442f72e146eab83b0dcaeca47e940aad8891ac244ea5ad141baaaf9"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-filter-v2-ranges-paired-v1/summary.json",
+          "sha256": "f73a8cd6d86396d6fac13ec1968fa2780c89dd242c0d51037b96781aaef6f858"
+        }
+      ],
+      "review": {
+        "status": "PASS",
+        "job_id": "19346457",
+        "exact_component_checks": 28,
+        "pairs": [
+          {
+            "pair": 1,
+            "cpu_reduction_percent": 9.151111455948168,
+            "rss_increase_percent": 9.023007354418034
+          },
+          {
+            "pair": 2,
+            "cpu_reduction_percent": 9.292284055241284,
+            "rss_increase_percent": 8.8536390117806
+          }
+        ],
+        "means": {
+          "baseline": {
+            "actual_cpu_seconds": 1574.7098715,
+            "wall_seconds": 1600.4307355124038,
+            "max_rss_kib": 13068106.0
+          },
+          "candidate": {
+            "actual_cpu_seconds": 1429.4904095000002,
+            "wall_seconds": 1443.9999420848908,
+            "max_rss_kib": 14236088.0
+          }
+        },
+        "mean_reduction_percent": {
+          "actual_cpu_seconds": 9.221982069730094,
+          "wall_seconds": 9.774293254711154,
+          "max_rss_kib": -8.93765324523692
+        },
+        "evidence_sha256": {
+          "runs/exploration-filter-v2-ranges-paired-v1/summary.json": "f73a8cd6d86396d6fac13ec1968fa2780c89dd242c0d51037b96781aaef6f858",
+          "runtime/exploration-filter-v2/ranges-paired-v1/source-sha256.json": "d4dce65410f7fbf67ef1ccaf433d9836ea9bcf294e33d9d96abdc1d301e3574c",
+          "runs/exploration-filter-v2-ranges-paired-v1/pair01/candidate-vs-baseline.tsv": "764c1ecd1b4974444673e1049e1907e8802734e78f628a223609d7fc9dccd5b5",
+          "runs/exploration-filter-v2-ranges-paired-v1/pair01/baseline-vs-current.tsv": "764c1ecd1b4974444673e1049e1907e8802734e78f628a223609d7fc9dccd5b5",
+          "runs/exploration-filter-v2-ranges-paired-v1/pair02/candidate-vs-baseline.tsv": "764c1ecd1b4974444673e1049e1907e8802734e78f628a223609d7fc9dccd5b5",
+          "runs/exploration-filter-v2-ranges-paired-v1/pair02/baseline-vs-current.tsv": "764c1ecd1b4974444673e1049e1907e8802734e78f628a223609d7fc9dccd5b5"
+        },
+        "recommendation": "Do not include by default in the initial combined CPU-and-memory candidate: confirmed CPU benefit trades higher process peak RSS. Retain as optional CPU-focused candidate pending a separate measured memory fix.",
+        "limitations": [
+          "one strict nuclear LIB1 chunk; two alternating pairs; filesystem caches uncontrolled",
+          "whole-worker source measured before overflow guard; guarded helper separately passed boundary and real constructor tests",
+          "peak RSS here is per-process measurement; scheduler peak includes separate comparison processes and is not the worker figure",
+          "dense failure masks can increase flattened temporary storage further"
+        ]
+      }
+    },
+    {
+      "id": "direct_mask",
+      "decision": "excluded from combined candidate v3",
+      "measurement_kind": "constructor-only diagnostic; process RSS includes loading and serialization",
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/ranges-mask-v3/reviewed-result.json",
+          "sha256": "5a958987016422ba8529976ff9e61ffdc5118a85702918931313a5cd9c48ffe0"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-filter-v2-ranges-mask-v3/summary.json",
+          "sha256": "b739ee51365919725d2c1d393a2ddfc6a09dd64e382602abc48d48113ac6531e"
+        }
+      ],
+      "review": {
+        "status": "PASS",
+        "job_id": "19348783",
+        "fixture_comparisons": 192,
+        "real_exact_comparisons": 4,
+        "means": {
+          "original": {
+            "kernel_cpu_seconds": 148.64350000000002,
+            "kernel_wall_seconds": 149.5215,
+            "process_peak_rss_kib": 3315734.0
+          },
+          "positions": {
+            "kernel_cpu_seconds": 11.7655,
+            "kernel_wall_seconds": 11.828,
+            "process_peak_rss_kib": 3554444.0
+          },
+          "mask": {
+            "kernel_cpu_seconds": 369.288,
+            "kernel_wall_seconds": 371.4585,
+            "process_peak_rss_kib": 3167918.0
+          }
+        },
+        "percent_change_vs_original": {
+          "positions": {
+            "kernel_cpu_seconds": -92.08475311735798,
+            "kernel_wall_seconds": -92.08943195460184,
+            "process_peak_rss_kib": 7.199310921804947
+          },
+          "mask": {
+            "kernel_cpu_seconds": 148.43871410455213,
+            "kernel_wall_seconds": 148.43149647375128,
+            "process_peak_rss_kib": -4.458017440482253
+          }
+        },
+        "limitations": [
+          "constructor-only CPU excludes loading/serialization; no whole-filter claim",
+          "fresh-process RSS includes input loading, kernel and serialization",
+          "one real chunk with sparse failure masks; dense failure masks can increase positions-native intermediate memory",
+          "guarded positions helper tested; whole-worker pair uses earlier unguarded frozen source"
+        ],
+        "evidence_sha256": {
+          "runs/exploration-filter-v2-ranges-mask-v3/summary.json": "b739ee51365919725d2c1d393a2ddfc6a09dd64e382602abc48d48113ac6531e",
+          "runs/exploration-filter-v2-ranges-mask-v3/fixtures.json": "9abdfbf378027e8de3135f2c8dba59a5fc1ec7fbb0778b5370409bd73d8ff7eb",
+          "runtime/exploration-filter-v2/ranges-mask-v3/source-sha256.json": "03e9d3d25fb89604c983ec1b54912e4445937fd2e42ab2d97d6ef0ade309e25a"
+        }
+      }
+    }
+  ],
+  "combined_chains": {
+    "status": "PASS",
+    "review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-chain-review-v1/reviewed-result.json",
+      "sha256": "cad39e08a89ed0238c017040089592d04e968c237136119d0f7d8f73b76c8827"
+    },
+    "aggregate": {
+      "baseline_actual_cpu_seconds": 9523.079464999999,
+      "candidate_actual_cpu_seconds": 6083.938475999999,
+      "cpu_reduction_percent": 36.11374872634227,
+      "measured_worker_executions": 20,
+      "exact_QS_component_comparisons": 128,
+      "ignored_components": 0,
+      "numeric_tolerance": 0,
+      "scope": "Two real chunks, one per library; extraction plus four separate filters per arm; comparison and preflight excluded"
+    },
+    "libraries": {
+      "LIB1": {
+        "job_id": "19352943",
+        "sample": "70007.1-CordBlood-LIB1",
+        "arm_order": [
+          "baseline",
+          "candidate"
+        ],
+        "exact_component_comparisons": 64,
+        "totals": {
+          "baseline": {
+            "actual_cpu_seconds": 5173.630923,
+            "wall_seconds": 5295.747698456282,
+            "max_individual_rss_kib": 14826940
+          },
+          "candidate": {
+            "actual_cpu_seconds": 3293.236198,
+            "wall_seconds": 3320.524123936193,
+            "max_individual_rss_kib": 14299480
+          }
+        },
+        "operations": [
+          {
+            "operation": "extract",
+            "baseline": {
+              "actual_cpu_seconds": 567.7652290000001,
+              "wall_seconds": 614.0442266741302,
+              "max_rss_kib": 9072068
+            },
+            "candidate": {
+              "actual_cpu_seconds": 385.236365,
+              "wall_seconds": 394.09523119800724,
+              "max_rss_kib": 8463276
+            },
+            "cpu_change_percent": -32.14865135744339,
+            "rss_change_percent": -6.710619893942593
+          },
+          {
+            "operation": "1-22X.strict",
+            "baseline": {
+              "actual_cpu_seconds": 1858.8915359999999,
+              "wall_seconds": 1919.5147034339607,
+              "max_rss_kib": 12858492
+            },
+            "candidate": {
+              "actual_cpu_seconds": 1056.442008,
+              "wall_seconds": 1063.4627602710389,
+              "max_rss_kib": 13196472
+            },
+            "cpu_change_percent": -43.168173745453,
+            "rss_change_percent": 2.6284575205241856
+          },
+          {
+            "operation": "1-22X.lenient",
+            "baseline": {
+              "actual_cpu_seconds": 2269.3888589999997,
+              "wall_seconds": 2281.0936087111477,
+              "max_rss_kib": 14826940
+            },
+            "candidate": {
+              "actual_cpu_seconds": 1409.415865,
+              "wall_seconds": 1417.4165364659857,
+              "max_rss_kib": 14299480
+            },
+            "cpu_change_percent": -37.89447500764345,
+            "rss_change_percent": -3.5574434104407193
+          },
+          {
+            "operation": "mito.strict",
+            "baseline": {
+              "actual_cpu_seconds": 238.140135,
+              "wall_seconds": 239.86159733310342,
+              "max_rss_kib": 7063756
+            },
+            "candidate": {
+              "actual_cpu_seconds": 222.518219,
+              "wall_seconds": 224.31492176116444,
+              "max_rss_kib": 6766200
+            },
+            "cpu_change_percent": -6.5599677265657075,
+            "rss_change_percent": -4.212433158789741
+          },
+          {
+            "operation": "mito.lenient",
+            "baseline": {
+              "actual_cpu_seconds": 239.44516399999998,
+              "wall_seconds": 241.23356230393983,
+              "max_rss_kib": 7063788
+            },
+            "candidate": {
+              "actual_cpu_seconds": 219.623741,
+              "wall_seconds": 221.23467423999682,
+              "max_rss_kib": 6472896
+            },
+            "cpu_change_percent": -8.278063615433883,
+            "rss_change_percent": -8.365086834429347
+          }
+        ],
+        "cpu_change_percent": -36.34574543461302,
+        "rss_change_percent": -3.5574434104407193
+      },
+      "LIB2": {
+        "job_id": "19352944",
+        "sample": "70007.1-CordBlood-LIB2",
+        "arm_order": [
+          "candidate",
+          "baseline"
+        ],
+        "exact_component_comparisons": 64,
+        "totals": {
+          "candidate": {
+            "actual_cpu_seconds": 2790.7022779999998,
+            "wall_seconds": 2899.8891414997634,
+            "max_individual_rss_kib": 15810648
+          },
+          "baseline": {
+            "actual_cpu_seconds": 4349.448542,
+            "wall_seconds": 4420.911498317029,
+            "max_individual_rss_kib": 15771884
+          }
+        },
+        "operations": [
+          {
+            "operation": "extract",
+            "candidate": {
+              "actual_cpu_seconds": 320.825284,
+              "wall_seconds": 359.06102345790714,
+              "max_rss_kib": 10053876
+            },
+            "baseline": {
+              "actual_cpu_seconds": 438.604219,
+              "wall_seconds": 461.3032634239644,
+              "max_rss_kib": 10129976
+            },
+            "cpu_change_percent": -26.853124046214425,
+            "rss_change_percent": -0.7512357383670065
+          },
+          {
+            "operation": "1-22X.strict",
+            "candidate": {
+              "actual_cpu_seconds": 859.547221,
+              "wall_seconds": 920.3985511499923,
+              "max_rss_kib": 15810648
+            },
+            "baseline": {
+              "actual_cpu_seconds": 1568.299321,
+              "wall_seconds": 1602.67431192589,
+              "max_rss_kib": 15413676
+            },
+            "cpu_change_percent": -45.19239985056398,
+            "rss_change_percent": 2.575453123576743
+          },
+          {
+            "operation": "1-22X.lenient",
+            "candidate": {
+              "actual_cpu_seconds": 1248.4414479999998,
+              "wall_seconds": 1255.9426987259649,
+              "max_rss_kib": 15020324
+            },
+            "baseline": {
+              "actual_cpu_seconds": 1948.769156,
+              "wall_seconds": 1958.147824385902,
+              "max_rss_kib": 15771884
+            },
+            "cpu_change_percent": -35.93692489660896,
+            "rss_change_percent": -4.765188483506478
+          },
+          {
+            "operation": "mito.strict",
+            "candidate": {
+              "actual_cpu_seconds": 181.379421,
+              "wall_seconds": 182.71097519202158,
+              "max_rss_kib": 7556420
+            },
+            "baseline": {
+              "actual_cpu_seconds": 194.22340200000002,
+              "wall_seconds": 197.8105699021835,
+              "max_rss_kib": 7242772
+            },
+            "cpu_change_percent": -6.612993525878008,
+            "rss_change_percent": 4.330496666193562
+          },
+          {
+            "operation": "mito.lenient",
+            "candidate": {
+              "actual_cpu_seconds": 180.508904,
+              "wall_seconds": 181.7758929738775,
+              "max_rss_kib": 7567632
+            },
+            "baseline": {
+              "actual_cpu_seconds": 199.55244399999998,
+              "wall_seconds": 200.97552867908962,
+              "max_rss_kib": 7200940
+            },
+            "cpu_change_percent": -9.5431254151916,
+            "rss_change_percent": 5.092279619049744
+          }
+        ],
+        "cpu_change_percent": -35.83779067502761,
+        "rss_change_percent": 0.24577913456629297
+      }
+    },
+    "limitations": [
+      "One real chunk from each library; no whole-workflow claim.",
+      "Scientific CPU sums fresh extraction/filter workers, excluding exact comparisons and launch preflight.",
+      "RSS is maximum individual process, not concurrent workflow memory.",
+      "Arm order reverses across libraries; filesystem cache is uncontrolled.",
+      "Output lifecycle and BED compression are not exercised by this chain."
+    ]
+  },
+  "regression_tests": {
+    "status": "PASS",
+    "job_id": "19355705",
+    "parser_cases": 16,
+    "aggregation_cases": 168,
+    "vcf_cases": 32,
+    "entry_points": 3,
+    "source_files": 4,
+    "review": {
+      "status": "PASS",
+      "reviewed_utc": "2026-10-07T18:07:36.403678+00:00",
+      "job_id": "19355705",
+      "plan_sha256": "02aeacca76eb69fee62ad30711c86466f272683ec8b80af3d1cdd18a31418ff8",
+      "result_sha256": "5b5c308826c8636a5c7c6274818508bde2f1868b2aa7cd2b3ae6763323987c7e",
+      "source_pins_rechecked": 15,
+      "logs": {
+        "test-1.log": "PASS: generated-field parser preserves values, types, missing data, grouping and data-frame attributes\n",
+        "test-2.log": "PASS: 168 exact production region aggregation and ordered join cases\n",
+        "test-3.log": "PASS: 32 coalesced/direct VCF target comparisons, including GT/no-GT, long deletions, duplicate records, ordering and interval boundaries\n"
+      },
+      "scope": "Reusable production-source regression fixtures, not another performance measurement",
+      "accounting": "JobID|State|ExitCode|Elapsed|MaxRSS\n19355705|COMPLETED|0:0|00:00:25|\n19355705.batch|COMPLETED|0:0|00:00:25|793700K\n19355705.extern|COMPLETED|0:0|00:00:25|\n"
+    },
+    "evidence": [
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2/plan.json",
+        "sha256": "02aeacca76eb69fee62ad30711c86466f272683ec8b80af3d1cdd18a31418ff8"
+      },
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2/submission.json",
+        "sha256": "0b1cf7a9bdceca18210a28543e8ebcf4b31b7d2f27992ba361eac03b79057e22"
+      },
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2/reviewed-result.json",
+        "sha256": "dd220f83746791bf9643ee809cc6582ac20288096e2c4b38e64af3a5c14352e5"
+      },
+      {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/followon-tests-v2/result.json",
+        "sha256": "5b5c308826c8636a5c7c6274818508bde2f1868b2aa7cd2b3ae6763323987c7e"
+      }
+    ]
+  },
+  "source_provenance": {
+    "measured_candidate_directory": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3",
+    "measured_candidate_source_sha256": {
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/artifactCache.R": "2f9814008662197af3acb879f828faa9d4b0b8d2b21d488b7aa03db2509568ca",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/calculateBurdens.R": "47bac8c08ba60533f11ac2b79e488376c57bc2faf87e14574b12899615d75211",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/extractCalls.R": "57ab4805c180aa3b8395538d48973776c3991d62d5e3c784f2870f92dee750fd",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/filterCalls.R": "e4e6e67e371c25df9c13b840300df8ab09a9f8421c09cd35903a58b352bd69ab",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/installBSgenome.R": "a6b5d50bba6c3afa4471b9860b3ba7c7ac83fb8ca51a512305cd373b8836a4a0",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/outputResults.R": "d10e98713cb07552ce70fec4ce2ce1436b225a89baae813e77c116f76d7e2299",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/prepareGermlineCoverageFilters.R": "130eb453f2bc82239908f61b42a96f33d4bca5fd6c2ed8bc155834d400c76f33",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/prepareReferenceSummary.R": "71f71ee9764a2e1a299925137416bcb247cabff162c7afd3d093772e416fabf8",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/processGermlineVCFs.R": "69831f74cf0918926fbb04febc29c69922d1ebc765d6a156d5248f11f7eef3dc",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/bin/sharedFunctions.R": "dc91ab602a52b8599507d9f463761868e68ff5ffc55991a45181c55f4b0faf2c",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3/manifest.json": "e1ca06100d810e62203a53e456b5bf67cd1749eece3ef904e5735c1f24efe596"
+    },
+    "integration": {
+      "status": "PASS",
+      "base_revision": "97548176bde3f77b4ece8835e3ebe29bee87f8c5",
+      "measured_sources_retained": true,
+      "post_copy_change": "Only explanatory comment and changed-line whitespace in outputResults.R/sharedFunctions.R",
+      "expression_identity": "All four integrated R parsed expression trees identical to measured candidate; relocated regression tests PASS",
+      "measured_source_sha256": {
+        "bin/extractCalls.R": "57ab4805c180aa3b8395538d48973776c3991d62d5e3c784f2870f92dee750fd",
+        "bin/filterCalls.R": "e4e6e67e371c25df9c13b840300df8ab09a9f8421c09cd35903a58b352bd69ab",
+        "bin/sharedFunctions.R": "dc91ab602a52b8599507d9f463761868e68ff5ffc55991a45181c55f4b0faf2c",
+        "bin/outputResults.R": "d10e98713cb07552ce70fec4ce2ce1436b225a89baae813e77c116f76d7e2299"
+      },
+      "integrated_source_sha256": {
+        "bin/artifactCache.R": "2f9814008662197af3acb879f828faa9d4b0b8d2b21d488b7aa03db2509568ca",
+        "bin/calculateBurdens.R": "47bac8c08ba60533f11ac2b79e488376c57bc2faf87e14574b12899615d75211",
+        "bin/extractCalls.R": "57ab4805c180aa3b8395538d48973776c3991d62d5e3c784f2870f92dee750fd",
+        "bin/filterCalls.R": "e4e6e67e371c25df9c13b840300df8ab09a9f8421c09cd35903a58b352bd69ab",
+        "bin/installBSgenome.R": "a6b5d50bba6c3afa4471b9860b3ba7c7ac83fb8ca51a512305cd373b8836a4a0",
+        "bin/outputResults.R": "fd1ce2a53ffdbc578ee2cef40d4e72d6c9a9bf412e811918ce1222ba1f236a4e",
+        "bin/prepareGermlineCoverageFilters.R": "130eb453f2bc82239908f61b42a96f33d4bca5fd6c2ed8bc155834d400c76f33",
+        "bin/prepareReferenceSummary.R": "71f71ee9764a2e1a299925137416bcb247cabff162c7afd3d093772e416fabf8",
+        "bin/processGermlineVCFs.R": "69831f74cf0918926fbb04febc29c69922d1ebc765d6a156d5248f11f7eef3dc",
+        "bin/sharedFunctions.R": "2b962f5311c13cc8b622f72309b895b627a3980647364560955311a5e8e80111"
+      },
+      "test_source_sha256": {
+        "tests/test_generated_pair_parser.R": "fdbbc3398843514cdb94836e0e7d851010c65d0ac2031471f9a6885b1bdd0aa0",
+        "tests/test_region_read_aggregation.R": "7c29bb0f2bc8960a24f74aa79d7903f777faf71bb67ebeacdd91751ef46bf71a",
+        "tests/test_vcf_region_lookup.py": "2841d18913546dff51645e87e3394eb813515b724af9881c371b370d8b6ec73f",
+        "tests/test_vcf_region_lookup.R": "d703f69382e4b1959d7f2f06d765e6801d3e475eb43d75a21e0829de97c42f14"
+      },
+      "review": {
+        "status": "PASS",
+        "job_id": "19374216",
+        "utc": "2026-10-07T20:26:20.516035+00:00",
+        "plan_sha256": "cc6c5a603fa6cd1f43ffc37442fb16989ed1e791e5abc241ad39f08db9e25764",
+        "result_sha256": "ee0eb21f60beaa322d3c382b78a698360609311f3c1fd8433f18fa72f20b41f5",
+        "source_pins_rechecked": 26,
+        "source_and_sif_unchanged": true,
+        "logs": {
+          "test-1.log": "PASS: all four integrated R expression trees equal the tested sources",
+          "test-2.log": "PASS: generated-field parser preserves values, types, missing data, grouping and data-frame attributes",
+          "test-3.log": "PASS: 168 exact production region aggregation and ordered join cases",
+          "test-4.log": "PASS: 32 coalesced/direct VCF target comparisons, including GT/no-GT, long deletions, duplicate records, ordering and interval boundaries"
+        },
+        "accounting": "JobID|State|ExitCode|Elapsed|MaxRSS\n19374216|COMPLETED|0:0|00:00:23|\n19374216.batch|COMPLETED|0:0|00:00:23|791084K\n19374216.extern|COMPLETED|0:0|00:00:23|\n",
+        "scope": "Relocated tests plus parsed-expression identity only, no new performance claim"
+      },
+      "evidence": [
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/integration.json",
+          "sha256": "91bf02f22781cc1fb93204c65265da22d2953fcb1d8235a39d410117f8eeac4d"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/post-format.json",
+          "sha256": "95798052b0204d3fb662cfc7f58fe12f91f9154ba3a42e6b343af815eadccbff"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/plan.json",
+          "sha256": "cc6c5a603fa6cd1f43ffc37442fb16989ed1e791e5abc241ad39f08db9e25764"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/submission.json",
+          "sha256": "f9684b09225d2adc80ea074dc35589f5acacf67b3cc116da5c258e1f25029e13"
+        },
+        {
+          "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/reviewed-result.json",
+          "sha256": "d3035425477593ceb8739cccfc907f368999feb2c462c0d9cddbc26c7287a47a"
+        }
+      ]
+    }
+  },
+  "evidence_ledger": {
+    "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-documentation-v2/evidence-ledger.json",
+    "sha256": "e7b13bbf539519a465af51f1a105534602081391098826f756643b6b68cace9f"
+  },
+  "limitations": [
+    "Component gains are not additive and must not be extrapolated to a full pipeline.",
+    "Only one real chunk per library is covered by combined chains; output lifetime and R compression have separate component evidence.",
+    "Highest individual worker RSS is not concurrent workflow memory; strict nuclear filter peaks increased in both libraries.",
+    "Fixed 60 chunks do not cap chunk input size as sequencing input grows.",
+    "Raw calls, retained germline data and final Rle run complexity can grow with input. Output lifetime still serializes one complete final QS object; no constant-memory claim.",
+    "Scientific proof counts overlap output objects and are not independent sample sizes.",
+    "Compression level 1 applies only to R annotation; legacy and fallback compression remain unchanged.",
+    "No native burden-accumulation change or performance claim is included.",
+    "Historical complete-workload acceptance remains revision 3911047; the ea8 full-run validation/accounting and follow-on full-workflow acceptance remain pending.",
+    "Measured source hashes remain historical. Integration hashes are separate and linked by parsed-expression identity; this documentation creation does not rerun benchmarks."
+  ]
+}

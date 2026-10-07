@@ -11,6 +11,8 @@ cat("#### Running filterCalls ####\n")
 ######################
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
+# Match the one-CPU filterCalls task and the measured dtplyr aggregation.
+data.table::setDTthreads(1L)
 suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(vcfR))
@@ -1868,16 +1870,20 @@ for(i in seq_len(nrow(region_read_filters_config))){
 				
 				#Annotate which molecules have a fraction of their length filtered by the above bigwig (averaged across plus and minus strands) that is either greater than (gt), greater than or equal (gte), less than (lt), or less than or equal (lte) to a read_threshold_value
 				as_tibble %>%
+				dtplyr::lazy_dt(immutable = TRUE) %>%
 				group_by(run_id, zm) %>%
-				summarize(
+				summarize(mean_frac = base::mean(frac), .groups = "drop") %>%
+				as_tibble %>%
+				arrange(run_id, zm) %>%
+				mutate(
 					!!passfilter_label := ! case_when(
-						!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value,
-						!!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
-						!!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value,
-						!!read_threshold_type == "lte" ~ mean(frac) <= read_threshold_value
-					),
-					.groups = "drop"
-				),
+						!!read_threshold_type == "gt" ~ mean_frac > read_threshold_value,
+						!!read_threshold_type == "gte" ~ mean_frac >= read_threshold_value,
+						!!read_threshold_type == "lt" ~ mean_frac < read_threshold_value,
+						!!read_threshold_type == "lte" ~ mean_frac <= read_threshold_value
+					)
+				) %>%
+				select(-mean_frac),
 			by = join_by(run_id,zm)
 		)
 	

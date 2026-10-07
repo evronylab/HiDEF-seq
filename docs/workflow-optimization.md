@@ -336,9 +336,7 @@ Early isolated coordinate-helper timings are not accepted performance evidence:
 R's lazy argument evaluation included input construction in only the original
 arm. The diagnostic harness now forces inputs before either timing. Scientific
 comparisons were unaffected, and the separate complete-worker benchmark does
-not have that timing problem. The changes are retained on the strength of those
-complete-worker comparisons and their simpler function bodies. No additional
-broad dtplyr conversion or custom Rcpp function was justified by these profiles.
+not have that timing problem. The changes are retained on the strength of those complete-worker comparisons and their simpler function bodies. Subsequent profiling selected a targeted dtplyr conversion for region-read aggregation: it preserves `base::mean`, threshold semantics and ordered joins while avoiding repeated group work. Its separate component and combined-chain evidence is recorded in [the follow-on results](#follow-on-r-optimization-results). This does not introduce a broad dtplyr rewrite or a custom Rcpp helper.
 
 ### Burden and sensitivity calculations
 
@@ -425,6 +423,59 @@ existing writer's export buffer; it does not divide analysis calls into separate
 jobs or split the final QS2. The measured final object fits as a single object,
 so no separate QS2 components or new reader API are introduced.
 
+## Follow-on R optimization results
+
+Five integrated changes were assembled as candidate v3 against scientific baseline `ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77`: generated-field parsing, VCF target lookup, region-read aggregation, output object lifetime, and compression in R coverage annotation. The first three passed a combined extraction and filtering comparison on one real chunk from each library. Output lifetime and compression have separate component evidence. Full-workflow acceptance and whole-pipeline CPU and memory results remain pending.
+
+### Selected changes and component measurements
+
+| Change and measured scope | Actual CPU seconds, before → after | Process peak RSS, before → after | Scientific comparison |
+|---|---:|---:|---|
+| Generated-field parser; two alternating complete extraction pairs, LIB1 chunk 1 | 414.84 → 279.75 (−32.56%) | 8.655 → 8.073 GiB (−6.73%) | 16 exact QS component checks, including baselines against the current pipeline; 16 parser fixtures |
+| Coalesced VCF seeks; two alternating complete strict nuclear filter pairs, LIB1 chunk 1 | 1412.06 → 812.74 (−42.44%) | 12.315 → 12.359 GiB (+0.36%) | 28 exact QS component checks; 32 VCF fixtures |
+| dtplyr region aggregation; grouping and ordered joins only | 66.908 → 0.761 | No whole-filter memory claim | 432 exploratory fixture comparisons; all three alternative mappings exact on 124,090 reads and six region filters |
+| Output object lifetime; one complete LIB1 output-stage pair | 1930.72 → 1819.27 (−5.77%) | 59.529 → 43.284 GiB (−27.29%) | 311 scientific files passed, including all 18 QS components and run metadata |
+| BGZF level 1 in R annotation; one complete nuclear coverage-row pair | 2004.91 → 1086.09 (−45.83%) | 15.859 → 15.858 GiB (effectively unchanged) | 1,509,632,319 ordered rows and 45,175,589,162 decompressed bytes exact; each output's own index validated |
+
+The parser uses `tidyr::separate_wider_delim()` at 16 generated underscore-field sites. Colliding names and unusual data-frame attributes retain the original parser. VCF lookup coalesces nearby seek intervals, then applies the original fine targets with matching overlap semantics before the unchanged normalization steps. Duplicate records, ordering, deletion overlap and target boundaries remain covered by exact fixtures.
+
+Region aggregation uses `dtplyr::lazy_dt(immutable = TRUE)`, computes the original `base::mean` once per group, restores dplyr ordering, and retains the threshold expression and ordered join. This is a targeted conversion of the region-read grouping step. The selected dtplyr implementation took 0.761 seconds versus direct data.table's 0.711 seconds in the same operation-level comparison. Installed versions were R 4.4.2, tidyr 1.3.1, dtplyr 1.3.1 and data.table 1.17.6; no package installation was needed.
+
+The output change saves the same single final QS object earlier and releases raw calls and coverage before VCF/export construction. Per-file traversal and formatted data remain unchanged. Failed tasks must still prevent publication, because the intermediate QS file now appears earlier. The output pilot used four completed historical candidate-optimization burdens inputs and their effective configuration. Its comparison allowed only VCF `fileDate` and PDF `CreationDate`/`ModDate` differences; it used no numeric tolerance or ignored QS metadata. Passing 311 scientific files does not imply identical compressed or PDF bytes.
+
+Level-1 compression applies only to BED output from the R `annotate_coverage_row()` path. Explicit `--coverage-annotation legacy` and automatic fallback retain their existing `bgzip -c` behavior. The tested R-annotation BED grew from 8,038,272,657 to 10,198,489,389 compressed bytes (+26.87%). The full-row timer includes packet loading, the original writer, annotation, compression and indexing. It is not a complete burdens-stage measurement. Compressor-only timings are attribution within that total and must not be added to it.
+
+### Combined extraction and filtering
+
+Jobs `19352943` and `19352944` completed successfully with frozen candidate v3. Each arm ran a fresh extraction worker and four separate filters: nuclear strict/lenient and mitochondrial strict/lenient. Both arms matched the current pipeline reference in all 128 QS component comparisons, with zero ignored fields and zero numeric tolerance. Source, executed-copy, input and producer bindings passed independent review.
+
+| Library and scope | Actual CPU seconds, baseline → candidate | Highest individual worker RSS, baseline → candidate |
+|---|---:|---:|
+| LIB1 chunk 1; extraction plus four filters | 5173.631 → 3293.236 (−36.35%) | 14,826,940 → 14,299,480 KiB (−3.56%) |
+| LIB2 chunk 1; extraction plus four filters | 4349.449 → 2790.702 (−35.84%) | 15,771,884 → 15,810,648 KiB (+0.25%) |
+
+Across these two measured chunks, scientific-worker CPU totaled 9523.079 seconds before and 6083.938 seconds after, a 36.11% reduction. This sum includes 20 measured worker executions across the two arms and libraries. Exact comparisons and launch preflight are excluded. Arm order was baseline then candidate for LIB1, reversed for LIB2; filesystem cache state was uncontrolled.
+
+Memory changes varied by operation. Strict nuclear filter peaks increased 2.63% for LIB1 and 2.58% for LIB2; LIB2 mitochondrial filter peaks also increased. These chains do not establish a general memory reduction. They exercise the parser, VCF and aggregation changes, and do not exercise output lifetime or coverage compression. They are not complete-workflow measurements. [Independent chain review](optimization-validation.md#follow-on-component-and-chain-validation).
+
+### Rejected interval approaches
+
+Candidate v3 retains the original subread interval construction. Flattened positions with native compressed reduction passed all 28 complete-filter component checks and reduced worker CPU by 9.22%, but increased process peak RSS by 8.94%. That whole-worker pair measured the earlier unguarded source; a separate integer-overflow guard later passed boundary and real-constructor tests. Dense failure masks remain a temporary-memory concern.
+
+Direct logical masks passed 192 fixtures and four real constructor comparisons, but increased constructor CPU from 148.64 to 369.29 seconds for only 4.46% lower diagnostic-process peak RSS. Those CPU timings exclude loading and serialization, whereas the diagnostic RSS includes them. Neither interval approach is included in candidate v3.
+
+### Interpretation and regression checks
+
+CPU means actual user plus system time, including waited child processes for worker measurements. Component RSS is the individual process peak, averaged across arms where the table reports repeated pairs. Chain RSS is the maximum individual worker peak, never a sum or concurrent workflow memory estimate. Scheduler peaks may include separate comparison processes and are not substituted for worker peaks. The component gains are not additive and must not be extrapolated to all chunks or a complete pipeline.
+
+Reusable fixtures passed in job `19355705`: 16 parser cases, 168 exact production region-aggregation/ordered-join cases, and 32 VCF target comparisons. The four test source files have three entry points, because the Python VCF driver prepares fixtures and invokes its paired R test. [Test invocation instructions](../scripts/benchmark/README.md#follow-on-regression-tests) describe the environment and repository commands. After integration, job `19374216` completed successfully in 23 seconds: all four integrated R expression trees matched the measured source, the relocated 16/168/32 fixture suites passed, and all 26 source pins and the SIF identity remained unchanged. Historical measured-source hashes and post-format integration hashes are retained separately; the identity check introduces no new performance measurement.
+
+The [compact benchmark](benchmarks/torch-2026-10-07-followon.json) records the measured scopes and comparison rules. The [evidence ledger](optimization-validation.md#follow-on-component-and-chain-validation) retains source, configuration, receipt and report hashes. Full-workflow validation and accounting remain separate acceptance gates.
+
+### Scaling limits
+
+The current 60 chunks per sample divide work but do not cap chunk size as input grows. Extraction and filtering can therefore need more memory on larger inputs. Burdens processing still retains raw calls and germline data, and its final Rle memory depends on run complexity. Earlier object release reduces simultaneous live objects in output generation, but the final result remains one complete QS object. None of these measurements establishes constant memory with increasing input. Native burden-accumulation experiments are not included in these changes or claims.
+
 ## Focused local validation
 
 Coordinate-sort reuse was tested and rejected. The single-input fixture matched,
@@ -464,13 +515,7 @@ without replacing the separate full-reference workflow validation.
 
 ## Python/R follow-up status
 
-The follow-up was authorized on 2026-10-06. Component implementation and
-benchmarks are complete, including inventory, fixtures and the full-size
-splitter pair under the rebuilt container. A fresh complete workflow at
-`ea8d06f` is running; its scientific comparisons and CPU/memory accounting
-remain pending. The component results above apply to the
-follow-up code. The earlier complete-workload acceptance applies to production
-revision `3911047` and does not establish acceptance of this follow-up.
+The follow-up was authorized on 2026-10-06. The rebuilt-container Python/R changes and the five additional R optimizations have component evidence. The parser, VCF lookup and targeted dtplyr changes also passed combined extraction/filter chains on one real chunk from each library, with 128 exact QS component comparisons and 36.11% lower summed scientific-worker CPU. Memory results were mixed. Output lifetime and R-annotation compression retain their separate component measurements. Full-workflow scientific comparison and CPU/memory accounting remain pending; the earlier complete-workload acceptance applies to production revision `3911047`.
 
 1. **Python BAM splitter:** implemented, with exact full LIB1 comparisons and
    measured splitting/indexing costs, including the final system-Python/pysam
@@ -482,10 +527,7 @@ revision `3911047` and does not establish acceptance of this follow-up.
 3. **R coverage annotation:** implemented in `sharedFunctions.R`; chr22 and full
    nuclear comparisons passed, including downstream context consumers and
    indexes. CPU and memory costs versus C++ are recorded above.
-4. **data.table/dtplyr evaluation:** `fread`/`fwrite` are used for coverage I/O.
-   Profiling also led to two pure-R filtering changes, with a 5.10% mean CPU
-   reduction across two full-worker pairs and exact QS2 comparisons. No broad
-   dtplyr conversion was justified or implemented.
+4. **data.table/dtplyr evaluation:** `fread`/`fwrite` handle coverage I/O. The earlier two pure-R filtering changes retained their measured 5.10% mean complete-worker CPU reduction. Subsequent profiling selected an immutable dtplyr grouping step for region-read filters, preserving `base::mean`, threshold expressions and ordered joins. Combined extraction/filter results are recorded in the [follow-on section](#follow-on-r-optimization-results); no broad dtplyr conversion was made.
 5. **Rcpp evaluation:** profiling did not identify a further candidate with
    demonstrated dramatic gains after removing the selected R overhead. No new
    custom compiled helper was added for incremental gains.

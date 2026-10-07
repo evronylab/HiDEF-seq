@@ -599,3 +599,48 @@ preparation; filesystem page-cache state is uncontrolled. CPU includes waited-fo
 children, and RSS is the maximum individual process/child value rather than a
 sum of concurrent processes. Actual workflow behavior is separately exercised
 by `tests/test_prepared_cache_workflow.py`.
+
+## Follow-on regression tests
+
+The integrated source passed job `19374216`: all four changed R expression trees were identical to the measured candidate, the 16 parser/168 aggregation/32 VCF cases passed, and all 26 pins and the container identity remained unchanged. These scientific regressions add no performance measurement. See the [compact report](../../docs/benchmarks/torch-2026-10-07-followon.json) for measured scopes and provenance.
+
+From the repository root inside the pipeline environment, run:
+
+```sh
+Rscript --vanilla tests/test_generated_pair_parser.R .
+Rscript --vanilla tests/test_region_read_aggregation.R .
+python3 tests/test_vcf_region_lookup.py .
+```
+
+Use a compute allocation with one CPU, 4 GiB RAM and five minutes. The Python VCF driver invokes its paired R companion, so these four source files have three entry points.
+
+| Source file | Invocation and coverage |
+|---|---|
+| `test_generated_pair_parser.R` | R entry point taking the candidate root; 16 cases covering values, types, missing tokens, expected rejection, grouping, row names and data-frame attributes |
+| `test_region_read_aggregation.R` | R entry point taking the candidate root; 168 exact cases executing the actual grouping, threshold and ordered-join expression with controlled fractions |
+| `test_vcf_region_lookup.py` | Python entry point taking the candidate root; creates small FASTA/VCFs, runs the real indexing tools, and invokes the paired R test |
+| `test_vcf_region_lookup.R` | Companion invoked by the Python driver with candidate root and fixture directory; 32 direct/coalesced target comparisons with GT/no-GT, duplicate records, long deletions, multiallelic/MNV records, ordering and boundaries |
+
+Run the following inside an existing compute allocation with at least one CPU, 4 GiB RAM and five minutes. The example uses the same container and three entry points as the completed suite. The VCF R companion requires the generated fixture directory, so the Python driver is its normal entry point.
+
+```sh
+apptainer exec --cleanenv -B /projects \
+  /projects/rps/evrong01/evronylab/bin/HiDEF-seq/hidef-seq_3.0.sif \
+  /bin/bash -s <<'SH'
+set -euo pipefail
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+FOLLOWON_TESTS=/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2
+FOLLOWON_SOURCE=/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-candidate-v3
+Rscript --vanilla "$FOLLOWON_TESTS/test_generated_pair_parser.R" "$FOLLOWON_SOURCE"
+Rscript --vanilla "$FOLLOWON_TESTS/test_region_read_aggregation.R" "$FOLLOWON_SOURCE"
+/usr/bin/python3 "$FOLLOWON_TESTS/test_vcf_region_lookup.py" "$FOLLOWON_SOURCE"
+SH
+```
+
+The container supplies R/Bioconductor, tidyverse, dtplyr, data.table, GenomicRanges, vcfR and jsonlite, plus Python, samtools, bcftools, bgzip and tabix. The aggregation test fixes data.table to one thread. The Python driver uses a temporary directory and removes its generated FASTA/VCFs after completion; each entry point prints its PASS result and exits nonzero on a failed assertion or tool call.
+
+The frozen [runner plan](/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2/plan.json) binds all 15 candidate/test source hashes and the SIF stat identity; its [reviewed result](/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-tests-v2/reviewed-result.json) records the successful run. The direct commands above rerun the fixtures. To repeat the hash-bound runner, prepare a new plan with a fresh output directory and its matching plan hash; its completed output directory is intentionally not reusable.
+
+The original candidate-source suite passed job `19355705`. Its source hashes remain distinct from the integrated hashes: only an explanatory comment and changed-line whitespace were adjusted in `outputResults.R` and `sharedFunctions.R`. Integration job `19374216` verified parsed-expression identity and reran the relocated suites; its [reviewed receipt](/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/reviewed-result.json) records `COMPLETED`, exit 0, 23 seconds and unchanged source/container guards.
+
+The 432 aggregation comparisons in the exploratory benchmark cover three alternative mappings; the reusable source test covers the selected implementation with 168 production-expression cases. These counts describe different suites and must not be combined into an independent sample count. Output object lifetime and R-annotation compression retain separate full-output and full-row validation evidence; this small suite does not exercise them.

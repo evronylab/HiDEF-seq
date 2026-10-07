@@ -467,138 +467,19 @@ invisible(gc())
 
 cat(" DONE\n")
 
-######################
-### Output configuration parameters
-######################
-cat("## Outputting configuration parameters...")
-
-opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv")) %>% invisible
-
-run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
-
-cat("DONE\n")
-
-######################
-### Output filtering statistics
-######################
-cat("## Outputting filtering statistics...")
-
-for(i in chromgroups){
-	for(j in filtergroups){
-		
-		output_basename_full <- str_c(str_c(filterStats_dir,i,"/",output_basename), i, j, sep=".")
-		
-		#molecule_stats.by_run_id
-		 #Outupt all_chroms and all_chromgroups stats to each output file
-		molecule_stats.by_run_id %>%
-			filter(
-				chromgroup %in% c("all_chroms", "all_chromgroups") |
-					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
-				) %>%
-			write_tsv(str_c(output_basename_full,".molecule_stats.by_run_id.tsv"))
-		
-		#molecule_stats.by_analysis_id
-		molecule_stats.by_analysis_id %>%
-			filter(
-				chromgroup %in% c("all_chroms", "all_chromgroups") |
-					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
-			) %>%
-			write_tsv(str_c(output_basename_full,".molecule_stats.by_analysis_id.tsv"))
-		
-		#region_genome_filter_stats
-		region_genome_filter_stats %>%
-			filter(chromgroup == i & filtergroup == j) %>%
-			write_tsv(str_c(output_basename_full,".region_genome_filter_stats.tsv"))
-
-	}
-}
-
-rm(output_basename_full)
-
-cat("DONE\n")
-
-######################
-### Output final calls
-######################
-
-cat("## Outputting final calls...")
-
-#Output final calls to tsv and vcf, separately for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type
-finalCalls.bytype %>%
-	pwalk(
-		function(...){
-			x <- list(...)
-			
-			output_basename_full <- str_c(
-				str_c(finalCalls_dir,x$chromgroup,"/",output_basename),
-				x$chromgroup,
-				x$filtergroup,
-				x$call_class,
-				x$call_type,
-				x$SBSindel_call_type,
-				sep="."
-			)
-			
-			metadata <- x %>%
-				keep(
-					names(.) %in%
-						c(
-							"analysis_id", "individual_id", "sample_id",
-							"chromgroup", "filtergroup",
-							"call_class", "call_type", "SBSindel_call_type"
-						)
-				) %>%
-				as_tibble
-			
-			#all calls tsv
-			metadata %>%
-				mutate(finalCalls_for_tsv = list(x$finalCalls_for_tsv)) %>%
-				unnest(finalCalls_for_tsv) %>%
-				write_tsv(str_c(output_basename_full,".finalCalls.tsv"))
-			
-			#unique calls tsv
-			if(!is.null(x$finalCalls_unique_for_tsv)){
-				metadata %>%
-					mutate(finalCalls_unique_for_tsv = list(x$finalCalls_unique_for_tsv)) %>%
-					unnest(finalCalls_unique_for_tsv) %>%
-					write_tsv(str_c(output_basename_full,".finalCalls_unique.tsv"))
-			}
-			
-			#all calls vcf
-			metadata %>%
-				mutate(finalCalls_for_vcf = list(x$finalCalls_for_vcf)) %>%
-				unnest(finalCalls_for_vcf) %>%
-				write_vcf_from_calls(
-					BSgenome_name = BSgenome_name,
-					out_vcf = str_c(output_basename_full,".finalCalls.vcf")
-				)
-			
-			#unique calls vcf
-			if(!is.null(x$finalCalls_unique_for_vcf)){
-				metadata %>%
-					mutate(finalCalls_unique_for_vcf = list(x$finalCalls_unique_for_vcf)) %>%
-					unnest(finalCalls_unique_for_vcf) %>%
-					write_vcf_from_calls(
-						BSgenome_name = BSgenome_name,
-						out_vcf = str_c(output_basename_full,".finalCalls_unique.vcf")
-					)
-			}
-		}
-	)
-
+# Preserve the original per-group tables for deferred exports without
+# keeping closures that capture the raw calls or coverage payload.
+finalCalls.bytype.for_export <- finalCalls.bytype
 #Remove 'for_vcf' tables since not needed anymore.
 finalCalls.bytype <- finalCalls.bytype %>%
 	select(-c(finalCalls_for_vcf, finalCalls_unique_for_vcf))
 
-invisible(gc())
-
-cat("DONE\n")
 
 ######################
 ### Output germline variant calls
 ######################
 
-cat("## Outputting germline variant calls...")
+cat("## Preparing germline variant call tables...")
 
 germlineVariantCalls_for_tsv <- list()
 
@@ -707,42 +588,16 @@ for(i in chromgroups){
 		
 		germlineVariantCalls_for_tsv[[length(germlineVariantCalls_for_tsv) + 1]] <- germlineVariantCalls.out
 
-		#tsv
-		germlineVariantCalls.out %>%
-			write_tsv(str_c(output_basename_full,".germlineVariantCalls.tsv"))
-		
-		#vcf
-		germlineVariantCalls.out %>%
-			#Rename back columns for normalize_indels_for_vcf
-			rename(
-				start = start_refspace,
-				end = end_refspace
-			) %>%
-			normalize_indels_for_vcf(
-				BSgenome_name = BSgenome_name
-			) %>%
-			#Rename back columns for greater clarity in final output
-			rename(start_refspace = start) %>%
-			write_vcf_from_calls(
-				BSgenome_name = BSgenome_name,
-				out_vcf = str_c(output_basename_full,".germlineVariantCalls.vcf")
-			)
-		
 		rm(germlineVariantCalls.out)
 		invisible(gc())
 		
 	}
 }
 
+germlineVariantCalls.for_export <- germlineVariantCalls_for_tsv
 germlineVariantCalls_for_tsv <- germlineVariantCalls_for_tsv %>% bind_rows
 
 cat("DONE\n")
-
-######################
-### Output spectra of calls, interrogated bases, and the genome
-######################
-cat("## Outputting spectra of calls, interrogated bases, and the genome...")
-
 is_output_object <- function(x){
 	!is.null(x) && !(length(x) == 1 && is.na(x))
 }
@@ -832,6 +687,280 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 				.groups = "drop"
 			)
 	)
+
+#For each call_class, call_type, SBSindel_call_type, for rows with sensitivity_source == "other_chromgroup", copy sensitivity column value from row with the same filtergroup that has sensitivity_source = "calculated", and change the row's sensitivity source to "calculated_other_chromgroup". If there is no such "calculated" row, then set the row's sensitivity to 1 and the sensitivity source to "default_other_chromgroup".
+sensitivity <- sensitivity %>%
+	group_by(call_class, call_type, SBSindel_call_type, filtergroup) %>%
+	mutate(
+		sensitivity.new = if_else(
+			sensitivity_source == "other_chromgroup",
+			first(sensitivity[sensitivity_source == "calculated"], default = NA),
+			sensitivity
+		),
+
+		sensitivity_source = case_when(
+			sensitivity_source == "other_chromgroup" & is.na(sensitivity.new) ~ "default_other_chromgroup",
+			sensitivity_source == "other_chromgroup" & !is.na(sensitivity.new) ~ "calculated_other_chromgroup",
+			.default = sensitivity_source
+		),
+
+		sensitivity = sensitivity.new %>% replace_na(1)
+	) %>%
+	relocate(sensitivity, sensitivity_source, .after = last_col()) %>%
+	ungroup %>%
+	select(-sensitivity.new)
+
+#Add burdens corrected for sensitivity, and retain sensitivity and sensitivity_source columns in finalCalls.burdens tibble
+finalCalls.burdens <- finalCalls.burdens %>%
+	bind_rows(
+		finalCalls.burdens %>%
+			left_join(
+				sensitivity %>%
+					select(
+						analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type,
+						sensitivity, sensitivity_source
+					),
+				by = join_by(analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type)
+			) %>%
+
+			#Calculate sensitivity-corrected counts, burdens, and 95% confidence intervals by scaling the observed-count estimates
+			mutate(
+				num_calls = num_calls / sensitivity,
+				num_calls_lci = num_calls_lci / sensitivity,
+				num_calls_uci = num_calls_uci / sensitivity,
+				sensitivity_corrected = TRUE,
+
+				burden_calls = num_calls / interrogated_bases_or_bp,
+				burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
+				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
+			)
+	) %>%
+
+	#Set sensitivity and sensitivity_source to NA when sensitivity_corrected = FALSE
+	mutate(
+		sensitivity = if_else(sensitivity_corrected == TRUE, sensitivity, NA),
+		sensitivity_source = if_else(sensitivity_corrected == TRUE, sensitivity_source, NA)
+	) %>%
+	relocate(unique_calls, reftnc_corrected, reftnc_corrected_reference, sensitivity_corrected, sensitivity, sensitivity_source, .after = SBSindel_call_type)
+
+
+######################
+### Output qs2 data object
+######################
+cat("## Outputting qs2 data object...")
+
+qs_save(
+	lst(
+		yaml.config,
+		run_metadata,
+		individual_id,
+		sample_id = sample_id_toanalyze,
+		molecule_stats.by_run_id,
+		molecule_stats.by_analysis_id,
+		region_genome_filter_stats,
+		finalCalls,
+		finalCalls.bytype,
+		germlineVariantCalls,
+		germlineVariantCalls_for_tsv,
+		finalCalls.reftnc_spectra,
+		bam.gr.filtertrack.bytype.coverage_tnc,
+		genome.reftnc,
+		genome_chromgroup.reftnc,
+		sensitivity,
+		finalCalls.burdens,
+		estimatedSBSMutationErrorProbability
+	),
+	str_c(output_basename,".outputResults.qs2")
+)
+
+cat("DONE\n")
+
+# The single final QS2 now contains all 18 original components. Retain only
+# the small coverage spectra needed for the later exports, then release raw
+# calls and the rebound formatted table (original per-group tables remain).
+bam.gr.filtertrack.bytype.coverage_tnc <- bam.gr.filtertrack.bytype.coverage_tnc %>%
+    select(-bam.gr.filtertrack.coverage)
+rm(germlineVariantCalls, finalCalls, germlineVariantCalls_for_tsv, finalCalls.bytype)
+invisible(gc())
+cat("## Released final-QS-only payload before exports\n")
+
+######################
+### Output configuration parameters
+######################
+cat("## Outputting configuration parameters...")
+
+opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv")) %>% invisible
+
+run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
+
+cat("DONE\n")
+
+######################
+### Output filtering statistics
+######################
+cat("## Outputting filtering statistics...")
+
+for(i in chromgroups){
+	for(j in filtergroups){
+
+		output_basename_full <- str_c(str_c(filterStats_dir,i,"/",output_basename), i, j, sep=".")
+
+		#molecule_stats.by_run_id
+		 #Outupt all_chroms and all_chromgroups stats to each output file
+		molecule_stats.by_run_id %>%
+			filter(
+				chromgroup %in% c("all_chroms", "all_chromgroups") |
+					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
+				) %>%
+			write_tsv(str_c(output_basename_full,".molecule_stats.by_run_id.tsv"))
+
+		#molecule_stats.by_analysis_id
+		molecule_stats.by_analysis_id %>%
+			filter(
+				chromgroup %in% c("all_chroms", "all_chromgroups") |
+					(chromgroup == i & (filtergroup == j | is.na(filtergroup)))
+			) %>%
+			write_tsv(str_c(output_basename_full,".molecule_stats.by_analysis_id.tsv"))
+
+		#region_genome_filter_stats
+		region_genome_filter_stats %>%
+			filter(chromgroup == i & filtergroup == j) %>%
+			write_tsv(str_c(output_basename_full,".region_genome_filter_stats.tsv"))
+
+	}
+}
+
+rm(output_basename_full)
+
+cat("DONE\n")
+
+finalCalls.bytype <- finalCalls.bytype.for_export
+rm(finalCalls.bytype.for_export)
+
+######################
+### Output final calls
+######################
+
+cat("## Outputting final calls...")
+
+#Output final calls to tsv and vcf, separately for each combination of chromgroup, filtergroup, call_class, call_type, SBSindel_call_type
+finalCalls.bytype %>%
+	pwalk(
+		function(...){
+			x <- list(...)
+
+			output_basename_full <- str_c(
+				str_c(finalCalls_dir,x$chromgroup,"/",output_basename),
+				x$chromgroup,
+				x$filtergroup,
+				x$call_class,
+				x$call_type,
+				x$SBSindel_call_type,
+				sep="."
+			)
+
+			metadata <- x %>%
+				keep(
+					names(.) %in%
+						c(
+							"analysis_id", "individual_id", "sample_id",
+							"chromgroup", "filtergroup",
+							"call_class", "call_type", "SBSindel_call_type"
+						)
+				) %>%
+				as_tibble
+
+			#all calls tsv
+			metadata %>%
+				mutate(finalCalls_for_tsv = list(x$finalCalls_for_tsv)) %>%
+				unnest(finalCalls_for_tsv) %>%
+				write_tsv(str_c(output_basename_full,".finalCalls.tsv"))
+
+			#unique calls tsv
+			if(!is.null(x$finalCalls_unique_for_tsv)){
+				metadata %>%
+					mutate(finalCalls_unique_for_tsv = list(x$finalCalls_unique_for_tsv)) %>%
+					unnest(finalCalls_unique_for_tsv) %>%
+					write_tsv(str_c(output_basename_full,".finalCalls_unique.tsv"))
+			}
+
+			#all calls vcf
+			metadata %>%
+				mutate(finalCalls_for_vcf = list(x$finalCalls_for_vcf)) %>%
+				unnest(finalCalls_for_vcf) %>%
+				write_vcf_from_calls(
+					BSgenome_name = BSgenome_name,
+					out_vcf = str_c(output_basename_full,".finalCalls.vcf")
+				)
+
+			#unique calls vcf
+			if(!is.null(x$finalCalls_unique_for_vcf)){
+				metadata %>%
+					mutate(finalCalls_unique_for_vcf = list(x$finalCalls_unique_for_vcf)) %>%
+					unnest(finalCalls_unique_for_vcf) %>%
+					write_vcf_from_calls(
+						BSgenome_name = BSgenome_name,
+						out_vcf = str_c(output_basename_full,".finalCalls_unique.vcf")
+					)
+			}
+		}
+	)
+
+#Remove 'for_vcf' tables since not needed anymore.
+finalCalls.bytype <- finalCalls.bytype %>%
+	select(-c(finalCalls_for_vcf, finalCalls_unique_for_vcf))
+
+invisible(gc())
+
+cat("DONE\n")
+
+rm(finalCalls.bytype)
+invisible(gc())
+
+######################
+### Output germline variant calls
+######################
+cat("## Outputting germline variant calls...")
+export_group_index <- 0L
+for(i in chromgroups){
+    for(j in filtergroups){
+        export_group_index <- export_group_index + 1L
+        output_basename_full <- str_c(str_c(germlineVariantCalls_dir,i,"/",output_basename),i,j,sep=".")
+        germlineVariantCalls.out <- germlineVariantCalls.for_export[[export_group_index]]
+		#tsv
+		germlineVariantCalls.out %>%
+			write_tsv(str_c(output_basename_full,".germlineVariantCalls.tsv"))
+
+		#vcf
+		germlineVariantCalls.out %>%
+			#Rename back columns for normalize_indels_for_vcf
+			rename(
+				start = start_refspace,
+				end = end_refspace
+			) %>%
+			normalize_indels_for_vcf(
+				BSgenome_name = BSgenome_name
+			) %>%
+			#Rename back columns for greater clarity in final output
+			rename(start_refspace = start) %>%
+			write_vcf_from_calls(
+				BSgenome_name = BSgenome_name,
+				out_vcf = str_c(output_basename_full,".germlineVariantCalls.vcf")
+			)
+
+
+        rm(germlineVariantCalls.out)
+        invisible(gc())
+    }
+}
+rm(germlineVariantCalls.for_export, export_group_index)
+invisible(gc())
+cat("DONE\n")
+
+######################
+### Output spectra of calls, interrogated bases, and the genome
+######################
+cat("## Outputting spectra of calls, interrogated bases, and the genome...")
 
 #Helper function: plots spectrum for a given sigfit col_name
 plot_col <- function(df.input, col_name.input, output_basename_full.input){
@@ -1051,28 +1180,6 @@ cat("DONE\n")
 ######################
 cat("## Outputting sensitivity...")
 
-#For each call_class, call_type, SBSindel_call_type, for rows with sensitivity_source == "other_chromgroup", copy sensitivity column value from row with the same filtergroup that has sensitivity_source = "calculated", and change the row's sensitivity source to "calculated_other_chromgroup". If there is no such "calculated" row, then set the row's sensitivity to 1 and the sensitivity source to "default_other_chromgroup".
-sensitivity <- sensitivity %>%
-	group_by(call_class, call_type, SBSindel_call_type, filtergroup) %>%
-	mutate(
-		sensitivity.new = if_else(
-			sensitivity_source == "other_chromgroup",
-			first(sensitivity[sensitivity_source == "calculated"], default = NA),
-			sensitivity
-		),
-		
-		sensitivity_source = case_when(
-			sensitivity_source == "other_chromgroup" & is.na(sensitivity.new) ~ "default_other_chromgroup",
-			sensitivity_source == "other_chromgroup" & !is.na(sensitivity.new) ~ "calculated_other_chromgroup",
-			.default = sensitivity_source
-		),
-		
-		sensitivity = sensitivity.new %>% replace_na(1)
-	) %>%
-	relocate(sensitivity, sensitivity_source, .after = last_col()) %>%
-	ungroup %>% 
-	select(-sensitivity.new)
-
 #Output as tsv
 sensitivity %>%
 	nest_by(chromgroup, filtergroup, .keep = TRUE) %>%
@@ -1101,39 +1208,6 @@ cat("DONE\n")
 ### Output call burdens
 ######################
 cat("## Outputting call burdens...")
-
-#Add burdens corrected for sensitivity, and retain sensitivity and sensitivity_source columns in finalCalls.burdens tibble
-finalCalls.burdens <- finalCalls.burdens %>%
-	bind_rows(
-		finalCalls.burdens %>%
-			left_join(
-				sensitivity %>%
-					select(
-						analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type,
-						sensitivity, sensitivity_source
-					),
-				by = join_by(analysis_id, individual_id, sample_id, chromgroup, filtergroup, call_class, call_type, SBSindel_call_type)
-			) %>%
-
-			#Calculate sensitivity-corrected counts, burdens, and 95% confidence intervals by scaling the observed-count estimates
-			mutate(
-				num_calls = num_calls / sensitivity,
-				num_calls_lci = num_calls_lci / sensitivity,
-				num_calls_uci = num_calls_uci / sensitivity,
-				sensitivity_corrected = TRUE,
-
-				burden_calls = num_calls / interrogated_bases_or_bp,
-				burden_calls_lci = num_calls_lci / interrogated_bases_or_bp,
-				burden_calls_uci = num_calls_uci / interrogated_bases_or_bp
-			)
-	) %>%
-
-	#Set sensitivity and sensitivity_source to NA when sensitivity_corrected = FALSE
-	mutate(
-		sensitivity = if_else(sensitivity_corrected == TRUE, sensitivity, NA),
-		sensitivity_source = if_else(sensitivity_corrected == TRUE, sensitivity_source, NA)
-	) %>%
-	relocate(unique_calls, reftnc_corrected, reftnc_corrected_reference, sensitivity_corrected, sensitivity, sensitivity_source, .after = SBSindel_call_type)
 
 #Output as tsv
 finalCalls.burdens %>%
@@ -1207,36 +1281,5 @@ estimatedSBSMutationErrorProbability %>%
 				write_tsv(str_c(output_basename_full, ".estimatedSBSMutationErrorProbability.total.tsv"))
 		}
 	)
-
-cat("DONE\n")
-
-######################
-### Output qs2 data object
-######################
-cat("## Outputting qs2 data object...")
-
-qs_save(
-	lst(
-		yaml.config,
-		run_metadata,
-		individual_id,
-		sample_id = sample_id_toanalyze,
-		molecule_stats.by_run_id,
-		molecule_stats.by_analysis_id,
-		region_genome_filter_stats,
-		finalCalls,
-		finalCalls.bytype,
-		germlineVariantCalls,
-		germlineVariantCalls_for_tsv,
-		finalCalls.reftnc_spectra,
-		bam.gr.filtertrack.bytype.coverage_tnc,
-		genome.reftnc,
-		genome_chromgroup.reftnc,
-		sensitivity,
-		finalCalls.burdens,
-		estimatedSBSMutationErrorProbability
-	),
-	str_c(output_basename,".outputResults.qs2")
-)
 
 cat("DONE\n")

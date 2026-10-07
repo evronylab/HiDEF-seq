@@ -80,7 +80,7 @@ annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
   destination <- NULL
   if(!is.null(output)){
     if(is.null(bgzip) || is.null(tabix)) stop("bgzip and tabix are required for BED output")
-    destination <- pipe(paste(shQuote(bgzip), "-c >", shQuote(output)), "w")
+    destination <- pipe(paste(shQuote(bgzip), "-l 1 -c >", shQuote(output)), "w")
     on.exit(if(!is.null(destination)) try(close(destination), silent = TRUE), add = TRUE)
   }
   # A failed annotation/compressor/indexer never leaves fresh counts or an index
@@ -218,6 +218,19 @@ get_bsgenome_name <- function(yaml.config){
 
 #Function to load and format VCF
 # regions: optional tibble with columns: seqnames start_refspace end_refspace
+# Nearby VCF targets often fall in the same compressed blocks. Seek across
+# their combined span once, while retaining the exact original targets below.
+coalesce_vcf_regions <- function(regions, max_gap = 1000) {
+  regions %>%
+    group_by(seqnames) %>%
+    mutate(.lookup_group = cumsum(start_refspace >
+      lag(cummax(as.double(end_refspace)), default = -Inf) + max_gap)) %>%
+    group_by(seqnames, .lookup_group) %>%
+    summarize(start_refspace = min(start_refspace),
+              end_refspace = max(end_refspace), .groups = "drop") %>%
+    select(-.lookup_group)
+}
+
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
 
   #Check if AD, GT, and GQ tags exist
@@ -265,10 +278,15 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 	#Create regions files if specified
 	if(!is.null(regions)){
 		tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
-		regions %>%
-			arrange(seqnames,start_refspace,end_refspace) %>%
-			distinct %>%
-			write_tsv(tmpregions, col_names=FALSE)
+		regions <- regions %>%
+			arrange(seqnames,start_refspace,end_refspace) %>% distinct
+		write_tsv(regions, tmpregions, col_names=FALSE)
+    lookup_regions <- coalesce_vcf_regions(regions)
+    tmp_lookup_regions <- NULL
+    if(nrow(lookup_regions) < nrow(regions)) {
+      tmp_lookup_regions <- tempfile(tmpdir=getwd(),pattern=".")
+      write_tsv(lookup_regions, tmp_lookup_regions, col_names=FALSE)
+    }
 	}
 	
 	#Atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref]), and filter for records containing ALT alleles.
@@ -276,7 +294,10 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   
   system(paste("/bin/bash -c",shQuote(paste(
     bcftools_bin,"view",
-    if(!is.null(regions)){paste("-R",tmpregions)},
+    if(!is.null(regions)){
+      if(is.null(tmp_lookup_regions)) paste("-R",tmpregions) else
+        paste("-R",tmp_lookup_regions,"-T",tmpregions,"--targets-overlap 1")
+    },
     vcf_file,"|",
     bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
     bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
@@ -287,7 +308,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
    )))
   
   if(!is.null(regions)){
-  	file.remove(tmpregions) %>% invisible
+    file.remove(c(tmpregions, tmp_lookup_regions)) %>% invisible
   }
 
   #Load vcf file

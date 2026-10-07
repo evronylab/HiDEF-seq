@@ -26,6 +26,21 @@ suppressPackageStartupMessages(library(tidyverse))
 ######################
 source(Sys.which("sharedFunctions.R"))
 
+# Split the pipeline's generated two-field identifiers with tidyr's newer parser.
+# Preserve separate()'s replacement semantics for existing destination columns.
+separate_generated_pair <- function(data, col, into) {
+  ordinary_frame <- identical(class(data), 'data.frame')
+  unusual_frame <- !inherits(data, 'tbl_df') &&
+    (!ordinary_frame || .row_names_info(data, type=1L) > 0L ||
+       length(setdiff(names(attributes(data)), c('names','row.names','class'))) > 0L)
+  if(any(into %in% names(data)) || unusual_frame) {
+    return(tidyr::separate(data, {{ col }}, sep='_', into=into))
+  }
+  result <- tidyr::separate_wider_delim(data, {{ col }}, delim='_', names=into)
+  if(ordinary_frame) as.data.frame(result) else result
+}
+
+
 ######################
 ### Load configuration
 ######################
@@ -476,7 +491,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   var_queryspace <- cigar.queryspace.var %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
     as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
+    separate_generated_pair(group_name,into=c("zm","strand")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels)
@@ -518,8 +533,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     relist(.,cigar.refspace.var) %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
     as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
-    separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(group_name,into=c("zm","strand")) %>%
+    separate_generated_pair(names,into=c("start_queryspace","end_queryspace")) %>%
     rename(
       start_refspace = start,
       end_refspace = end
@@ -578,8 +593,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt_plus_strand") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -621,8 +636,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -723,8 +738,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual.opposite_strand") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -776,8 +791,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       as.data.table %>%
       as_tibble %>%
       filter(start==end) %>%
-      separate(seqnames,sep="_",into=c("zm","strand")) %>%
-      separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(seqnames,into=c("zm","strand")) %>%
+      separate_generated_pair(names,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),
@@ -790,7 +805,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     extract_sasmsx <- function(tag.input, tagdata.input, var_queryspace.list.input, vars_queryspace.coordconversion.input=NULL){
       result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ subset_tag_positions(.x, .y) %>% set_names(.y)) %>%
         enframe %>%
-        separate(name,sep="_",into=c("zm","strand")) %>%
+        separate_generated_pair(name,into=c("zm","strand")) %>%
         unnest_longer(col=value, values_to=tag.input, indices_to="start_queryspace") %>%
           mutate(
             zm = as.integer(zm),
@@ -927,8 +942,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
     indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
-      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
-      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(zm_strand,into=c("zm","strand")) %>%
+      separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),
@@ -938,8 +953,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     
     indels_queryspace_pos.opposite_strand <- indels_queryspace_pos.opposite_strand[, .(sa.opposite_strand = list(sa_val), sm.opposite_strand = list(sm_val), sx.opposite_strand = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
-      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
-      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(zm_strand,into=c("zm","strand")) %>%
+      separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),

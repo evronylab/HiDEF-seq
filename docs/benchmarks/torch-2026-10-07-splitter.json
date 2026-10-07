@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "scope": "55.4 GB LIB1 / 60 chunks: same-node old-SIF historical C++ binary versus final-SIF production Python splitter; complete splitting plus native indices",
+  "revision": "ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77",
+  "job_id": 19322722,
+  "status": "pass",
+  "measurement_method": "Actual user+system CPU including waited descendants; RSS is the maximum individual process, not aggregate job memory.",
+  "measurements": {
+    "cpp": {
+      "split": {
+        "actual_cpu_seconds": 2254.70218,
+        "wall_seconds": 1140.2022631170694,
+        "max_rss_kib": 528464
+      },
+      "index": {
+        "actual_cpu_seconds": 1405.7869039999998,
+        "wall_seconds": 734.8449302050285,
+        "max_rss_kib": 62608
+      },
+      "complete": {
+        "actual_cpu_seconds": 3660.564374,
+        "wall_seconds": 1875.2463432280347,
+        "max_rss_kib": 528464
+      }
+    },
+    "python": {
+      "split": {
+        "actual_cpu_seconds": 2230.420345,
+        "wall_seconds": 1975.496588241076,
+        "max_rss_kib": 895404
+      },
+      "index": {
+        "actual_cpu_seconds": 1458.1254900000001,
+        "wall_seconds": 767.618334195111,
+        "max_rss_kib": 62640
+      },
+      "complete": {
+        "actual_cpu_seconds": 3688.618341,
+        "wall_seconds": 2743.29345374112,
+        "max_rss_kib": 895404
+      }
+    }
+  },
+  "python_vs_cpp_change_percent": {
+    "actual_cpu_seconds": 0.7663836538228885,
+    "wall_seconds": 46.28976420339719,
+    "max_rss_kib": 69.43519331496563
+  },
+  "validation": {
+    "raw-records": {
+      "status": "PASS",
+      "chunks": 60,
+      "records": 10382760,
+      "criterion": "Exact ordered raw record bytes, complete header bytes and binary reference dictionaries; no numeric or order tolerance"
+    },
+    "cpp-indexes": {
+      "status": "PASS",
+      "chunks": 60,
+      "indexes": 120,
+      "criterion": "Every saved BAI/PBI payload exactly equals its own BAM index rebuild; PacBio environment matches production"
+    },
+    "python-indexes": {
+      "status": "PASS",
+      "chunks": 60,
+      "indexes": 120,
+      "criterion": "Every saved BAI/PBI payload exactly equals its own BAM index rebuild; PacBio environment matches production"
+    }
+  },
+  "runtime": {
+    "python": "3.12.3",
+    "pysam": "0.24.1",
+    "htslib": "1.24",
+    "libdeflate": true,
+    "interpreter": "python3 from container PATH"
+  },
+  "limitations": [
+    "One sequential same-node pair, C++ then Python; no randomized-order or cold-cache claim.",
+    "Measurements use actual user+system CPU including waited descendants. Complete-operation metrics include small measurement-wrapper overhead; do not add phase CPU again.",
+    "Reported worker peaks are individual-process maximum RSS from waited-child resource accounting. Whole-batch SLURM MaxRSS is recorded separately and must not be substituted for these peaks.",
+    "No memory saving is demonstrated: Python individual peak RSS is higher than C++.",
+    "No full input BAM checksum or separate input BAM scan was performed; stable inode/size/mtime/ctime/resolved path and full output equivalence are the bindings.",
+    "These component results do not establish new full-workflow scientific acceptance or workflow performance."
+  ],
+  "evidence": {
+    "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/final-sif-splitter-v1/reviewed-summary.json",
+    "sha256": "e2a81a84f5e29cdade437388e729e3bec03cf1d873873aa96ae9a075b2f42e4e",
+    "supporting_sha256": {
+      "manifest.json": "13ec46652c95bb60c77f85f8ed6324b26035ef75abc970a5e6c2d4bf0c09b112",
+      "replay.sbatch": "8c08edb4364cc06955c083b659870d7767d405a7c572a201d219b1f9211c092e",
+      "pair01/results.json": "d23700b43fdb94136003bdac3b1a45e2a4e863fcb9bb5a1040b82ee42b7ffe32",
+      "pair01/execution.json": "7fe44ca3450301e1d6c3c5af3f2403a3956a1a9443ac7a3a12866440e2c08690",
+      "final-accounting.txt": "a35ce8c2ba71e0195106c152e937604c111956839adc50a534135fd1a2bfd7f8",
+      "pair01/validation/raw-records/summary.json": "434b1a177ee08a65b1e0e7977a4281b2459b87943a2e2b89165be9ce36ecff02",
+      "pair01/validation/cpp-indexes/summary.json": "18ece664ae35555b6c0f6a2419ddd4595147d6b02ddd4a4c619fba557e83f305",
+      "pair01/validation/python-indexes/summary.json": "18ece664ae35555b6c0f6a2419ddd4595147d6b02ddd4a4c619fba557e83f305"
+    },
+    "source_sha256": {
+      "compare_bam.py": "4352877d4d716bf736ea9959a33d5a9ce56a2abed8f3843805970f1a9149a0cf",
+      "index-arm.sh": "7885de6bfeefec537627dbf67695fe93c0ea61bf71935ac650e8375c001345c5",
+      "measure.py": "118066ca249d4001997b41ea698c74fd59bedd1fe755d35c3a1228d965c0a59f",
+      "pbindex-activated.sh": "0a9189f07510155ea0a5f5dd819dac1d74635f67d4494d19b560ffc5a4f01b10",
+      "probe.py": "4f0a98d01a3ac95c0e7b51998791009d2662e7ac4330f76eac95b9b970359be3",
+      "replay.py": "0cadb8b65373944a3e1eb3e789398d92d14b483b8170565158db5f7e4a3c434c",
+      "run-arm.sh": "dad8f6b5e3a5bb522e3246ab2374389c41a76617bd7897cdec06ecf9e126d653",
+      "splitBamByZmw": "cb953b7551f9d9a509a07e32e95a0eec8a722dae99972cf4ac3c763586a548cf",
+      "splitBamByZmw.cpp": "354e5c3711365310766d84b7efad81864d956e61653e848bdc6e3f7290f39525",
+      "splitBamByZmw.py": "16e4310e273aa0de076028aa914f1e90899b46efb1ab3185e7094d04df183ac4",
+      "validate.py": "1318be430c6b895bf0412563cf88ad9b73a05dc48677318f67844fba865da168"
+    }
+  }
+}

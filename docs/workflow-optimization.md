@@ -242,7 +242,7 @@ Chunk 1's complete ordered SAM record stream matched the legacy chunk SHA256
 These measurements and hashes are retained in `runs/dispatch-benchmark/`. This
 is a historical component measurement.
 
-The new full LIB1 paired replay passed all 60 chunks and 10,382,760 ordered raw
+The initial Python full LIB1 paired replay passed all 60 chunks and 10,382,760 ordered raw
 BAM records, reference dictionaries and headers under the existing program
 command-line metadata exception (job `19299191`). Both implementations completed
 all BAI/PBI indexing. The paired costs were:
@@ -261,6 +261,28 @@ validation. It used isolated Conda Python 3.12.15/pysam 0.23.3 with libdeflate
 inside the original SIF; it does not validate a rebuilt SIF or the complete
 follow-up pipeline. Evidence is in
 `runs/python-splitter-v1/full-conda/paired-comparison-reviewed.json`.
+
+The final rebuilt-container pair (job `19322722`) uses system Python 3.12.3,
+pysam 0.24.1 and HTSlib 1.24 with libdeflate, invoked through `python3` on PATH.
+It compares the frozen C++ splitter under the old image with the production
+Python splitter under the rebuilt image on the same node and input. All 60
+chunks and 10,382,760 ordered raw records, complete headers and reference
+dictionaries matched exactly. All 240 saved BAI/PBI comparisons against fresh
+own-BAM rebuilds passed.
+
+| Operation | C++ CPU seconds | Python CPU seconds | C++ elapsed seconds | Python elapsed seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Split | 2,254.70 | 2,230.42 | 1,140.20 | 1,975.50 |
+| Index | 1,405.79 | 1,458.13 | 734.84 | 767.62 |
+| Combined | 3,660.56 | 3,688.62 | 1,875.25 | 2,743.29 |
+
+Combined actual CPU increased 0.77%; elapsed time increased 46.29%. Individual
+process peak RSS increased from 516 to 874 MiB. This port removes the custom
+C++ implementation with nearly unchanged CPU cost; it does not save memory or
+elapsed time relative to C++. This is one sequential pair, C++ then Python,
+with no randomized-order or cold-cache claim. Validation costs are excluded.
+The [component report](benchmarks/torch-2026-10-07-splitter.json) records metrics
+and evidence checksums. Full-pipeline acceptance and performance are separate.
 
 ## Processing inside the R scripts
 
@@ -443,14 +465,16 @@ without replacing the separate full-reference workflow validation.
 ## Python/R follow-up status
 
 The follow-up was authorized on 2026-10-06. Component implementation and
-benchmarks are complete; validation with the rebuilt container and a fresh
-complete workflow remains pending. The component results above apply to the
+benchmarks are complete, including inventory, fixtures and the full-size
+splitter pair under the rebuilt container. A fresh complete workflow at
+`ea8d06f` is running; its scientific comparisons and CPU/memory accounting
+remain pending. The component results above apply to the
 follow-up code. The earlier complete-workload acceptance applies to production
 revision `3911047` and does not establish acceptance of this follow-up.
 
-1. **Python BAM splitter:** implemented, with an exact full LIB1 comparison and
-   measured splitting/indexing costs. The final system-Python/pysam installation
-   still needs its full-size benchmark in the rebuilt container.
+1. **Python BAM splitter:** implemented, with exact full LIB1 comparisons and
+   measured splitting/indexing costs, including the final system-Python/pysam
+   installation in the rebuilt container.
 2. **R artifact cache:** implemented with common functions in
    `sharedFunctions.R`. Protocol and actual Nextflow cold/warm/concurrent tests
    passed. Paired closed-product cache operations measured its additional CPU

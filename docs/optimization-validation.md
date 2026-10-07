@@ -1,7 +1,11 @@
 # Optimization validation ledger
 
-This living ledger records the optimization measurements available on 2026-10-06.
-Both full workflows completed successfully. Their common downstream workload used
+This ledger records the completed full-workflow comparison of baseline
+`6b6598b` and optimized revision `3911047` on 2026-10-06. The subsequent
+Python/R revision `ea8d06f` is undergoing a separate full-workflow comparison;
+its completed component benchmarks are recorded in
+[the implementation notes](workflow-optimization.md#pythonr-follow-up-status).
+Both historical full workflows completed successfully. Their common downstream workload used
 **48.53% less actual CPU**, and the maximum burden-task Slurm RSS fell **55.64%**.
 All **711 required scientific publication paths are accepted** under the agreed
 comparison rules: 705 passed the original comparison, and two BAMs plus their

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dispatch binary BAM records to the legacy ordered ZMW ID partitions.
 
-Requires pysam from the pinned PacBio environment. Input decompression uses
+Requires pysam in the Python environment used to run this script. Input decompression uses
 --threads; each output compresses synchronously so writer count does not multiply
 the thread budget. More chunks than --max-open-writers require additional reads.
 """

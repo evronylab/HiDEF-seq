@@ -1079,6 +1079,12 @@ separate from the per-worker process RSS figures above.
 
 ## Follow-on component and chain validation
 
+The [implementation-language table](workflow-optimization.md#implementation-languages)
+annotates every selected and rejected approach. The five changes in this section
+have custom R production implementations; VCF lookup and coverage compression
+adjust existing shell/tool calls. Python and shell also appear in the separate
+test and benchmark infrastructure.
+
 Five selected changes have separate component evidence: generated-field parsing, coalesced VCF seeks, dtplyr region aggregation, earlier final-QS serialization/object release, and level-1 compression in R coverage annotation. Two subread-interval alternatives were rejected because their measured CPU/memory tradeoffs did not justify inclusion. The [implementation notes](workflow-optimization.md#follow-on-r-optimization-results) preserve each measured scope; the [compact report](benchmarks/torch-2026-10-07-followon.json) binds the original candidate, source/configuration receipts, and later integration separately.
 
 Independent review of jobs `19352943` and `19352944` passed all 128 exact QS component comparisons across 20 fresh extraction/filter workers, with zero ignored fields or numeric tolerance. Both arms matched the current pipeline reference; source, execution-copy, input and producer guards passed. LIB1 CPU fell from 5173.631 to 3293.236 seconds (36.35%), while its highest individual worker RSS fell 3.56%. LIB2 CPU fell from 4349.449 to 2790.702 seconds (35.84%), while its highest individual worker RSS rose 0.25%. Summed scientific-worker CPU across these two chunks fell from 9523.079 to 6083.938 seconds (36.11%). Exact comparisons and preflight are excluded, and process peaks are not concurrent workflow memory.

@@ -91,7 +91,17 @@
           "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-filter-v2/parser-v2/pair-source-sha256.json",
           "sha256": "d95d3acafae59df23cc3f4e4a3a0d44c9af7f9e4e2bf94db5b97b65fdc0a43af"
         }
-      ]
+      ],
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_non_r_tools": [],
+        "existing_packages": [
+          "tidyr"
+        ]
+      }
     },
     {
       "id": "vcf",
@@ -138,7 +148,17 @@
           "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/exploration-vcf-regions-v2-fixtures/fixture-results.json",
           "sha256": "6248856ef7dff9be87371c2299321661c19dad92b78f3d5a55d805e68e3f6b49"
         }
-      ]
+      ],
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_non_r_tools": [
+          "shell pipeline",
+          "bcftools"
+        ]
+      }
     },
     {
       "id": "dtplyr",
@@ -196,7 +216,18 @@
           "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-region-aggregation-v2/candidate-proof.json",
           "sha256": "841fb27a648faa05c35838a27457b42b4029dc67104d6ec6b74a4986e2057939"
         }
-      ]
+      ],
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_non_r_tools": [],
+        "existing_packages": [
+          "dtplyr",
+          "data.table"
+        ]
+      }
     },
     {
       "id": "output_lifecycle",
@@ -252,7 +283,14 @@
           "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-output-lifetime-v2/pair-v1/plan.json",
           "sha256": "1d123cccaa0885aa51b11a5dde30e7f64bb8eab2de429f6da6287dbb75a9640a"
         }
-      ]
+      ],
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_non_r_tools": []
+      }
     },
     {
       "id": "compression",
@@ -314,7 +352,17 @@
           "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-bgzip-fullrow-v1/pair-v1/plan.json",
           "sha256": "75df5039b4a972bee557f03e892c09b465fabba321c58ead189460356cefe6d2"
         }
-      ]
+      ],
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_non_r_tools": [
+          "bgzip",
+          "tabix"
+        ]
+      }
     }
   ],
   "rejected_interval_approaches": [
@@ -380,6 +428,15 @@
           "peak RSS here is per-process measurement; scheduler peak includes separate comparison processes and is not the worker figure",
           "dense failure masks can increase flattened temporary storage further"
         ]
+      },
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_packages": [
+          "Bioconductor"
+        ]
       }
     },
     {
@@ -441,6 +498,15 @@
           "runs/exploration-filter-v2-ranges-mask-v3/fixtures.json": "9abdfbf378027e8de3135f2c8dba59a5fc1ec7fbb0778b5370409bd73d8ff7eb",
           "runtime/exploration-filter-v2/ranges-mask-v3/source-sha256.json": "03e9d3d25fb89604c983ec1b54912e4445937fd2e42ab2d97d6ef0ade309e25a"
         }
+      },
+      "implementation": {
+        "custom_languages": [
+          "R"
+        ],
+        "new_custom_non_r_production_code": false,
+        "existing_packages": [
+          "Bioconductor"
+        ]
       }
     }
   ],
@@ -813,5 +879,10 @@
     "No native burden-accumulation change or performance claim is included.",
     "Historical complete-workload acceptance remains revision 3911047; the ea8 full-run validation/accounting and follow-on full-workflow acceptance remain pending.",
     "Measured source hashes remain historical. Integration hashes are separate and linked by parsed-expression identity; this documentation creation does not rerun benchmarks."
-  ]
+  ],
+  "implementation_annotation_scope": {
+    "production": "Labels distinguish custom implementation from existing command-line tools and compiled R-package internals.",
+    "test_and_benchmark_infrastructure": "R, Python and shell. The VCF regression uses a custom Python fixture driver and an R comparison. These are separate from production code.",
+    "burden_candidates": "Endpoint accumulation and native Rle addition/sharing are R implementations under evaluation; their results are outside this report."
+  }
 }

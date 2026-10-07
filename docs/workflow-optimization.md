@@ -10,6 +10,31 @@ scientific outputs under the agreed comparison rules for the earlier
 validated separately; those historical results do not establish acceptance of
 the current follow-up code.
 
+## Implementation languages
+
+The labels below describe production implementation, including orchestration.
+An R implementation can use existing packages with compiled internals without
+adding a custom C++ or Rcpp helper. Existing external tools are listed separately.
+Benchmark and regression infrastructure also uses Python and shell; the VCF
+regression test, for example, has a Python fixture driver and an R comparison.
+
+| Optimization | Custom implementation | Non-R involvement |
+|---|---|---|
+| Prepared reference summaries and germline coverage caches | R preparers; Nextflow and shell integration | Nextflow/shell orchestration and existing reference/coverage tools; no new compiled helper |
+| Artifact-cache protocol | R, including shared functions | Existing `flock`, `stat`, `sync` and `cp`; Nextflow/shell invokes the R entry point |
+| BAM dispatch | Python using `pysam`; Nextflow/shell integration | **Yes: custom Python**; existing BAM indexing tools and pysam's compiled library |
+| Extraction quality lookup and generated-field parsing | R | Existing R packages; no new custom non-R implementation |
+| Chromosome restriction, germline summaries, threshold and coordinate helpers, region-read aggregation | R | Existing R/Bioconductor packages, including dtplyr/data.table; no new custom non-R implementation |
+| Coalesced VCF lookup | R constructs the query commands | Existing shell pipeline and `bcftools`; no new Python/C++ helper |
+| Coverage accumulation and sensitivity calculations | R | Existing R/Bioconductor packages; no new custom non-R implementation |
+| Coverage annotation and lower compression level | R | Existing `bgzip` and `tabix`; legacy annotation also uses existing `bedtools` |
+| Final table formatting, VCF writer buffer and earlier object release | R | Existing R/Bioconductor packages; no new custom non-R implementation |
+| Coordinate-sort reuse, rejected | Nextflow/shell command changes | Existing `pbmerge`/`samtools`; would involve non-R orchestration |
+| Shared-session filtering, rejected | R worker plus workflow changes | Would involve Nextflow/shell orchestration |
+| Flattened interval positions and direct logical masks, rejected | R | Existing Bioconductor packages; no new custom non-R implementation |
+| Endpoint accumulation, under evaluation | R | Existing Bioconductor packages; no new custom Python/C++/Rcpp implementation |
+| Native Rle addition and immediate sharing, under evaluation | R | Uses existing Bioconductor compiled operations; no new custom Python/C++/Rcpp implementation |
+
 ## Torch launch and resource settings
 
 For each test, launch from its own run directory with its own work directory.
@@ -429,13 +454,13 @@ Five integrated changes were assembled as candidate v3 against scientific baseli
 
 ### Selected changes and component measurements
 
-| Change and measured scope | Actual CPU seconds, before → after | Process peak RSS, before → after | Scientific comparison |
-|---|---:|---:|---|
-| Generated-field parser; two alternating complete extraction pairs, LIB1 chunk 1 | 414.84 → 279.75 (−32.56%) | 8.655 → 8.073 GiB (−6.73%) | 16 exact QS component checks, including baselines against the current pipeline; 16 parser fixtures |
-| Coalesced VCF seeks; two alternating complete strict nuclear filter pairs, LIB1 chunk 1 | 1412.06 → 812.74 (−42.44%) | 12.315 → 12.359 GiB (+0.36%) | 28 exact QS component checks; 32 VCF fixtures |
-| dtplyr region aggregation; grouping and ordered joins only | 66.908 → 0.761 | No whole-filter memory claim | 432 exploratory fixture comparisons; all three alternative mappings exact on 124,090 reads and six region filters |
-| Output object lifetime; one complete LIB1 output-stage pair | 1930.72 → 1819.27 (−5.77%) | 59.529 → 43.284 GiB (−27.29%) | 311 scientific files passed, including all 18 QS components and run metadata |
-| BGZF level 1 in R annotation; one complete nuclear coverage-row pair | 2004.91 → 1086.09 (−45.83%) | 15.859 → 15.858 GiB (effectively unchanged) | 1,509,632,319 ordered rows and 45,175,589,162 decompressed bytes exact; each output's own index validated |
+| Change and measured scope | Implementation / non-R involvement | Actual CPU seconds, before → after | Process peak RSS, before → after | Scientific comparison |
+|---|---|---:|---:|---|
+| Generated-field parser; two alternating complete extraction pairs, LIB1 chunk 1 | R; no new custom non-R code | 414.84 → 279.75 (−32.56%) | 8.655 → 8.073 GiB (−6.73%) | 16 exact QS component checks, including baselines against the current pipeline; 16 parser fixtures |
+| Coalesced VCF seeks; two alternating complete strict nuclear filter pairs, LIB1 chunk 1 | R; existing shell/`bcftools` commands | 1412.06 → 812.74 (−42.44%) | 12.315 → 12.359 GiB (+0.36%) | 28 exact QS component checks; 32 VCF fixtures |
+| dtplyr region aggregation; grouping and ordered joins only | R; existing dtplyr/data.table packages | 66.908 → 0.761 | No whole-filter memory claim | 432 exploratory fixture comparisons; all three alternative mappings exact on 124,090 reads and six region filters |
+| Output object lifetime; one complete LIB1 output-stage pair | R; no new custom non-R code | 1930.72 → 1819.27 (−5.77%) | 59.529 → 43.284 GiB (−27.29%) | 311 scientific files passed, including all 18 QS components and run metadata |
+| BGZF level 1 in R annotation; one complete nuclear coverage-row pair | R; existing `bgzip`/`tabix` commands | 2004.91 → 1086.09 (−45.83%) | 15.859 → 15.858 GiB (effectively unchanged) | 1,509,632,319 ordered rows and 45,175,589,162 decompressed bytes exact; each output's own index validated |
 
 The parser uses `tidyr::separate_wider_delim()` at 16 generated underscore-field sites. Colliding names and unusual data-frame attributes retain the original parser. VCF lookup coalesces nearby seek intervals, then applies the original fine targets with matching overlap semantics before the unchanged normalization steps. Duplicate records, ordering, deletion overlap and target boundaries remain covered by exact fixtures.
 
@@ -461,6 +486,9 @@ Memory changes varied by operation. Strict nuclear filter peaks increased 2.63% 
 ### Rejected interval approaches
 
 Candidate v3 retains the original subread interval construction. Flattened positions with native compressed reduction passed all 28 complete-filter component checks and reduced worker CPU by 9.22%, but increased process peak RSS by 8.94%. That whole-worker pair measured the earlier unguarded source; a separate integer-overflow guard later passed boundary and real-constructor tests. Dense failure masks remain a temporary-memory concern.
+
+Both interval alternatives use R with existing Bioconductor operations; neither
+would add a custom non-R production helper.
 
 Direct logical masks passed 192 fixtures and four real constructor comparisons, but increased constructor CPU from 148.64 to 369.29 seconds for only 4.46% lower diagnostic-process peak RSS. Those CPU timings exclude loading and serialization, whereas the diagnostic RSS includes them. Neither interval approach is included in candidate v3.
 
@@ -530,7 +558,8 @@ The follow-up was authorized on 2026-10-06. The rebuilt-container Python/R chang
 4. **data.table/dtplyr evaluation:** `fread`/`fwrite` handle coverage I/O. The earlier two pure-R filtering changes retained their measured 5.10% mean complete-worker CPU reduction. Subsequent profiling selected an immutable dtplyr grouping step for region-read filters, preserving `base::mean`, threshold expressions and ordered joins. Combined extraction/filter results are recorded in the [follow-on section](#follow-on-r-optimization-results); no broad dtplyr conversion was made.
 5. **Rcpp evaluation:** profiling did not identify a further candidate with
    demonstrated dramatic gains after removing the selected R overhead. No new
-   custom compiled helper was added for incremental gains.
+   custom compiled helper was added for incremental gains. An Rcpp implementation
+   would involve custom C++ called from R; none is selected here.
 
 For all five items, retain the agreed scientific comparison rules and record
 performance regressions as well as improvements. Judge aggregate performance by

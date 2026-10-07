@@ -25,7 +25,7 @@ The HiDEF-seq analysis pipeline is designed to be run by Nextflow and a pre-conf
 
 HiDEF-seq is orchestrated with [Nextflow](https://www.nextflow.io/), which can execute pipelines on local workstations, high-performance computing clusters, and the cloud.
 
-Specifically, we configured this GitHub repository to be able to be directly run by Nextflow via the [main.nf](main.nf) script. This main pipeline script includes a set of workflows that cover each step of the analysis. Each workflow is comprised of a set of processes that execute either bash or [R](https://www.r-project.org/) scripts that Nextflow can be configured to run within our pre-configured HiDEF-seq docker image.
+Specifically, we configured this GitHub repository to be able to be directly run by Nextflow via the [main.nf](main.nf) script. This main pipeline script includes a set of workflows that cover each step of the analysis. Each workflow is comprised of processes that execute shell commands, [R](https://www.r-project.org/) scripts, or the Python BAM splitter within the HiDEF-seq container.
 
 ### Create a Nextflow configuration file
 
@@ -42,6 +42,58 @@ We provide a fully configured docker image for the pipeline at `docker://gevrony
 When using singularity, download the docker image into an .sif file with `singularity pull docker://gevrony/hidef-seq:3.0`, and set `hidefseq_container` parameter to that.
 
 This docker image can be utilized by the Nextflow pipeline by setting the `hidefseq_container` parameter in the pipeline's [YAML parameters file](#yaml-parameters-file) to point either to the docker link or to the singularity. sif file.
+
+The `optimization` branch additionally requires `pysam` with libdeflate support
+for its Python BAM splitter. The tested 3.0 container has system Python 3.12 at
+`/usr/bin/python3`, but no system pip. Run the following as root while building
+the writable container:
+
+```bash
+apt-get update
+apt-get install --no-install-recommends python3-pip
+
+env -u HTSLIB_LIBRARY_DIR -u HTSLIB_INCLUDE_DIR -u HTSLIB_LIBRARY_MODE \
+  PYTHONNOUSERSITE=1 \
+  CPPFLAGS=-I/hidef/miniconda3/include/python3.12 \
+  HTSLIB_CONFIGURE_OPTIONS=--with-libdeflate \
+  /usr/bin/python3 -m pip install \
+    --no-cache-dir --no-deps --no-binary=pysam \
+    --target /usr/local/lib/python3.12/dist-packages pysam==0.24.1
+
+/usr/bin/python3 -c 'import pysam, pysam.config; print(pysam.__version__); assert pysam.config.HAVE_LIBDEFLATE == 1'
+```
+
+The existing Conda installation supplies only Python 3.12 header files for
+compilation; no Conda packages are installed or changed. The source build uses
+pysam's [bundled HTSlib](https://pysam.readthedocs.io/en/latest/installation.html)
+and existing system compiler/compression libraries. Both tested upstream
+0.23.3 and 0.24.1 Linux wheels lacked libdeflate, so the command builds pysam
+from source. `--no-deps` avoids installing other runtime Python packages;
+`--target` selects the existing system Python's local package directory.
+There is no new environment or wrapper.
+
+The 2026-10-07 apt simulation with current Ubuntu metadata showed that
+`--no-install-recommends` adds pip, setuptools and wheel and updates only
+`python3-pkg-resources`. Omitting that option also updates system Python and
+native libraries used by existing pipeline tools. Package plans can change;
+the observed minimal plan does not modify either Conda installation or the
+pipeline's native libraries.
+
+The native source build passed all splitter fixtures and dependency checks in
+job `19321297`, using a project-local test target. All 13 extension libraries
+resolved only package-local or existing system libraries under both normal
+and PacBio-activated environments, without Conda runtime libraries. The test
+used temporary pip 26.2.1; apt currently provides pip 24.0. The apt installation
+was simulated, and the rebuilt SIF still requires inventory and full-workflow
+validation. The earlier full LIB1 benchmark used pysam 0.23.3 in an isolated
+test Conda installation; neither version is enforced by the splitter itself.
+
+Save the rebuilt image under a new filename and set `hidefseq_container` to it.
+The workflow uses `python3` from the container's PATH; no Python path entry is
+needed in the run YAML. The pipeline does not install Python packages during
+tasks.
+Prepared-cache operations use R with `jsonlite`, `digest` and `openssl`, plus
+Linux `flock`, `stat` and `sync`, already available in the tested 3.0 environment.
 
 ## Reference genome
 The pipeline requires reference genome files and multiple derivative files, which can be prepared per below.

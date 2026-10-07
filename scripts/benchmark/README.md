@@ -509,52 +509,93 @@ fixtures on compute, without loading the real QS or running timed workers.
 
 ## Coverage annotation validation and replay
 
-The workflow compiles `bin/annotateCoverage.cpp` in the pinned container and
-stages it as an explicit burden-task input. `calculateBurdens.R` accepts the
-optional `--coverage-annotator` path; direct calls without it retain the legacy
-annotation. A reference with any legacy-ambiguous contig name also uses that
-path. The original R BED writer and `chunk_runs=1e7` remain unchanged, as do
-the final QS and published BED/count schemas.
+`calculateBurdens.R` now calls the R coverage functions in `sharedFunctions.R`.
+The default `--coverage-annotation r` uses bounded reference windows and native
+`data.table::fwrite` buffers piped to bgzip. `--coverage-annotation legacy` selects
+the original annotation chain; compressed FASTA and references with ambiguous
+contig names also use that fallback. The original R BED writer and
+`chunk_runs=1e7` remain unchanged, as do the final QS and published BED schemas.
 
 Run these small fixtures on an allocated compute node in the pinned container,
 with `/hidef/bin` on PATH. Use fresh fixture output directories:
 
 ```sh
-mkdir -p build
-g++ -O3 -std=c++17 -Wall -Wextra bin/annotateCoverage.cpp \
-  -o build/annotateCoverage -lhts -Wl,-rpath,/usr/local/lib
 python3 tests/test_annotate_coverage.py \
-  --helper build/annotateCoverage --output-dir test-results/coverage-helper
+  --output-dir test-results/coverage-helper
 Rscript --vanilla tests/test_coverage_annotation_dispatch.R \
-  bin/calculateBurdens.R build/annotateCoverage \
+  bin/calculateBurdens.R bin/sharedFunctions.R \
   test-results/coverage-helper test-results/coverage-dispatch
 ```
 
-The Python fixture compares the original reference preprocessing and complete
-BED annotation chain with the helper. The R fixture extracts actual production
-functions, CLI options and dispatch expression; it verifies fallback for an
-uncovered unsafe contig, a FAI without a final newline, aggregate/counts-only
-and empty output, quoted paths, and failure propagation through compression and
-indexing before downstream results can be saved.
+The Python fixture produces independent expected outputs using the original
+reference preprocessing and complete annotation chain. The R fixture extracts
+the actual production functions, CLI options and dispatch expression. It checks
+reference boundaries, context/count formatting, fractional and large depths,
+small windows, wrapped FASTA, fallback, empty/counts-only output and propagation
+of input, compression and indexing failures.
 
-For a real-data complete-operation replay, use the **original baseline**
-`calculateBurdens.R`: the benchmark deliberately extracts its unchanged writer
-and original annotation expressions. It does not parse the integrated dispatch
-as a new legacy implementation.
+For historical C++ comparisons, obtain the removed helper from the revision that
+was actually benchmarked. Compilation is only for this reference arm; the
+production workflow no longer compiles it:
 
 ```sh
-python3 scripts/benchmark/benchmark_coverage_annotation.py \
-  --input /path/to/original.outputResults.qs2 \
+mkdir -p build
+git show 604ce8c:bin/annotateCoverage.cpp > build/annotateCoverage.cpp
+g++ -O3 -std=c++17 -Wall -Wextra build/annotateCoverage.cpp \
+  -o build/annotateCoverage -lhts -Wl,-rpath,/usr/local/lib
+
+Rscript --vanilla scripts/benchmark/benchmark_coverage_annotation.R prepare \
+  /path/to/original.outputResults.qs2 /path/to/new-packet.qs2 1-22X strict all
+
+python3 scripts/benchmark/benchmark_r_coverage_annotation.py \
+  --packet /path/to/new-packet.qs2 \
   --baseline-script /path/to/baseline/bin/calculateBurdens.R \
+  --candidate-script bin/calculateBurdens.R \
+  --shared-functions bin/sharedFunctions.R \
   --helper build/annotateCoverage \
-  --chromgroup 1-22X --filtergroup strict --chromosomes all \
-  --output /path/to/new-coverage-replay --repeats 1 --allocated-cpus 4
+  --consumer-test tests/test_coverage_annotation_consumer.R \
+  --chromosomes all --output /path/to/new-coverage-replay \
+  --repeats 1 --allocated-cpus 4
 ```
 
-This prepares a benchmark-only coverage packet, then freezes and measures each
-complete worker independently. It compares every decompressed BED byte, numeric
-context-count maps, Tabix contig lists and boundary queries. Preparation and
-scientific comparison are outside worker CPU timings. Distinguish process RSS,
-sampled summed process-group RSS (which may count shared pages repeatedly), and
-whole-job Slurm accounting. The completed full nuclear result and its node
-colocation limitation are documented in `docs/optimization-validation.md`.
+The baseline script above must be the original `6b6598b` version; its unchanged
+BED writer is checked against the candidate. The replay freezes and measures
+complete C++ and R workers, compares decompressed BED bytes, context-count maps
+and indexed queries, and rebuilds each output's own Tabix index. The consumer
+test checks ordered downstream count tables and their QS2 round trip; it does
+not replace a complete burden-task scientific comparison. Preparation and
+validation costs are reported separately from worker CPU. Historical original
+outputs may additionally be supplied with `--historical-directory`. Preserve
+all historical reports and distinguish them from the new R-port measurements.
+
+## R artifact-cache validation and replay
+
+Run the protocol tests inside the HiDEF container on an allocated node. The
+optional frozen Python helper enables mixed Python/R locking and manifest
+interoperability checks:
+
+```sh
+mkdir -p build
+git show 604ce8c:bin/artifactCache.py > build/artifactCache.py
+ARTIFACT_CACHE_PYTHON="$PWD/build/artifactCache.py" \
+  python3 -m unittest discover -s tests -p test_artifact_cache.py -v
+
+python3 scripts/benchmark/benchmark_r_artifact_cache.py \
+  --python-helper build/artifactCache.py \
+  --r-helper bin/artifactCache.R \
+  --product reference-summary=/absolute/path/to/existing/summary.qs2 \
+  --product library=/absolute/path/to/existing/library-directory \
+  --out /absolute/path/to/new-cache-replay --repeats 3
+```
+
+The replay alternates language order and runs each operation in a fresh worker.
+Cold measurements include the same `cp --reflink=never` closed-product builder,
+verification, durable publication and startup. Warm measurements verify and
+restore the same products with hard links; they fail if the builder executes.
+The driver checks product bytes, manifests, hard links and unchanged source
+metadata. It removes only the temporary product/cache copies it created.
+Outputs must use a new directory. This measures cache overhead, not scientific
+preparation; filesystem page-cache state is uncontrolled. CPU includes waited-for
+children, and RSS is the maximum individual process/child value rather than a
+sum of concurrent processes. Actual workflow behavior is separately exercised
+by `tests/test_prepared_cache_workflow.py`.

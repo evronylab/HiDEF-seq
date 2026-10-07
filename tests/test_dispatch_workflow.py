@@ -6,10 +6,11 @@ fixture.nf with Nextflow on compute, then verify in that container. The fixture
 extracts production process definitions, channel wiring and tuple expansion.
 """
 import argparse
+import csv
 import json
 from pathlib import Path
 import subprocess
-from test_split_bam_dispatch import fixture, record, run
+from test_split_bam_dispatch import binary_records, fixture, record, run
 
 
 def generate(args):
@@ -18,7 +19,8 @@ def generate(args):
     repo = Path(args.repo).resolve()
     source = (repo / 'main.nf').read_text()
     helpers = source[source.index('//Define output directories'):source.index('def signatureYaml()')]
-    helpers += source[source.index('def nearestExistingPath('):source.index('def cachedBuild(')]
+    helpers += source[source.index('def fileSha256('):source.index('// Metadata identities')]
+    helpers += source[source.index('def shellQuote('):source.index('def cachedBuild(')]
     processes = source[source.index('process countAnalysisZMWs {'):source.index('/*\n  installBSgenome:')]
     begin = source.index('  countAnalysisZMWs(mergeAlignedSampleBAMs.out)')
     end = source.index('  //******************\n  // installBSgenome', begin)
@@ -48,7 +50,7 @@ def generate(args):
         analysis_output_dir=str(directory / 'published'), output_intermediate_files=True,
         hidefseq_container=args.container,
         conda_base_script=args.conda_base_script, conda_pbbioconda_env=args.conda_env,
-        samtools_bin=args.samtools)
+        samtools_bin=args.samtools, python_bin=args.python)
     (directory / 'params.json').write_text(json.dumps(configuration, indent=2) + '\n')
     print('Generated:', directory / 'fixture.nf')
 
@@ -95,6 +97,8 @@ def verify(args):
             run([args.zmwfilter, '--include', include, original, legacy])
             if run([args.samtools, 'view', '--no-PG', legacy]).stdout != run([args.samtools, 'view', '--no-PG', row[2]]).stdout:
                 raise AssertionError('Record/tag/order difference in ' + basename)
+            if binary_records(legacy) != binary_records(Path(row[2])):
+                raise AssertionError('Exact binary record difference in ' + basename)
             for line in run([args.samtools, 'view', '--no-PG', '-H', original]).stdout.splitlines():
                 if line not in run([args.samtools, 'view', '--no-PG', '-H', row[2]]).stdout.splitlines():
                     raise AssertionError('Original header line missing')
@@ -105,9 +109,32 @@ def verify(args):
     print(json.dumps(report, indent=2))
 
 
+def verify_cache(args):
+    directory = Path(args.directory).resolve()
+    traces = {}
+    for phase in ('first', 'resume', 'source-change'):
+        with (directory / (phase + '.trace.tsv')).open() as handle:
+            traces[phase] = {row['name']: row for row in csv.DictReader(handle, delimiter='\t')}
+        if len(traces[phase]) != 5:
+            raise AssertionError('Expected three enumeration and two split tasks: ' + phase)
+    for name, first in traces['first'].items():
+        resumed, changed = traces['resume'][name], traces['source-change'][name]
+        if first['status'] != 'COMPLETED' or resumed['status'] != 'CACHED' or first['hash'] != resumed['hash']:
+            raise AssertionError('Unchanged resume did not reuse task: ' + name)
+        is_split = name.startswith('splitBAM ')
+        if changed['status'] != ('COMPLETED' if is_split else 'CACHED'):
+            raise AssertionError('Source edit invalidated wrong task: ' + name)
+        if (changed['hash'] != first['hash']) != is_split:
+            raise AssertionError('Source-content cache key did not isolate split task: ' + name)
+    report = {'status': 'pass', 'first_tasks': 5, 'resumed_tasks': 5,
+              'source_change_reexecuted_split_tasks': 2, 'source_change_cached_enumerations': 3}
+    (directory / 'cache-validation.json').write_text(json.dumps(report, indent=2) + '\n')
+    print(json.dumps(report, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['generate', 'verify'])
+    parser.add_argument('mode', choices=['generate', 'verify', 'verify-cache'])
     parser.add_argument('--directory', required=True)
     parser.add_argument('--repo', default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument('--samtools', default='samtools')
@@ -116,10 +143,11 @@ def main():
     parser.add_argument('--container')
     parser.add_argument('--conda-base-script')
     parser.add_argument('--conda-env')
+    parser.add_argument('--python', default='/hidef/bin/pbconda/bin/python')
     args = parser.parse_args()
     if args.mode == 'generate' and not all((args.container, args.conda_base_script, args.conda_env)):
         parser.error('generate requires container, conda-base-script and conda-env')
-    (generate if args.mode == 'generate' else verify)(args)
+    {'generate': generate, 'verify': verify, 'verify-cache': verify_cache}[args.mode](args)
 
 
 if __name__ == '__main__':

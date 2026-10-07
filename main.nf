@@ -222,6 +222,7 @@ def publicationMode(workDirectory, outputDirectory) {
 // Resolve once before process declarations: publishDir mode must be a String,
 // and strict process directive scope does not resolve script helper calls.
 params.publication_mode = publicationMode(workflow.workDir, params.analysis_output_dir)
+params.python_bin = params.containsKey('python_bin') && params.python_bin ? params.python_bin : 'python3'
 
 def cachedBuild(entry, products, command) {
   def productOptions = products.collect { '--product ' + shellQuote(it) }.join(' ')
@@ -234,7 +235,7 @@ def cachedBuild(entry, products, command) {
   set -euo pipefail
   ${command}
   HIDEF_CACHE_BUILD
-  python3 ${shellQuote(params.cache_helper)} run --root ${shellQuote(params.prepared_cache_root)} --identity .cache.identity.json ${productOptions} -- bash .cache.build.sh
+  Rscript --vanilla ${shellQuote(params.cache_helper)} run --root ${shellQuote(params.prepared_cache_root)} --identity .cache.identity.json ${productOptions} -- bash .cache.build.sh
   """.stripIndent()
 }
 
@@ -327,13 +328,13 @@ workflow {
     processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
     extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
     filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R"), coverageAnnotatorSourceHash: fileSha256("${workflow.projectDir}/bin/annotateCoverage.cpp")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'coverageAnnotatorSourceHash', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
     outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
   ]
 
   // Scoped prepared artifacts: changing one individual's VCF inputs does not
   // invalidate the reference, other individuals, or independent region tracks.
-  params.cache_helper = "${workflow.projectDir}/bin/artifactCache.py".toString()
+  params.cache_helper = "${workflow.projectDir}/bin/artifactCache.R".toString()
   params.prepared_cache_root = "${file(params.cache_dir).toAbsolutePath()}/prepared".toString()
   inputIdentities = [:]
   identifyInput = { source ->
@@ -352,7 +353,8 @@ workflow {
     def processSource = workflowSource.substring(start, end < 0 ? workflowSource.length() : end)
     def scriptHashes = scripts.collectEntries { script -> [(script): fileSha256("${workflow.projectDir}/bin/${script}")] }
     scriptHashes['process'] = java.security.MessageDigest.getInstance('SHA-256').digest(processSource.getBytes('UTF-8')).encodeHex().toString()
-    scriptHashes['artifactCache.py'] = fileSha256(params.cache_helper)
+    scriptHashes['artifactCache.R'] = fileSha256(params.cache_helper)
+    scriptHashes['sharedFunctions.R'] = fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")
     def toolIdentities = [container: containerIdentity]
     settings.findAll { name, value -> name in ['seqkit', 'bgzip', 'tabix', 'bcftools', 'samtools', 'bedGraphToBigWig', 'wiggletools', 'wigToBigWig'] }.each { name, executable ->
       toolIdentities[name] = file(executable).exists() ? identifyInput.call(executable) : [kind: 'container-command', command: executable]
@@ -825,7 +827,9 @@ workflow {
   //******************
 
   countAnalysisZMWs(mergeAlignedSampleBAMs.out)
-  compileBamDispatcher(channel.value(file("${projectDir}/bin/splitBamByZmw.cpp", checkIfExists: true)))
+  bam_dispatcher_ch = channel.value(tuple(
+    file("${projectDir}/bin/splitBamByZmw.py", checkIfExists: true),
+    fileSha256("${projectDir}/bin/splitBamByZmw.py")))
 
   // Keep the exact legacy enumeration once, and dispatch all chunks per sample.
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
@@ -840,7 +844,7 @@ workflow {
         [tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, zmwIdsFile, effective_chunks)]
       }
 
-  splitBAM(splitBAM_input_ch, compileBamDispatcher.out)
+  splitBAM(splitBAM_input_ch, bam_dispatcher_ch)
   splitBAM_chunks_ch = splitBAM.out.flatMap { individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks ->
     expandAnalysisChunks(individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks)
   }
@@ -997,8 +1001,7 @@ workflow {
       }
 
   // Run process
-  compileCoverageAnnotator(channel.value(file("${projectDir}/bin/annotateCoverage.cpp", checkIfExists: true)))
-  calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch, compileCoverageAnnotator.out)
+  calculateBurdensChromgroupFiltergroup(calculateBurdensChromgroupFiltergroup_input_ch)
 
   //******************
   // outputResultsSample
@@ -1462,26 +1465,6 @@ process countAnalysisZMWs {
     """
 }
 
-/* Compile once in the pinned container; the small source is a content-hashed input. */
-process compileBamDispatcher {
-    cpus 1
-    memory '1 GB'
-    time '10m'
-    container "${params.hidefseq_container}"
-    cache 'deep'
-
-    input:
-      path(dispatcherSource)
-
-    output:
-      path('splitBamByZmw')
-
-    script:
-    """
-    g++ -O2 -std=c++17 ${dispatcherSource} -o splitBamByZmw -lhts -Wl,-rpath,/usr/local/lib
-    """
-}
-
 /*
   splitBAM: Dispatch all legacy partitions per sample, then index sequentially.
 */
@@ -1506,7 +1489,7 @@ process splitBAM {
 
     input:
       tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), path(zmwIdsFile), val(effectiveChunks)
-      path(dispatcher)
+      tuple path(dispatcher), val(dispatcher_source_hash)
 
     output:
       tuple val(individual_id), val(sample_id),
@@ -1519,7 +1502,7 @@ process splitBAM {
     def prefix = "${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted"
     """
     set -euo pipefail
-    ./${dispatcher} --input ${bamFile} --ids ${zmwIdsFile} --chunks ${effectiveChunks} \
+    ${shellQuote(params.python_bin)} ${shellQuote(dispatcher)} --input ${bamFile} --ids ${zmwIdsFile} --chunks ${effectiveChunks} \
       --output-prefix ${prefix} --threads ${task.cpus} --max-open-writers 128
 
     source ${params.conda_base_script}
@@ -1893,26 +1876,6 @@ process filterCallsChunkChromgroupFiltergroup {
     """
 }
 
-/* Compile once; explicit source content identity is confined to burden tasks. */
-process compileCoverageAnnotator {
-    cpus 1
-    memory '1 GB'
-    time '10m'
-    container "${params.hidefseq_container}"
-    cache 'deep'
-
-    input:
-      path(annotatorSource)
-
-    output:
-      path('annotateCoverage')
-
-    script:
-    """
-    g++ -O3 -std=c++17 -Wall -Wextra ${annotatorSource} -o annotateCoverage -lhts -Wl,-rpath,/usr/local/lib
-    """
-}
-
 /*
   calculateBurdensChromgroupFiltergroup: Run calculateBurdens.R for each sample_id x chromgroup x filtergroup combination
 */
@@ -1950,7 +1913,6 @@ process calculateBurdensChromgroupFiltergroup {
 
     input:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path(filterCallsFiles), val(config_sig)
-      path(coverageAnnotator)
 
     output:
       tuple val(individual_id), val(sample_id), val(chromgroup), val(filtergroup), path("${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2"), emit: tuple_qs2
@@ -1958,7 +1920,7 @@ process calculateBurdensChromgroupFiltergroup {
 
     script:
     """
-    calculateBurdens.R --coverage-annotator './${coverageAnnotator}' -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 

@@ -46,8 +46,8 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-	make_option(c("--coverage-annotator"), type = "character", default=NULL, dest="coverage_annotator",
-							help="optional compiled coverage annotation helper"),
+	make_option(c("--coverage-annotation"), type = "character", default="r", dest="coverage_annotation",
+							help="coverage annotation method: r (default) or legacy"),
 	make_option(c("-o", "--output"), type = "character", default=NULL,
 							help="output qs2 file")
 )
@@ -797,46 +797,13 @@ coverage_annotation_rows %>%
 		}
 	)
 
-use_coverage_annotator <- function(helper, fasta, fai){
-	if(is.null(helper)) return(FALSE)
-	if(length(helper) != 1L || is.na(helper) || !nzchar(helper) ||
-		!file.exists(helper) || file.access(helper, 1L) != 0L){
-		stop("Configured coverage annotator is not executable")
-	}
-	if(!file.exists(fasta) || !file.exists(fai) ||
-		file.access(fasta, 4L) != 0L || file.access(fai, 4L) != 0L){
-		stop("Coverage annotation requires readable FASTA and FAI files")
-	}
-	contigs <- vapply(strsplit(readLines(fai, warn = FALSE), "\t", fixed = TRUE), `[`, character(1), 1L)
-	# The legacy seqkit/awk reference parser splits these names. Preserve its
-	# behavior by choosing the original path before any annotation output.
-	!any(grepl("[:\\-\\t\\r\\n ]", contigs, perl = TRUE))
-}
-
-annotate_coverage_row <- function(helper, input, fasta, fai, row_id, counts,
-	output = NULL, bgzip = NULL, tabix = NULL){
-	command <- paste(shQuote(helper), "--bed", shQuote(input),
-		"--fasta", shQuote(fasta), "--fai", shQuote(fai),
-		"--row-id", shQuote(as.character(row_id)), "--counts", shQuote(counts))
-	if(!is.null(output)){
-		command <- paste(command, "--bed-output - |", shQuote(bgzip),
-			"-c >", shQuote(output), "&&", shQuote(tabix),
-			"-@2 -s1 -b2 -e3", shQuote(output))
-	}
-	status <- suppressWarnings(system2("/bin/bash", args = "-s",
-		input = c("set -euo pipefail", command)))
-	if(status != 0L) stop("Coverage annotation pipeline failed for row ", row_id,
-		" (exit status ", status, ")")
-	invisible(file.remove(input))
-}
-
-if(use_coverage_annotator(opt$coverage_annotator, yaml.config$genome_fasta, yaml.config$genome_fai)){
+if(use_r_coverage_annotation(yaml.config$genome_fasta, yaml.config$genome_fai, opt$coverage_annotation)){
 	coverage_annotation_rows %>% pwalk(function(...){
 		x <- list(...)
 		output <- if(x$bc_orientation == "all_bc_orientations"){
 			get_coverage_reftnc_output_file(x$call_class, x$call_type, x$SBSindel_call_type)
 		}else NULL
-		annotate_coverage_row(opt$coverage_annotator,
+		annotate_coverage_row(
 			str_c(x$annotation_row_id, ".bed"), yaml.config$genome_fasta,
 			yaml.config$genome_fai, x$annotation_row_id,
 			str_c(x$annotation_row_id, ".reftnc_plus_strand.tsv"),

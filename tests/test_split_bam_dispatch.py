@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run inside the pinned container; compare the dispatcher with zmwfilter.
 
-The caller compiles splitBamByZmw.cpp, activates the PacBio environment, and
-provides a new output directory. No Python packages beyond stdlib are needed.
+The caller supplies splitBamByZmw.py, activates an environment with pysam and
+the PacBio tools, and provides a new output directory.
 Missing-tag/QNAME disagreement probes verify the observed legacy behavior:
 missing zm is indexed as zero and an existing zm takes precedence over QNAME.
 """
@@ -42,6 +42,20 @@ def record(movie, hole, position, flag=0, zm=True, qname_hole=None):
     return "\t".join(fields + tags)
 
 
+def binary_records(bam):
+    """Keep exact float bits and auxiliary encodings that SAM text can hide."""
+    data = gzip.decompress(bam.read_bytes())
+    if data[:4] != b"BAM\x01":
+        raise AssertionError("Fixture is not BAM")
+    offset = 8 + struct.unpack_from("<i", data, 4)[0]
+    references = struct.unpack_from("<i", data, offset)[0]
+    offset += 4
+    for _ in range(references):
+        name_length = struct.unpack_from("<i", data, offset)[0]
+        offset += 4 + name_length + 4
+    return data[offset:]
+
+
 def compare(args, directory, bam, header, ids, label, chunks, max_writers=16):
     ids_file = directory / (label + ".ids.txt")
     ids_file.write_text("".join(str(item) + "\n" for item in ids))
@@ -64,9 +78,11 @@ def compare(args, directory, bam, header, ids, label, chunks, max_writers=16):
         actual = run([args.samtools, "view", "--no-PG", candidate]).stdout
         if actual != expected:
             raise AssertionError(f"{label} chunk {chunk}: SAM records/tags/order differ")
+        if binary_records(candidate) != binary_records(legacy):
+            raise AssertionError(f"{label} chunk {chunk}: exact binary BAM records differ")
         actual_header = run([args.samtools, "view", "--no-PG", "-H", candidate]).stdout.splitlines()
-        if any(line not in actual_header for line in header):
-            raise AssertionError(f"{label} chunk {chunk}: original header line missing")
+        if actual_header != header:
+            raise AssertionError(f"{label} chunk {chunk}: original header changed")
         run([args.samtools, "quickcheck", candidate])
         run([args.samtools, "index", candidate])
         run([args.pbindex, candidate])
@@ -124,12 +140,19 @@ def main():
     results["enumerated"] = compare(args, directory, bam, header, ids, "enumerated", min(3, len(ids)))
     results["duplicate_ids_cross_chunks"] = compare(args, directory, bam, header,
                                                      [11, 7, 11, 13, 22], "duplicate_ids", 3)
+    results["duplicate_ids_within_chunk"] = compare(args, directory, bam, header,
+                                                     [11, 11, 7, 13, 22], "duplicates_within", 2)
     results["one_chunk"] = compare(args, directory, bam, header, ids, "one_chunk", 1)
     results["one_id_per_chunk"] = compare(args, directory, bam, header, ids, "one_id_per_chunk", len(ids))
     results["writer_groups_one"] = compare(args, directory, bam, header,
                                             [11, 7, 11, 13, 22], "writer_groups_one", 3, max_writers=1)
     results["writer_groups_two"] = compare(args, directory, bam, header,
                                             [11, 7, 11, 13, 22], "writer_groups_two", 3, max_writers=2)
+    many_bam, many_header = fixture(args.samtools, directory, "many_chunks", [
+        record("movieA", hole, hole) for hole in range(1, 130)])
+    run([args.pbindex, many_bam])
+    results["writer_groups_129"] = compare(args, directory, many_bam, many_header,
+                                            list(range(1, 130)), "writer_groups_129", 129, max_writers=128)
     # More than 65,535 CIGAR operations are represented using CG:B:I in BAM.
     # Compare interpreted records/tags and order, never compressed BAM bytes.
     long_fields = record("movieA", 77, 10).split("\t")
@@ -184,6 +207,25 @@ def main():
     if rejected.returncode == 0 or list(directory.glob("truncated.chunk*.bam")):
         raise AssertionError("truncated input was not rejected before output creation")
     results["missing_eof"] = "rejected before output creation"
+    # A failed rerun must leave every existing chunk untouched.
+    existing = directory / "enumerated.chunk1.bam"
+    existing_bytes = existing.read_bytes()
+    overwrite = subprocess.run([args.dispatcher, "--input", str(bam), "--ids", str(directory / "enumerated.ids.txt"),
+                                "--chunks", "3", "--output-prefix", str(directory / "enumerated")],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if overwrite.returncode == 0 or existing.read_bytes() != existing_bytes:
+        raise AssertionError("existing output was not protected")
+    results["overwrite"] = "rejected without changing existing output"
+    for label, tag in [("string_zm", "zm:Z:11"), ("negative_zm", "zm:i:-1"),
+                       ("large_zm", "zm:i:2147483648"), ("float_zm", "zm:f:11")]:
+        invalid_bam, _ = fixture(args.samtools, directory, label,
+                                 [record("movieA", 11, 1).replace("zm:i:11", tag)])
+        invalid = subprocess.run([args.dispatcher, "--input", str(invalid_bam), "--ids", str(directory / "enumerated.ids.txt"),
+                                  "--chunks", "1", "--output-prefix", str(directory / (label + "_out"))],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if invalid.returncode == 0:
+            raise AssertionError(label + " was not rejected")
+        results[label] = "rejected"
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
     if compatibility_failures:

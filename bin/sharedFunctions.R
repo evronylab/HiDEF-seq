@@ -36,6 +36,162 @@ reference_counts_for_chromosomes <- function(counts, chromosomes) {
   Reduce(`+`, counts[chromosomes])
 }
 
+# Coverage annotation works in bounded genomic windows. It never expands a
+# whole chromosome or holds its sequence alongside the coverage RleLists.
+coverage_annotation_index <- function(fasta, fai){
+  if(!file.exists(fasta) || !file.exists(fai) ||
+     file.access(fasta, 4L) != 0L || file.access(fai, 4L) != 0L)
+    stop("Coverage annotation requires readable FASTA and FAI files")
+  fields <- strsplit(readLines(fai, warn = FALSE), "\t", fixed = TRUE)
+  if(!length(fields) || any(lengths(fields) < 5L)) stop("Invalid FASTA index")
+  index <- as.data.frame(do.call(rbind, lapply(fields, `[`, 1:5)), stringsAsFactors = FALSE)
+  names(index) <- c("chromosome", "length", "offset", "line_bases", "line_bytes")
+  for(column in names(index)[-1L]) index[[column]] <- as.numeric(index[[column]])
+  if(anyNA(index) || anyDuplicated(index$chromosome) ||
+     any(index$length < 0 | index$offset < 0 | index$line_bases < 0 |
+         (index$length > 0 & index$line_bases == 0) |
+         index$line_bytes < index$line_bases)) stop("Invalid FASTA index")
+  index
+}
+
+use_r_coverage_annotation <- function(fasta, fai, method = "r"){
+  if(!method %in% c("r", "legacy")) stop("Coverage annotation method must be r or legacy")
+  if(method == "legacy") return(FALSE)
+  index <- coverage_annotation_index(fasta, fai)
+  # Preserve the original reference BED parser's delimiter behavior. Compressed
+  # FASTA uses the legacy path because FAI offsets address uncompressed bytes.
+  handle <- file(fasta, "rb"); on.exit(close(handle))
+  compressed <- identical(readBin(handle, "raw", 2L), as.raw(c(31L, 139L)))
+  !compressed && !any(index$length == 0) &&
+    !any(grepl("[:\\-\\t\\r\\n ]", index$chromosome, perl = TRUE))
+}
+
+annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
+                                  output = NULL, bgzip = NULL, tabix = NULL,
+                                  window_bases = 1000000L, input_rows = 65536L){
+  stopifnot(length(window_bases) == 1L, window_bases >= 1,
+            length(input_rows) == 1L, input_rows >= 1)
+  if(length(row_id) != 1L || is.na(row_id) || grepl("[\t\r\n]", row_id))
+    stop("Coverage row ID must not contain delimiters")
+  if(!use_r_coverage_annotation(fasta, fai)) stop("legacy-fallback-required for this reference")
+  index <- coverage_annotation_index(fasta, fai)
+  reference <- file(fasta, "rb"); on.exit(close(reference), add = TRUE)
+  bed <- file(input, "r"); on.exit(close(bed), add = TRUE)
+  destination <- NULL
+  if(!is.null(output)){
+    if(is.null(bgzip) || is.null(tabix)) stop("bgzip and tabix are required for BED output")
+    destination <- pipe(paste(shQuote(bgzip), "-c >", shQuote(output)), "w")
+    on.exit(if(!is.null(destination)) try(close(destination), silent = TRUE), add = TRUE)
+  }
+  # A failed annotation/compressor/indexer never leaves fresh counts or an index
+  # that a later stage could accept, and retains its source BED for diagnosis.
+  complete <- FALSE
+  on.exit(if(!complete){
+    unlink(counts)
+    if(!is.null(output)) unlink(paste0(output, ".tbi"))
+  }, add = TRUE)
+  alphabet <- c("A", "C", "G", "T", "N")
+  # The numeric code is left*25 + middle*5 + right (one based).
+  context_names <- c(vapply(0:124, function(k)
+    paste0(alphabet[k %/% 25L + 1L], alphabet[k %/% 5L %% 5L + 1L],
+           alphabet[k %% 5L + 1L]), character(1)), ".")
+  base_codes <- rep.int(4L, 256L)
+  base_codes[as.integer(charToRaw("ACGTacgt")) + 1L] <- rep.int(0:3, 2L)
+  sums <- numeric(126L); seen <- logical(126L)
+  previous_rank <- 0L; previous_end <- 0
+  coordinate_text <- function(x){
+    if(!length(x) || max(x) <= .Machine$integer.max) as.integer(x) else sprintf("%.0f", x)
+  }
+  write_bed <- function(chromosome, position, depth, context){
+    # fwrite's console target honors R's output sink. This writes its native
+    # formatting buffers straight into bgzip, without per-base R strings or an
+    # uncompressed temporary BED. Restore any caller sink even after failure.
+    sink(destination)
+    on.exit(sink())
+    data.table::fwrite(list(rep.int(chromosome, length(position)),
+      coordinate_text(position), coordinate_text(position + 1), depth, context),
+      file = "", sep = "\t", quote = FALSE, col.names = FALSE,
+      showProgress = FALSE, nThread = 1L)
+  }
+  repeat {
+    lines <- readLines(bed, n = input_rows, warn = FALSE)
+    if(!length(lines)) break
+    if(any(stringi::stri_count_fixed(lines, "\t") != 3L))
+      stop("Coverage BED must have exactly four tab-separated fields")
+    runs <- data.table::fread(text = paste0(paste(lines, collapse = "\n"), "\n"),
+      sep = "\t", header = FALSE, colClasses = "character", quote = "",
+      na.strings = NULL, strip.white = FALSE, showProgress = FALSE, nThread = 1L)
+    if(nrow(runs) != length(lines) || ncol(runs) != 4L)
+      stop("Coverage BED must have exactly four tab-separated fields")
+    rank <- match(runs[[1L]], index$chromosome)
+    if(anyNA(rank)) stop("Coverage contig absent from FASTA")
+    if(any(!grepl("^[0-9]+$", runs[[2L]])) || any(!grepl("^[0-9]+$", runs[[3L]])))
+      stop("BED coordinates must be nonnegative integers")
+    starts <- as.numeric(runs[[2L]]); ends <- as.numeric(runs[[3L]])
+    depths <- suppressWarnings(as.numeric(runs[[4L]]))
+    if(any(!is.finite(depths) | depths <= 0)) stop("Coverage must be a finite positive number")
+    if(any(diff(c(previous_rank, rank)) < 0)) stop("Coverage BED must follow FASTA contig order")
+    same <- c(previous_rank, head(rank, -1L)) == rank
+    if(any(!is.finite(starts) | !is.finite(ends) | ends <= starts |
+           ends > index$length[rank]) ||
+       any(same & starts < c(previous_end, head(ends, -1L))))
+      stop("Coverage intervals must be non-overlapping and inside their reference contig")
+    previous_rank <- tail(rank, 1L); previous_end <- tail(ends, 1L)
+    for(chromosome_rank in unique(rank)){
+      rows <- which(rank == chromosome_rank)
+      chromosome <- index$chromosome[[chromosome_rank]]
+      length <- index$length[[chromosome_rank]]
+      first <- floor(starts[rows[[1L]]] / window_bases) * window_bases
+      last <- ends[tail(rows, 1L)] - 1
+      for(lo in seq(from = first, to = last, by = window_bases)){
+        hi <- min(lo + window_bases, length)
+        selected <- rows[starts[rows] < hi & ends[rows] > lo]
+        if(!length(selected)) next
+        begin <- pmax(starts[selected], lo)
+        widths <- pmin(ends[selected], hi) - begin
+        position <- rep.int(begin, widths) + sequence(widths) - 1L
+        run <- rep.int(selected, widths)
+        # Fetch this window plus flanks directly from an ordinary indexed FASTA.
+        from <- max(0, lo - 1); to <- min(length, hi + 1)
+        line_bases <- index$line_bases[[chromosome_rank]]
+        line_bytes <- index$line_bytes[[chromosome_rank]]
+        byte_offset <- function(p) index$offset[[chromosome_rank]] +
+          floor(p / line_bases) * line_bytes + p %% line_bases
+        seek(reference, byte_offset(from), origin = "start")
+        raw <- readBin(reference, "raw", byte_offset(to - 1) - byte_offset(from) + 1)
+        raw <- raw[raw != as.raw(10L) & raw != as.raw(13L)]
+        if(length(raw) != to - from) stop("Reference sequence length does not match its index")
+        bases <- base_codes[as.integer(raw) + 1L]
+        context <- rep.int(126L, length(position))
+        inner <- which(position > 0 & position + 1 < length)
+        offset <- position[inner] - from
+        context[inner] <- bases[offset] * 25L + bases[offset + 1L] * 5L + bases[offset + 2L] + 1L
+        seen[unique(context)] <- TRUE
+        # rowsum adds doubles in input order, starting with the previous total.
+        # Prepending that total preserves awk's per-base accumulation, even for
+        # fractional/large depths across windows and input batches.
+        sums <- as.vector(rowsum(c(sums, depths[run]), c(seq_len(126L), context), reorder = FALSE))
+        if(!is.null(destination)) write_bed(chromosome, position, runs[[4L]][run], context_names[context])
+      }
+    }
+  }
+  if(!is.null(destination)){
+    status <- suppressWarnings(close(destination)); destination <- NULL
+    if(!is.null(status) && status != 0L) stop("Coverage annotation compressor failed for row ", row_id)
+    status <- suppressWarnings(system2(tabix, c("-@2", "-s1", "-b2", "-e3", shQuote(output))))
+    if(status != 0L) stop("Coverage annotation indexer failed for row ", row_id)
+  }
+  if(any(seen)){
+    values <- sums[seen]
+    tokens <- sprintf("%.6g", values)
+    integers <- is.finite(values) & floor(values) == values & abs(values) < 2^63
+    tokens[integers] <- sprintf("%.0f", values[integers])
+    writeLines(paste(row_id, context_names[seen], tokens, sep = "\t"), counts)
+  }else writeLines(paste(row_id, "NA", 0, sep = "\t"), counts)
+  complete <- TRUE
+  invisible(file.remove(input))
+}
+
 # Workflow-generated configurations resolve prepared products to immutable,
 # process-scoped bundles. Standalone scripts retain the legacy cache layout.
 cache_file <- function(path, yaml.config){
@@ -295,13 +451,13 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE){
 }
 
 #All possible trinucleotides
-trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
+delayedAssign("trinucleotides_64", mkAllStrings(c("A","C","G","T"), 3))
 
 #central pyrimidine trinucleotides
-trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
+delayedAssign("trinucleotides_32_pyr", trinucleotides_64 %>% str_subset(".[CT]."))
 
 #List named with trinucleotides_32_pyr sequences, each containing the corresponding trinucleotides_64 sequences
-trinucleotides_64_32_pyr_list <- split(
+delayedAssign("trinucleotides_64_32_pyr_list", split(
 	trinucleotides_64,
 	ifelse(
 		str_sub(trinucleotides_64, 2, 2) %in% c("C","T"),
@@ -309,7 +465,7 @@ trinucleotides_64_32_pyr_list <- split(
 		trinucleotides_64 %>% DNAStringSet %>% reverseComplement %>% as.character
 	) %>%
 		factor(levels = trinucleotides_32_pyr)
-)
+))
 
 #Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
 trinucleotides_64to32 <- function(x, tri_column, count_column){
@@ -2513,4 +2669,395 @@ plot_spectrum_generic <- function(spec, lwr, upr, name, max_y, colors, boxes) {
             box(lwd = 2)
         }
     }
+}
+
+# Prepared-artifact cache protocol, shared by the small artifactCache.R CLI.
+# Linux flock locks are held by an R file connection (the same open-file
+# description is inherited by the flock subprocess). Closing that connection,
+# including on an R error or process death, releases the lock. Do not substitute
+# POSIX/fcntl locks: they do not interoperate with earlier Python cache writers.
+artifact_cache_with_lock <- function(path, operation) {
+  path <- normalizePath(path, mustWork = FALSE)
+  before <- list.files("/proc/self/fd", full.names = TRUE)
+  previous_targets <- Sys.readlink(before)
+  before <- before[!is.na(previous_targets) & previous_targets == path]
+  connection <- file(path, open = "a")
+  on.exit(close(connection), add = TRUE)
+  after <- setdiff(list.files("/proc/self/fd", full.names = TRUE), before)
+  targets <- Sys.readlink(after)
+  descriptor <- after[!is.na(targets) & targets == normalizePath(path, mustWork = TRUE)]
+  if (length(descriptor) != 1L) {
+    stop("Cannot identify inherited file descriptor for cache flock", call. = FALSE)
+  }
+  artifact_cache_command("flock", c("--exclusive", basename(descriptor)))
+  operation()
+}
+
+artifact_cache_command <- function(command, arguments) {
+  status <- system2(command, args = vapply(arguments, shQuote, character(1)))
+  if (status != 0L) stop(sprintf("Cache command failed (%d): %s", status, command), call. = FALSE)
+  invisible(status)
+}
+
+artifact_cache_object <- function() setNames(list(), character())
+
+# Retain integer tokens (including integers above 2^53) separately from JSON
+# floating-point values. jsonlite's default conversion would round those integers
+# and would erase the distinction between the legacy key bytes for 1 and 1.0.
+artifact_cache_parse_json <- function(text) {
+  parsed <- jsonlite::fromJSON(text, simplifyVector = FALSE)
+  prefix <- "__hidef_cache_number__"
+  strings <- unlist(parsed, recursive = TRUE, use.names = FALSE)
+  while (any(grepl(prefix, as.character(strings), fixed = TRUE))) prefix <- paste0(prefix, "_")
+  token_pattern <- '"(?:\\\\.|[^"\\\\])*"|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?'
+  positions <- gregexpr(token_pattern, text, perl = TRUE)[[1L]]
+  if (positions[[1L]] != -1L) {
+    tokens <- regmatches(text, list(positions))[[1L]]
+    numbers <- !startsWith(tokens, '"')
+    tokens[numbers] <- paste0('"', prefix, tokens[numbers], '"')
+    regmatches(text, list(positions)) <- list(tokens)
+  }
+  restore <- function(value) {
+    if (is.list(value)) {
+      # JSON objects follow the earlier Python parser's last-key-wins rule.
+      if (!is.null(names(value))) value <- value[!duplicated(names(value), fromLast = TRUE)]
+      return(lapply(value, restore))
+    }
+    if (is.character(value) && length(value) == 1L && startsWith(value, prefix)) {
+      return(structure(substring(value, nchar(prefix) + 1L), class = "artifact_cache_number"))
+    }
+    value
+  }
+  restore(jsonlite::fromJSON(text, simplifyVector = FALSE))
+}
+
+artifact_cache_read_json <- function(path) {
+  artifact_cache_parse_json(paste(readLines(path, warn = FALSE, encoding = "UTF-8"), collapse = "\n"))
+}
+
+artifact_cache_float <- function(value) {
+  if (!is.finite(value)) stop("Non-finite JSON number", call. = FALSE)
+  if (value == 0) return(if (1 / value < 0) "-0.0" else "0.0")
+  # Find the shortest significant-decimal representation that round trips to
+  # this IEEE double, then use Python's fixed/scientific notation boundaries.
+  for (digits in seq_len(17L)) {
+    rendered <- sprintf(paste0("%.", digits - 1L, "e"), value)
+    if (jsonlite::fromJSON(rendered) == value) break
+  }
+  pieces <- strsplit(rendered, "e", fixed = TRUE)[[1L]]
+  exponent <- as.integer(pieces[[2L]])
+  mantissa <- sub("0+$", "", gsub(".", "", pieces[[1L]], fixed = TRUE))
+  negative <- startsWith(mantissa, "-")
+  if (negative) mantissa <- substring(mantissa, 2L)
+  sign <- if (negative) "-" else ""
+  if (exponent < -4L || exponent >= 16L) {
+    fraction <- if (nchar(mantissa) > 1L) paste0(".", substring(mantissa, 2L)) else ""
+    return(paste0(sign, substring(mantissa, 1L, 1L), fraction, "e",
+                  if (exponent >= 0L) "+" else "-", sprintf("%02d", abs(exponent))))
+  }
+  if (exponent < 0L) return(paste0(sign, "0.", strrep("0", -exponent - 1L), mantissa))
+  places <- exponent + 1L
+  if (places >= nchar(mantissa)) {
+    return(paste0(sign, mantissa, strrep("0", places - nchar(mantissa)), ".0"))
+  }
+  paste0(sign, substring(mantissa, 1L, places), ".", substring(mantissa, places + 1L))
+}
+
+artifact_cache_quote <- function(value) {
+  escaped <- as.character(jsonlite::toJSON(enc2utf8(value), auto_unbox = TRUE))
+  points <- utf8ToInt(escaped)
+  paste0(vapply(points, function(point) {
+    if (point < 127L) return(intToUtf8(point))
+    if (point <= 65535L) return(sprintf("\\u%04x", point))
+    point <- point - 65536L
+    paste0(sprintf("\\u%04x", 55296L + point %/% 1024L),
+           sprintf("\\u%04x", 56320L + point %% 1024L))
+  }, character(1)), collapse = "")
+}
+
+artifact_cache_canonical <- function(value) {
+  if (inherits(value, "artifact_cache_number")) {
+    token <- unclass(value)
+    if (!grepl("[.eE]", token)) return(if (token == "-0") "0" else token)
+    return(artifact_cache_float(jsonlite::fromJSON(token)))
+  }
+  if (is.null(value)) return("null")
+  if (is.list(value)) {
+    keys <- names(value)
+    if (!is.null(keys)) {
+      keep <- !duplicated(keys, fromLast = TRUE)
+      value <- value[keep]
+      keys <- names(value)
+      ordering <- order(enc2utf8(keys), method = "radix")
+      members <- vapply(ordering, function(i) paste0(artifact_cache_quote(keys[[i]]), ":",
+                                                   artifact_cache_canonical(value[[i]])), character(1))
+      return(paste0("{", paste(members, collapse = ","), "}"))
+    }
+    return(paste0("[", paste(vapply(value, artifact_cache_canonical, character(1)), collapse = ","), "]"))
+  }
+  if (length(value) != 1L || is.na(value)) stop("Expected a finite scalar JSON value", call. = FALSE)
+  if (is.character(value)) return(artifact_cache_quote(value))
+  if (is.logical(value)) return(if (value) "true" else "false")
+  if (is.integer(value)) return(as.character(value))
+  if (is.double(value)) return(artifact_cache_float(value))
+  stop("Unsupported JSON value", call. = FALSE)
+}
+
+artifact_cache_sha256 <- function(path) {
+  connection <- file(path, "rb")
+  on.exit(close(connection), add = TRUE)
+  unclass(as.character(openssl::sha256(connection)))
+}
+
+artifact_cache_key <- function(identity) {
+  namespace <- identity$namespace
+  if (length(identity$schema) != 1L || is.na(suppressWarnings(as.numeric(identity$schema))) ||
+      as.numeric(identity$schema) != 1) stop("unsupported identity schema", call. = FALSE)
+  if (!is.character(namespace) || length(namespace) != 1L ||
+      !grepl("^[A-Za-z0-9_.-]+$", namespace) || namespace %in% c(".", "..")) {
+    stop("invalid identity namespace", call. = FALSE)
+  }
+  serialized <- identity$serialized_identity
+  if ("serialized_identity" %in% names(identity)) {
+    if (!is.character(serialized) || length(serialized) != 1L) stop("invalid serialized identity", call. = FALSE)
+    payload <- artifact_cache_parse_json(serialized)
+    if (length(payload$schema) != 1L || is.na(suppressWarnings(as.numeric(payload$schema))) ||
+        as.numeric(payload$schema) != 1 || !identical(payload$namespace, namespace)) {
+      stop("serialized identity namespace/schema mismatch", call. = FALSE)
+    }
+  } else serialized <- artifact_cache_canonical(identity)
+  digest::digest(charToRaw(enc2utf8(serialized)), algo = "sha256", serialize = FALSE)
+}
+
+artifact_cache_location <- function(root, identity) {
+  file.path(root, "v1", identity$namespace, artifact_cache_key(identity))
+}
+
+artifact_cache_size <- function(path) {
+  structure(format(file.info(path)$size, scientific = FALSE, trim = TRUE, digits = 22L),
+            class = "artifact_cache_number")
+}
+
+artifact_cache_identify <- function(spec) {
+  unknown <- setdiff(names(spec), c("namespace", "settings", "inputs", "scripts", "tools"))
+  if (length(unknown)) stop(paste("unknown identity fields:", paste(sort(unknown), collapse = ", ")), call. = FALSE)
+  identity <- list(schema = 1L, namespace = spec$namespace,
+                   settings = if ("settings" %in% names(spec)) spec$settings else artifact_cache_object(),
+                   tools = if ("tools" %in% names(spec)) spec$tools else artifact_cache_object())
+  artifact_cache_key(identity)
+  for (category in c("inputs", "scripts")) {
+    identity[[category]] <- artifact_cache_object()
+    for (name in sort(as.character(names(spec[[category]])), method = "radix")) {
+      path <- normalizePath(spec[[category]][[name]], mustWork = TRUE)
+      # GNU stat retains nanosecond timestamps; R's POSIXct file.info loses them.
+      snapshot <- function() system2("stat", c("--printf=%s:%y:%z", "--", shQuote(path)), stdout = TRUE)
+      before <- snapshot()
+      if (!is.null(attr(before, "status"))) stop("Cannot stat cache input", call. = FALSE)
+      sha256 <- artifact_cache_sha256(path)
+      after <- snapshot()
+      if (!identical(before, after)) stop(paste("input changed while hashing:", path), call. = FALSE)
+      identity[[category]][[name]] <- list(sha256 = sha256, bytes = artifact_cache_size(path))
+    }
+  }
+  identity
+}
+
+artifact_cache_inventory <- function(directory) {
+  products <- artifact_cache_object()
+  visit <- function(parent, prefix = "") {
+    paths <- list.files(parent, all.files = TRUE, no.. = TRUE, full.names = TRUE)
+    if (!length(paths)) return(invisible(NULL))
+    modes <- character()
+    for (offset in seq.int(1L, length(paths), by = 128L)) {
+      batch <- paths[seq.int(offset, min(length(paths), offset + 127L))]
+      values <- system2("stat", c("--format=%f", "--", vapply(batch, shQuote, character(1))), stdout = TRUE)
+      if (!is.null(attr(values, "status")) || length(values) != length(batch)) stop("Cannot stat cache products", call. = FALSE)
+      modes <- c(modes, values)
+    }
+    for (i in seq_along(paths)) {
+      path <- paths[[i]]
+      link <- Sys.readlink(path)
+      if (!is.na(link) && nzchar(link)) stop(paste("cache products cannot contain symlinks:", path), call. = FALSE)
+      name <- paste0(prefix, basename(path))
+      if (dir.exists(path)) visit(path, paste0(name, "/")) else {
+        if (bitwAnd(strtoi(modes[[i]], base = 16L), 61440L) != 32768L) stop(paste("cache products must be regular files:", path), call. = FALSE)
+        if (name != "manifest.complete.json") {
+          products[[name]] <<- list(bytes = artifact_cache_size(path), sha256 = artifact_cache_sha256(path))
+        }
+      }
+    }
+  }
+  visit(directory)
+  products[order(names(products), method = "radix")]
+}
+
+artifact_cache_equal <- function(left, right) {
+  # Manifest verification uses JSON value equality, as Python dictionaries did;
+  # key generation still distinguishes exact canonical number representations.
+  numeric_value <- function(value) inherits(value, "artifact_cache_number") || is.numeric(value) || is.logical(value)
+  if (numeric_value(left) || numeric_value(right)) {
+    if (!numeric_value(left) || !numeric_value(right) || length(left) != 1L || length(right) != 1L) return(FALSE)
+    token <- function(value) {
+      if (inherits(value, "artifact_cache_number")) return(unclass(value))
+      if (is.logical(value)) return(if (value) "1" else "0")
+      artifact_cache_canonical(value)
+    }
+    a <- token(left)
+    b <- token(right)
+    a_integer <- !grepl("[.eE]", a)
+    b_integer <- !grepl("[.eE]", b)
+    if (a_integer && b_integer) return(identical(if (a == "-0") "0" else a, if (b == "-0") "0" else b))
+    if (!a_integer && !b_integer) return(jsonlite::fromJSON(a) == jsonlite::fromJSON(b))
+    integer <- if (a_integer) a else b
+    number <- jsonlite::fromJSON(if (a_integer) b else a)
+    # Compare arbitrary-sized integers to the exact integral value of a double,
+    # avoiding lossy conversion of integers larger than 2^53.
+    return(is.finite(number) && number == trunc(number) &&
+           identical(if (integer == "-0") "0" else integer, if (number == 0) "0" else sprintf("%.0f", number)))
+  }
+  if (is.list(left) || is.list(right)) {
+    if (!is.list(left) || !is.list(right) || length(left) != length(right) ||
+        is.null(names(left)) != is.null(names(right))) return(FALSE)
+    if (!is.null(names(left))) {
+      left <- left[order(names(left), method = "radix")]
+      right <- right[order(names(right), method = "radix")]
+      if (!identical(names(left), names(right))) return(FALSE)
+    }
+    return(all(vapply(seq_along(left), function(i) artifact_cache_equal(left[[i]], right[[i]]), logical(1))))
+  }
+  identical(left, right)
+}
+
+artifact_cache_verify <- function(root, identity) {
+  destination <- artifact_cache_location(root, identity)
+  manifest <- artifact_cache_read_json(file.path(destination, "manifest.complete.json"))
+  if (!artifact_cache_equal(manifest$identity, identity) || !identical(manifest$key, artifact_cache_key(identity))) {
+    stop(paste("cache manifest identity mismatch:", destination), call. = FALSE)
+  }
+  if (length(manifest$schema) != 1L || as.numeric(manifest$schema) != 1 ||
+      !identical(manifest$state, "complete")) stop(paste("cache manifest is not complete:", destination), call. = FALSE)
+  if (!length(manifest$products) || !artifact_cache_equal(artifact_cache_inventory(destination), manifest$products)) {
+    stop(paste("cache product integrity mismatch:", destination), call. = FALSE)
+  }
+  destination
+}
+
+artifact_cache_mkdir <- function(path) {
+  if (!dir.exists(path) && !suppressWarnings(dir.create(path, recursive = TRUE)) && !dir.exists(path)) stop(paste("Cannot create cache directory:", path), call. = FALSE)
+  invisible(path)
+}
+
+artifact_cache_fsync <- function(paths) {
+  # GNU sync with FILE arguments calls fsync(2), including directory fsync.
+  # Neither --data (fdatasync) nor --file-system (syncfs) has this contract.
+  if (!length(paths)) return(invisible(NULL))
+  for (offset in seq.int(1L, length(paths), by = 128L)) {
+    selected <- paths[seq.int(offset, min(offset + 127L, length(paths)))]
+    if (length(paths)) artifact_cache_command("sync", c("--", selected))
+  }
+  invisible(NULL)
+}
+
+artifact_cache_copy <- function(source, target) {
+  link <- Sys.readlink(target)
+  if (file.exists(target) || (!is.na(link) && nzchar(link))) {
+    stop(paste("cache copy target already exists:", target), call. = FALSE)
+  }
+  # GNU cp streams large files efficiently; avoid reflinks so the published
+  # bundle receives its own data extents before the explicit fsync barrier.
+  artifact_cache_command("cp", c("--preserve=mode,timestamps", "--reflink=never", "--no-clobber", "--", source, target))
+  invisible(target)
+}
+
+artifact_cache_link_or_copy <- function(source, target, copy_across_filesystems = TRUE) {
+  # Capture R's link(2) errno diagnostic in the C locale, so only EXDEV
+  # permits a copy (including bind mounts with identical device numbers).
+  previous_locale <- Sys.getlocale("LC_MESSAGES")
+  on.exit(Sys.setlocale("LC_MESSAGES", previous_locale), add = TRUE)
+  Sys.setlocale("LC_MESSAGES", "C")
+  diagnostic <- character()
+  linked <- withCallingHandlers(file.link(source, target), warning = function(warning) {
+    diagnostic <<- c(diagnostic, conditionMessage(warning))
+    invokeRestart("muffleWarning")
+  })
+  Sys.setlocale("LC_MESSAGES", previous_locale)
+  if (linked) return(invisible(target))
+  if (!copy_across_filesystems || !any(grepl("reason 'Invalid cross-device link'", diagnostic, fixed = TRUE))) {
+    stop(paste("cache hard link failed:", target, paste(diagnostic, collapse = "; ")), call. = FALSE)
+  }
+  artifact_cache_copy(source, target)
+}
+
+artifact_cache_tree <- function(source, target, copy_across_filesystems = TRUE) {
+  link <- Sys.readlink(source)
+  if (!is.na(link) && nzchar(link)) stop(paste("cache products cannot contain symlinks:", source), call. = FALSE)
+  if (dir.exists(source)) {
+    artifact_cache_mkdir(target)
+    children <- list.files(source, all.files = TRUE, no.. = TRUE, full.names = TRUE)
+    for (child in children) artifact_cache_tree(child, file.path(target, basename(child)), copy_across_filesystems)
+  } else {
+    artifact_cache_mkdir(dirname(target))
+    artifact_cache_link_or_copy(source, target, copy_across_filesystems)
+  }
+  invisible(target)
+}
+
+artifact_cache_publish <- function(root, identity, source) {
+  source <- normalizePath(source, mustWork = TRUE)
+  destination <- artifact_cache_location(root, identity)
+  artifact_cache_mkdir(dirname(destination))
+  artifact_cache_with_lock(paste0(destination, ".lock"), function() {
+    if (file.exists(destination)) return(artifact_cache_verify(root, identity))
+    if (file.exists(file.path(source, "manifest.complete.json"))) stop("source contains reserved manifest filename", call. = FALSE)
+    source_products <- artifact_cache_inventory(source)
+    if (!length(source_products)) stop("refusing to publish an empty cache entry", call. = FALSE)
+    stage <- tempfile(pattern = paste0(".", artifact_cache_key(identity), "."), tmpdir = dirname(destination))
+    if (!dir.create(stage, mode = "0700")) stop("Cannot create cache staging directory", call. = FALSE)
+    on.exit(unlink(stage, recursive = TRUE), add = TRUE)
+    for (name in names(source_products)) {
+      target <- file.path(stage, name)
+      artifact_cache_mkdir(dirname(target))
+      artifact_cache_copy(file.path(source, name), target)
+    }
+    artifact_cache_fsync(file.path(stage, names(source_products)))
+    products <- artifact_cache_inventory(stage)
+    if (!artifact_cache_equal(products, source_products)) stop("source products changed during publication", call. = FALSE)
+    manifest <- list(schema = 1L, state = "complete", key = artifact_cache_key(identity), identity = identity, products = products)
+    manifest_path <- file.path(stage, "manifest.complete.json")
+    connection <- file(manifest_path, "wb")
+    tryCatch(writeBin(charToRaw(paste0(artifact_cache_canonical(manifest), "\n")), connection),
+             finally = close(connection))
+    artifact_cache_fsync(manifest_path)
+    directories <- list.dirs(stage, full.names = TRUE, recursive = TRUE)
+    artifact_cache_fsync(directories[order(nchar(directories), decreasing = TRUE)])
+    if (!file.rename(stage, destination)) stop("Atomic cache publication rename failed", call. = FALSE)
+    artifact_cache_fsync(dirname(destination))
+    destination
+  })
+}
+
+artifact_cache_run <- function(root, identity, products, command) {
+  for (name in products) {
+    if (startsWith(name, "/") || ".." %in% strsplit(name, "/", fixed = TRUE)[[1L]] ||
+        name == "manifest.complete.json") stop("product must be a relative path inside the task directory", call. = FALSE)
+  }
+  destination <- artifact_cache_location(root, identity)
+  artifact_cache_mkdir(dirname(destination))
+  artifact_cache_with_lock(paste0(destination, ".build.lock"), function() {
+    if (file.exists(destination)) {
+      destination <- artifact_cache_verify(root, identity)
+      for (name in products) {
+        if (file.exists(name)) stop(paste("cache restore target already exists:", name), call. = FALSE)
+        artifact_cache_tree(file.path(destination, name), name)
+      }
+      return(destination)
+    }
+    if (!length(command)) stop("run requires a build command after --", call. = FALSE)
+    artifact_cache_command(command[[1L]], command[-1L])
+    bundle <- tempfile(pattern = ".cache-products-", tmpdir = ".")
+    if (!dir.create(bundle, mode = "0700")) stop("Cannot create cache product bundle", call. = FALSE)
+    on.exit(unlink(bundle, recursive = TRUE), add = TRUE)
+    for (name in products) artifact_cache_tree(name, file.path(bundle, name), copy_across_filesystems = FALSE)
+    artifact_cache_publish(root, identity, bundle)
+  })
 }

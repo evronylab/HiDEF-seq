@@ -326,63 +326,54 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info
 #iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
 convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
-	
-	#Format irangeslist.input to GRanges of positions failing subreads filters in query space, with annotated bam read id
-	irangeslist.input <- irangeslist.input %>%
-		setNames(bam.input %>% pull(seqnames)) %>%
-		as.data.frame %>%
-		as_tibble %>%
-		makeGRangesFromDataFrame(
-			seqnames = "group_name",
-			keep.extra.columns=TRUE
-		) %>%
-		setNames(.$group) %>%
-		select(-group)
-	
-	if(length(irangeslist.input) == 0){
-		return(
-			GRanges(run_id=factor(), zm=integer())
-		)
-	}
-	
-	mapFromAlignments( #Main function
-		
-		irangeslist.input,
-		
-		#GAlignments of reads in reference space
-		bam.input %>%
-			select(seqnames, start, end, cigar) %>% 
-			makeGRangesFromDataFrame(
-				keep.extra.columns=TRUE,
-				seqinfo=BSgenome_name.input %>% get %>% seqinfo
-			) %>%
-			as("GAlignments") %>%
-			setNames(1:nrow(bam.input))
-	) %>%
-		
-		#Annotate result with run_id, zm, and strand
-		as_tibble %>%
-		left_join(
-			bam.input %>%
-				select(run_id, zm, strand) %>%
-				mutate(row_id = row_number()),
-			by = join_by(alignmentsHits == row_id)
-		) %>%
-		select(-c(width, xHits, alignmentsHits, strand.x)) %>%
-		rename(strand = strand.y) %>%
-		makeGRangesFromDataFrame(
-			keep.extra.columns=TRUE,
-			seqinfo=BSgenome_name.input %>% get %>% seqinfo
-		)
+	# The row identifier is already the positional index into bam.input. Keep
+	# the same mapping primitive and input order without flattening its GRanges
+	# through several full data frames and joining that identifier back again.
+	group <- rep.int(seq_along(irangeslist.input), elementNROWS(irangeslist.input))
+	if(!length(group)) return(GRanges(run_id=factor(), zm=integer()))
+	query <- GRanges(
+		seqnames = bam.input$seqnames[group],
+		ranges = unlist(irangeslist.input, use.names=FALSE)
+	)
+	names(query) <- as.character(group)
+	reference_info <- seqinfo(get(BSgenome_name.input))
+	alignments <- GRanges(
+		seqnames = bam.input$seqnames,
+		ranges = IRanges(start=bam.input$start, end=bam.input$end),
+		cigar = bam.input$cigar,
+		seqinfo = reference_info
+	)
+	alignments <- as(alignments, "GAlignments")
+	names(alignments) <- as.character(seq_len(nrow(bam.input)))
+	mapped <- mapFromAlignments(query, alignments)
+	read_id <- mcols(mapped)$alignmentsHits
+	GRanges(
+		seqnames = seqnames(mapped),
+		ranges = unname(ranges(mapped)),
+		strand = bam.input$strand[read_id],
+		run_id = bam.input$run_id[read_id],
+		zm = bam.input$zm[read_id],
+		seqinfo = reference_info
+	)
 }
 
 #Function to check a parameter on both strands (x and y), per a specified minimum threshold and method (mean, all, any)
 min_threshold_eachstrand <- function(x, y, threshold, mode = c("mean","all","any")){
 	chosenmode <- switch(
 		mode,
-		mean = function(v) (mean(v) %>% replace_na(0)) >= threshold,
-		all = function(v) all(v >= threshold) %>% replace_na(0),
-		any = function(v) any(v >= threshold) %>% replace_na(0)
+		mean = function(v){
+			value <- mean(v)
+			if(is.na(value)) value <- 0
+			value >= threshold
+		},
+		all = function(v){
+			value <- all(v >= threshold)
+			if(is.na(value)) FALSE else value
+		},
+		any = function(v){
+			value <- any(v >= threshold)
+			if(is.na(value)) FALSE else value
+		}
 	)
 
 	chosenmode(x) && chosenmode(y) && !any(is.na(y))

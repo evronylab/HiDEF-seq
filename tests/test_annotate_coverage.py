@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compare experimental FASTA annotation with the complete legacy BED chain.
+"""Build independent legacy fixtures for the R coverage annotation tests.
 
-Run inside the pinned container after compiling bin/annotateCoverage.cpp.
+An optional --helper also compares a preserved external annotation baseline.
 This is a semantic fixture, not a production CPU/memory benchmark. The legacy
 reference BED, merged union, one-base expansion, intersections, awk counting,
 bgzip and tabix steps are all executed. The R BED writer is not modified.
@@ -40,12 +40,13 @@ def counts(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--helper", required=True)
+    parser.add_argument("--helper", help="Optional historical compiled annotator")
     parser.add_argument("--output-dir", required=True)
     for tool in ("samtools", "seqkit", "bedtools", "bgzip", "tabix"):
         parser.add_argument("--" + tool, default=tool)
     args = parser.parse_args()
-    args.helper = str(Path(args.helper).resolve())
+    if args.helper:
+        args.helper = str(Path(args.helper).resolve())
     directory = Path(args.output_dir).resolve()
     directory.mkdir(parents=True, exist_ok=False)
     # Every ACGTN triplet occurs in chrAll. Other contigs probe normalization,
@@ -108,28 +109,37 @@ def main():
             f"{quote(args.bgzip)} -c > {quote(legacy_bed)}\n"
             f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(legacy_bed)}")
         shell(legacy_command, directory)
-        helper_command = (
-            f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
-            f"--row-id {row} --counts {quote(candidate_counts)} --bed-output - | "
-            f"{quote(args.bgzip)} -c > {quote(candidate_bed)}\n"
-            f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(candidate_bed)}")
-        shell(helper_command, directory)
-        with gzip.open(legacy_bed, "rb") as expected, gzip.open(candidate_bed, "rb") as actual:
-            expected_bytes, actual_bytes = expected.read(), actual.read()
-        if expected_bytes != actual_bytes:
-            raise AssertionError(f"row {row}: annotated BED bytes differ (coordinates, order, depth tokens or context)")
-        if counts(legacy_counts) != counts(candidate_counts):
-            raise AssertionError(f"row {row}: context counts differ")
-        counts_only = directory / f"{row}.counts-only.tsv"
-        shell(f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
-              f"--row-id {row} --counts {quote(counts_only)}", directory)
-        if counts(counts_only) != counts(legacy_counts):
-            raise AssertionError(f"row {row}: counts-only mode differs")
+        if args.helper:
+            helper_command = (
+                f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
+                f"--row-id {row} --counts {quote(candidate_counts)} --bed-output - | "
+                f"{quote(args.bgzip)} -c > {quote(candidate_bed)}\n"
+                f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(candidate_bed)}")
+            shell(helper_command, directory)
+            with gzip.open(legacy_bed, "rb") as expected, gzip.open(candidate_bed, "rb") as actual:
+                expected_bytes, actual_bytes = expected.read(), actual.read()
+            if expected_bytes != actual_bytes:
+                raise AssertionError(f"row {row}: annotated BED bytes differ (coordinates, order, depth tokens or context)")
+            if counts(legacy_counts) != counts(candidate_counts):
+                raise AssertionError(f"row {row}: context counts differ")
+            counts_only = directory / f"{row}.counts-only.tsv"
+            shell(f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
+                  f"--row-id {row} --counts {quote(counts_only)}", directory)
+            if counts(counts_only) != counts(legacy_counts):
+                raise AssertionError(f"row {row}: counts-only mode differs")
+        else:
+            with gzip.open(legacy_bed, "rb") as expected:
+                actual_bytes = expected.read()
+            candidate_counts = legacy_counts
         observed_contexts.update(context for _, context in counts(candidate_counts))
         results[str(row)] = {"annotated_bytes": len(actual_bytes), "counts": len(counts(candidate_counts))}
     expected_contexts = {"".join(t) for t in itertools.product("ACGTN", repeat=3)} | {".", "NA"}
     if observed_contexts != expected_contexts:
         raise AssertionError("Not all 125 normalized contexts, dot and empty NA were tested")
+    if not args.helper:
+        (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+        print(json.dumps(results, indent=2))
+        return
     # The legacy reference BED parser mishandles these contig names. Fail safely
     # so a caller can retain its legacy path instead of silently correcting it.
     for name in ("chr-1", "chr:1"):

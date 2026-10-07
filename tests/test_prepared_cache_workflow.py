@@ -7,7 +7,6 @@ All cache mutation is confined to the newly created fixture directory.
 import argparse
 import csv
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,13 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
-
-
-def load_helper(path):
-    spec = importlib.util.spec_from_file_location('artifact_cache', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+import tempfile
 
 
 def generate(args):
@@ -105,7 +98,7 @@ def generate(args):
   }
   params.prepared_cache = [regions: regionEntries, coverage: coverageEntries]
   file(params.fixture_index).text = groovy.json.JsonOutput.toJson(
-    [root: params.prepared_cache_root, helper: params.cache_helper, entries: entries])
+    [root: params.prepared_cache_root, helper: params.cache_helper, container: params.hidefseq_container, entries: entries])
   prepareRegionFilters(channel.fromList(regionInputs))
   prepareGermlineCoverageFilters(channel.fromList(coverageInputs))
 ''' + barrier + '''
@@ -117,7 +110,7 @@ def generate(args):
     (directory / 'fixture.nf').write_text(helpers + processes + audit_process + workflow)
     params = dict(analysis_id='cachefixture', analysis_output_dir=str(directory / 'published'),
         repo_dir=str(repo), fixture_inputs=str(inputs), genome_fai=str(inputs / 'tiny.fa.fai'),
-        cache_helper=str(repo / 'bin/artifactCache.py'), prepared_cache_root=str(directory / 'cache'),
+        cache_helper=str(repo / 'bin/artifactCache.R'), prepared_cache_root=str(directory / 'cache'),
         hidefseq_container=args.container, wiggletools_bin=str(wrapper), wigToBigWig_bin=args.wig_to_bigwig,
         fixture_driver=str(Path(__file__).resolve()))
     (directory / 'base-params.json').write_text(json.dumps(params, indent=2) + '\n')
@@ -140,11 +133,17 @@ cat("Scientific objects identical:", nrow(pairs), "\\n")
 
 def audit(args):
     index = json.loads(Path(args.index).read_text())
-    cache = load_helper(index['helper'])
+    rscript = ['Rscript', '--vanilla']
+    if shutil.which('Rscript') is None:
+        rscript = ['apptainer', 'exec', '--cleanenv', '-B', '/projects', index['container'], *rscript]
     paths = []
     for item in index['entries']:
         identity = json.loads(item['entry']['json'])
-        destination = cache.verify(index['root'], identity)
+        with tempfile.TemporaryDirectory(dir=Path(args.index).resolve().parent) as temporary:
+            identity_file = Path(temporary) / 'identity.json'
+            identity_file.write_text(json.dumps(identity))
+            destination = Path(subprocess.check_output([*rscript, index['helper'], 'verify',
+                '--root', index['root'], '--identity', str(identity_file)], text=True).strip())
         assert destination == Path(item['entry']['directory'])
         assert (destination / item['product']).is_file()
         paths.append(str(destination / item['product']))

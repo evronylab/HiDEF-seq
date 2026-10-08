@@ -24,13 +24,35 @@ blocks arrived in reversed order. That run is **not scientifically accepted**.
 Its complete publication report contains all 711 required paths: 704 passed,
 three failed (LIB1 QS2 and both BAMs), and four BAM-index rows remain delegated
 to their owning BAMs without acceptance. There are no numerical review rows or
-other failures. LIB2 QS2 passed the original strict comparison. The current BAM
-ordering differences still need their own full coordinate/multiplicity and
-index-rebuild diagnostics; the earlier revision's proof does not cover them.
+other failures. LIB2 QS2 passed the original strict comparison. The separately
+completed BAM diagnostics below cover these exact outputs; the earlier revision's
+BAM proof was not reused.
 Diagnostic job `19401886` compared all 18 components after aligning complete
 chromgroup/filtergroup blocks: zero value, type, attribute or within-block order
 differences remained, with only the nine existing metadata exclusions. This
 diagnostic does not broaden the acceptance rules or replace the failed report.
+
+Jobs `19416936` and `19416939` subsequently completed full BAM diagnostics for
+this run. Every raw record and duplicate multiplicity matches at its genomic
+coordinate, and coordinate order is preserved. Headers and reference dictionaries
+pass the original rules. All eight saved BAI/PBI indices match fresh rebuilds
+from their own BAMs, with unchanged inputs and verified producer bindings.
+
+| Sample | Records per BAM | Coordinate groups | Groups differing only in tie order |
+|---|---:|---:|---:|
+| LIB1 | 10,382,760 | 5,779,641 | 717 |
+| LIB2 | 10,878,071 | 5,999,788 | 1,218 |
+
+Both diagnostics found zero coordinate or record-multiset differences. These
+BAM differences satisfy the already approved coordinate-tie rule. The original
+three-failure report and coordinator rejection remain preserved; the LIB1 QS2
+ordering failure still prevents global acceptance. No acceptance gate or final
+summary writer ran. Independent review verified 148 source/evidence references:
+workspace `runtime/candidate-python-r-bam-diagnostic-review-v1/review.json`, SHA-256
+`6027167d353f95a019e829b8aaab317383197c70c9f1a7bb15929d727f031a77`.
+The diagnostic jobs used 4,726.108 and 5,003.515 actual CPU seconds, excluded from
+production costs. Their custom Python and existing `samtools`/`pbindex` tools are
+validation infrastructure, with no production implementation change.
 
 The draft repair orders input filenames by configuration in Nextflow before R reads
 them. It uses custom non-R Nextflow/Groovy orchestration and leaves the existing

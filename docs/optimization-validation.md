@@ -54,15 +54,29 @@ The diagnostic jobs used 4,726.108 and 5,003.515 actual CPU seconds, excluded fr
 production costs. Their custom Python and existing `samtools`/`pbindex` tools are
 validation infrastructure, with no production implementation change.
 
-The draft repair orders input filenames by configuration in Nextflow before R reads
+The approved repair orders input filenames by configuration in Nextflow before R reads
 them. It uses custom non-R Nextflow/Groovy orchestration and leaves the existing
 per-sample readiness condition unchanged. Job `19401930` exercised the actual
 channel fragment with all 24 arrival permutations across interleaved samples:
 the original fragment produced configured order once, and the repaired fragment
 did so in all 24 cases. The reusable
 `tests/test_output_assembly_order.py` also passed against the local draft in
-job `19402677` (exit 0, 13 seconds). Both the workflow repair and this fixture
-remain uncommitted while the output-ordering decision is pending.
+job `19402677` (exit 0, 13 seconds). This establishes the small channel's ordering
+behavior; the combined final workflow and ordered reproducibility comparison
+remain required.
+
+The integrated channel regressions subsequently passed in job `19437345`
+(exit 0, 18 seconds): 24 output-assembly permutations, 50 sample merge groups
+and 14 demultiplex merge groups. Sample merges include same-run multiple barcode
+entries and second-round identifiers; BAM/PBI pairs remain matched. The demux
+checks cover grouping and basename ordering, not upstream routing. All process
+definitions and configuration signatures remain unchanged. Root rechecked the
+source pins and scheduler completion in workspace
+`runtime/workflow-order-integration-v3/root-review.json`. Two earlier test-harness
+failures are preserved: Nextflow rejected a top-level fixture statement and then
+an incorrect assertion about interpolation's internal string type. Neither
+required a pipeline change. Validation used 13.351 actual CPU seconds, excluded
+from production costs.
 
 The real LIB1 output replay, job `19403548`, completed its scientific worker but
 failed the unchanged comparison gate: 301 of 311 publication paths passed,
@@ -81,16 +95,29 @@ order within chromosome groups remain exact under the original cross-chromgroup
 row-block rule. Negative controls reject changed data, types, attributes, names
 and disallowed row permutations. This is diagnostic evidence, not acceptance.
 
-Choosing reproducible configured order would require explicit approval for these
-two table-column permutations and eight statistics-file row permutations per
-sample. That choice is pending. The draft code and diagnostic do not change the
-approved comparison rules; both failed strict reports remain preserved. The
-final combined workflow still needs validation under the agreed policy.
+On 2026-10-08 the user approved reproducible configured order and permitted
+ordering differences when comparing with the original run. The reviewed
+migration scope is these two table-column permutations and eight statistics-file
+row permutations per sample, together with the existing cross-chromgroup rule.
+It preserves exact values, types, attributes and duplicate multiplicities.
+Both failed strict reports remain preserved; a separately bound supplement must
+prove each permitted difference in the final combined workflow.
+
+The user additionally required **deterministic QS/TSV data and layout across
+repeated optimized runs**. Those checks must compare row and column order without
+migration normalization. The existing BAM coordinate-tie exception was explicitly
+retained for repeated runs: records, multiplicities and coordinate order remain
+exact. Workspace `runtime/output-order-authorization-20261008/approval.json`
+records the decision (SHA-256
+`7bdf1c4754a8d83ae9b56aab812664242fe33ee128ea5a5c1a655d0d133dfaee`);
+`bam-repeatability-clarification.json` records the BAM clarification (SHA-256
+`71655059e10f2854e3b6d4a87819511625487c61f46403c825868e2e5051cc3f`).
 
 Disabled policy-v2 synthetic controls passed in job `19412603`. The QS helper is
 custom R; the TSV helper is custom Python; shell/SLURM provide validation
-infrastructure. Persisted policies remain `ready=false`, approval remains
-`PENDING`, and no scientific output was accepted by these tests. The independent
+infrastructure. Those historical draft policies remain `ready=false` with their
+original `PENDING` approval; the actual later authorization above will be bound
+in fresh controls. No scientific output was accepted by these tests. The independent
 review is workspace `runtime/layout-policy-toy-preflight-review-v1/review.json`,
 SHA-256 `8f548f965834c0042cf38663d2b5ecd695cfc95357d17019b1ac9e1ff925a932`.
 
@@ -305,7 +332,10 @@ no per-step 5% threshold. Maintainability matters alongside measured gains.
 
 Scientific data, schemas, records, formats, filenames, and within-group order must
 be preserved. Existing nondeterminism in combined cross-chromgroup row order may
-be normalized explicitly. BAM coordinate ordering is preserved; records at
+be normalized explicitly for migration comparisons. The additional approved
+raw-QS column and statistics-TSV row permutations are limited to the reviewed
+paths described above. Repeated optimized QS/TSV outputs must match in order as
+well as content; these migration exceptions do not apply. BAM coordinate ordering is preserved; records at
 identical coordinates may differ in relative order under the approved rule above.
 Run metadata and compressed encoding may differ. Generic text comparison permits
 line-ending normalization; scientific values and published numeric precision

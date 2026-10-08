@@ -23,7 +23,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Prepared reference summaries and germline coverage caches | R preparers; Nextflow and shell integration | Nextflow/shell orchestration and existing reference/coverage tools; no new compiled helper |
 | Artifact-cache protocol | R, including shared functions | Existing `flock`, `stat`, `sync` and `cp`; Nextflow/shell invokes the R entry point |
 | Output publication with hard links or copies | Nextflow/Groovy | **Yes: custom non-R orchestration** using existing JVM/Nextflow filesystem APIs; no new scientific kernel |
-| Deterministic final-output assembly (draft correctness fix; ordering decision pending) | Nextflow/Groovy | **Yes: custom non-R orchestration**; orders the small input-file list without sorting scientific records |
+| Deterministic final-output assembly (approved correctness fix; final validation pending) | Nextflow/Groovy | **Yes: custom non-R orchestration**; orders the small input-file list without sorting scientific records |
 | BAM dispatch | Python using `pysam`; Nextflow/shell integration | **Yes: custom Python**; existing BAM indexing tools and pysam's compiled library |
 | Extraction quality lookup and generated-field parsing | R | Existing R packages; no new custom non-R implementation |
 | Chromosome restriction, germline summaries, threshold and coordinate helpers, region-read aggregation | R | Existing R/Bioconductor packages, including dtplyr/data.table; no new custom non-R implementation |
@@ -314,6 +314,18 @@ with no randomized-order or cold-cache claim. Validation costs are excluded.
 The [component report](benchmarks/torch-2026-10-07-splitter.json) records metrics
 and evidence checksums. Full-pipeline acceptance and performance are separate.
 
+Against the original per-chunk `zmwfilter` implementation, completed two-library
+accounting for `ea8d06f` measures the entire enumeration, splitting and indexing
+stage at **66.3835 CPU-hours originally versus 2.20819 CPU-hours with Python**:
+**64.1753 CPU-hours saved (96.67%)**. Python retains the one-pass dispatch saving.
+These are allocation UserCPU + SystemCPU totals, excluding validation. This is
+not a 30-fold elapsed-time claim: the original chunk jobs ran in parallel.
+The source is workspace
+`runs/candidate-python-r-20261006/accounting/comparison.json`,
+`common_downstream_stages.bam_dispatch`. The run's unrelated output-assembly
+failure remains recorded below; these stage measurements do not accept the
+whole workflow. The user explicitly accepted the Python implementation.
+
 ## Processing inside the R scripts
 
 ### Extraction
@@ -446,18 +458,27 @@ peak-memory and scientific acceptance still require the follow-up run.
 
 ### Final output
 
-The draft Nextflow change orders each sample's burden input files by the configured
+The approved Nextflow change orders each sample's burden input files by the configured
 chromosome group and filter-group order before passing them to R. Previously, task
 completion order could reverse filter-group blocks in the combined QS2. This
 correctness fix sorts only the small list of filenames and retains every record
 within each group. The sample still starts output as soon as all its own burden
 tasks finish. This involves custom Nextflow/Groovy code; it is not a claimed
-performance optimization. The LIB1 replay confirmed exact named values and
+performance optimization. Sample BAM merges also use YAML run and sample-entry
+order, including multiple barcode assignments to the same sample within a run;
+each BAM remains paired with its PBI. Demultiplex merge inputs use basename
+order. These changes order filenames before the existing tools run.
+The LIB1 replay confirmed exact named values and
 records after diagnostic alignment, with column permutations in its two raw QS
-tables and row permutations in eight LIB1 statistics TSVs. The proposed policy
+tables and row permutations in eight LIB1 statistics TSVs. The migration policy
 lists the corresponding paths for both samples; LIB2 still needs independent
-proof under that policy. Adopting this reproducible layout awaits the user's ordering
-decision. The original strict failures and comparison rules remain intact; the
+proof under that policy. The user approved this layout on 2026-10-08: comparison
+with the original run may align these reviewed ordering differences, while
+repeated optimized runs must preserve deterministic QS/TSV values, row order and
+column order. Migration exceptions must not be used for new-versus-new checks.
+The existing BAM coordinate-tie exception remains applicable to repeated runs;
+it does not permit changes to records, multiplicities or coordinate ordering.
+The original failed comparison reports remain intact; the
 [validation ledger](optimization-validation.md#pythonr-follow-up-output-ordering-under-repair)
 distinguishes the failed strict replay from the passing diagnostic.
 

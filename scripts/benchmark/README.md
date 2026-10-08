@@ -629,22 +629,24 @@ by `tests/test_prepared_cache_workflow.py`.
 
 ## Follow-on regression tests
 
-The uncommitted output-ordering draft has a regression script in the Torch
-workspace at `repo/tests/test_output_assembly_order.py`. The following command
-applies to that draft only; it is not available in a checkout until the ordering
-decision is resolved and the draft is committed. It runs on the host with
-Nextflow available, inside a one-CPU, 4 GiB, ten-minute compute allocation:
+The ordering regressions run on the host with Nextflow available, inside a
+one-CPU, 4 GiB, ten-minute compute allocation. Use a fresh directory for each:
 
 ```sh
 module load nextflow/26.04.0
-python3 tests/test_output_assembly_order.py --directory /path/to/new-fixture-directory
+python3 tests/test_output_assembly_order.py --directory /path/to/new-output-fixture
+python3 tests/test_merge_input_order.py --directory /path/to/new-merge-fixture
 ```
 
-It extracts the actual channel fragment from `main.nf` and checks all 24 arrival
+The output fixture extracts the actual channel fragment from `main.nf` and checks all 24 arrival
 permutations across interleaved samples, using deliberately nonlexical configured
 groups and reversed filenames. It checks exact file order and tuple contents;
-it launches no scientific workers. Proposed production changes are Nextflow/Groovy, and
-the regression driver is Python. This correctness test adds no CPU-saving claim.
+it launches no scientific workers. The merge fixture checks 50 sample groups
+and 14 demultiplex groups, including multiple barcodes per sample, round2
+identifiers, paired BAM/PBI order and singleton lists. It exercises merge-list
+grouping and sorting, not upstream demultiplex routing. Production changes are
+Nextflow/Groovy; the regression drivers are Python. These correctness tests add
+no CPU-saving claim.
 
 The separate disabled layout-policy helper tests are recorded in the
 [output-ordering ledger](../../docs/optimization-validation.md#pythonr-follow-up-output-ordering-under-repair).

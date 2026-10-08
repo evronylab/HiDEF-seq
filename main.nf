@@ -709,6 +709,9 @@ workflow {
       tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
     }
     .groupTuple(by: [0,1,2,3])
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFiles ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFiles.sort(false) { it.name })
+    }
 
   mergeDemuxBams_round1 = mergeDemuxBamsRound1(mergeDemuxBams_round1_input_ch).out
 
@@ -744,6 +747,9 @@ workflow {
   
   mergeDemuxBams_round2_input_ch = limaDemux_round2_map_ch
     .groupTuple(by: [0,1,2,3])
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFiles ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFiles.sort(false) { it.name })
+    }
 
   mergeDemuxBams_round2 = mergeDemuxBamsRound2(mergeDemuxBams_round2_input_ch).out
 
@@ -800,22 +806,36 @@ workflow {
   // mergeAlignedSampleBAMs
   //******************
 
-  // Preserve run ordering from params.runs so merge order matches the YAML configuration
-  run_id_order = params.runs.withIndex().collectEntries { run, idx -> [(run.run_id): idx] }
+  // Preserve YAML run and sample-entry order, including multiple barcodes for
+  // the same sample within one run. Ordering keys never enter process inputs.
+  run_sample_order = [:]
+  params.runs.eachWithIndex { run, runIndex ->
+    run.samples.eachWithIndex { sample, sampleIndex ->
+      def barcode_id = sample.barcode_ids_round2 ? "${sample.barcode_ids}.${sample.barcode_ids_round2}".toString() : sample.barcode_ids
+      run_sample_order[[run.run_id, sample.sample_id, barcode_id]] = [runIndex, sampleIndex]
+    }
+  }
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
     .map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile ->
-        tuple(individual_id, sample_id, run_id_order[run_id], bamFile, pbiFile)
+        def order = run_sample_order[[run_id, sample_id, barcode_id.toString()]]
+        if (order == null) {
+          throw new IllegalStateException("Missing YAML merge order for ${run_id}/${sample_id}/${barcode_id}")
+        }
+        def (runOrder, sampleOrder) = order
+        tuple(individual_id, sample_id, runOrder, sampleOrder, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
-    .map { individual_id, sample_id, run_order, bamFiles, pbiFiles ->
-      def ordered = [run_order, bamFiles, pbiFiles].transpose().sort { row -> row[0] }
+    .map { individual_id, sample_id, run_order, sample_order, bamFiles, pbiFiles ->
+      def ordered = [run_order, sample_order, bamFiles, pbiFiles].transpose().sort { left, right ->
+        (left[0] <=> right[0]) ?: (left[1] <=> right[1])
+      }
       tuple(
         individual_id,
         sample_id,
-        ordered.collect { row -> row[1] },
-        ordered.collect { row -> row[2] }
+        ordered.collect { row -> row[2] },
+        ordered.collect { row -> row[3] }
       )
     }
 
@@ -1010,10 +1030,18 @@ workflow {
   // Create input channel
   outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out.tuple_qs2
       .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
-          tuple(individual_id, sample_id, calculateBurdensFile)
+          tuple(individual_id, sample_id, tuple(chromgroup, filtergroup, calculateBurdensFile))
       }
-      .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
-      .map { individual_id, sample_id, calculateBurdensFiles ->
+      .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Emit as soon as this sample is complete.
+      .map { individual_id, sample_id, burdenAnalyses ->
+          // Completion order varies between runs. Order the small list of input
+          // files before R loads them, preserving every row within each group.
+          def chromgroupOrder = params.chromgroups.collect { it.chromgroup }
+          def filtergroupOrder = params.filtergroups.collect { it.filtergroup }
+          def calculateBurdensFiles = burdenAnalyses.sort(false) { left, right ->
+              def chromgroupComparison = chromgroupOrder.indexOf(left[0]) <=> chromgroupOrder.indexOf(right[0])
+              chromgroupComparison ?: (filtergroupOrder.indexOf(left[1]) <=> filtergroupOrder.indexOf(right[1]))
+          }.collect { it[2] }
           tuple(individual_id, sample_id, calculateBurdensFiles, config_signatures.outputResultsSample)
       }
 

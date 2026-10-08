@@ -8,6 +8,11 @@ All examples write below the working `codex` directory. These tools do not submi
 jobs or change pipeline output formats. Scratch component files used by validation
 are disposable and are never published pipeline outputs.
 
+Benchmark and validation drivers use R, Python and shell separately from
+production code. The [implementation table](../../docs/workflow-optimization.md#implementation-languages)
+distinguishes custom production helpers, orchestration, existing CLI tools and
+compiled package internals; historical C++ reference arms are identified below.
+
 ## CPU accounting
 
 The primary performance measure is total **actual user + system CPU time**, including
@@ -358,6 +363,9 @@ parameters are never covered by a blanket configuration exclusion.
 
 ## Experimental combined filtering benchmark
 
+The prototype uses custom R and existing package internals; production adoption
+would require Nextflow/shell changes. Python controls the benchmark only.
+
 This experiment is **not connected to the production workflow**. It compares the
 current filtering script in separate R processes with the same script evaluated
 in isolated per-group environments inside one R session. The latter retains one
@@ -394,6 +402,9 @@ including validation overhead, can additionally be recorded with `collect_sacct.
 
 ## Paired complete extraction or filtering
 
+The measured extraction/filtering changes are custom R using existing packages
+and CLI tools. The Python replay driver adds no production scientific code.
+
 `benchmark_extraction.py` runs alternating pairs of independent R processes in
 one allocation. Supply `--bam INPUT.bam` for extraction, or
 `--extract-qs INPUT.qs2 --chromgroup GROUP --filtergroup GROUP` for filtering.
@@ -411,6 +422,10 @@ normal `/run_metadata` exception applies. Run on compute with enough memory for
 the original operation as well as the subsequent comparison.
 
 ## Germline VCF annotation block benchmark
+
+The matching and summary optimization is custom R with existing package
+internals and the loader's existing shell/`bcftools` pipeline. The block harness
+is R; the optional Python measurement wrapper is benchmark infrastructure.
 
 `benchmark_germline_vcf.R` extracts the actual germline VCF block from original
 and candidate `filterCalls.R` scripts. It executes the candidate's preceding
@@ -490,6 +505,10 @@ also rebuilds every index against its own BGZF encoding with pinned Rsamtools an
 requires identical decompressed index bytes. Compressed offsets are never
 compared between different BGZF encodings. Comparisons run outside worker timing.
 
+The production change is one R argument to the existing VariantAnnotation
+writer, with existing compiled package/Rsamtools operations. Python drives the
+benchmark and validation; no new non-R production helper is introduced.
+
 Index rebuilds stage physical scratch BGZF copies: Rsamtools normalizes paths,
 so symlinks could resolve to original files. Before real-data work, compute
 preflight rebuilds four actual fixture indices and verifies the original
@@ -515,6 +534,10 @@ The default `--coverage-annotation r` uses bounded reference windows and native
 the original annotation chain; compressed FASTA and references with ambiguous
 contig names also use that fallback. The original R BED writer and
 `chunk_runs=1e7` remain unchanged, as do the final QS and published BED schemas.
+
+Production annotation is custom R using existing compiled package internals,
+with shell invocations of existing `bgzip`/`tabix` and legacy CLI tools. Python
+provides fixtures and replay control; the historical C++ arm is separate.
 
 Run these small fixtures on an allocated compute node in the pinned container,
 with `/hidef/bin` on PATH. Use fresh fixture output directories:
@@ -570,6 +593,10 @@ all historical reports and distinguish them from the new R-port measurements.
 
 ## R artifact-cache validation and replay
 
+The production protocol is custom R, integrated through Nextflow/shell and
+existing `flock`, `stat`, `sync` and `cp`. Python supplies tests, replay control
+and the frozen historical comparison arm, not the current cache implementation.
+
 Run the protocol tests inside the HiDEF container on an allocated node. The
 optional frozen Python helper enables mixed Python/R locking and manifest
 interoperability checks:
@@ -601,6 +628,28 @@ sum of concurrent processes. Actual workflow behavior is separately exercised
 by `tests/test_prepared_cache_workflow.py`.
 
 ## Follow-on regression tests
+
+The uncommitted output-ordering draft has a regression script in the Torch
+workspace at `repo/tests/test_output_assembly_order.py`. The following command
+applies to that draft only; it is not available in a checkout until the ordering
+decision is resolved and the draft is committed. It runs on the host with
+Nextflow available, inside a one-CPU, 4 GiB, ten-minute compute allocation:
+
+```sh
+module load nextflow/26.04.0
+python3 tests/test_output_assembly_order.py --directory /path/to/new-fixture-directory
+```
+
+It extracts the actual channel fragment from `main.nf` and checks all 24 arrival
+permutations across interleaved samples, using deliberately nonlexical configured
+groups and reversed filenames. It checks exact file order and tuple contents;
+it launches no scientific workers. Proposed production changes are Nextflow/Groovy, and
+the regression driver is Python. This correctness test adds no CPU-saving claim.
+
+The separate disabled layout-policy helper tests are recorded in the
+[output-ordering ledger](../../docs/optimization-validation.md#pythonr-follow-up-output-ordering-under-repair).
+They exercise R QS-column and Python TSV-row validation helpers, not this
+Nextflow arrival-order regression, and do not activate an acceptance policy.
 
 The integrated source passed job `19374216`: all four changed R expression trees were identical to the measured candidate, the 16 parser/168 aggregation/32 VCF cases passed, and all 26 pins and the container identity remained unchanged. These scientific regressions add no performance measurement. See the [compact report](../../docs/benchmarks/torch-2026-10-07-followon.json) for measured scopes and provenance.
 
@@ -644,3 +693,26 @@ The frozen [runner plan](/projects/work/evrong01/HiDEF-seq/codex/runtime/followo
 The original candidate-source suite passed job `19355705`. Its source hashes remain distinct from the integrated hashes: only an explanatory comment and changed-line whitespace were adjusted in `outputResults.R` and `sharedFunctions.R`. Integration job `19374216` verified parsed-expression identity and reran the relocated suites; its [reviewed receipt](/projects/work/evrong01/HiDEF-seq/codex/runtime/followon-integration-v1/reviewed-result.json) records `COMPLETED`, exit 0, 23 seconds and unchanged source/container guards.
 
 The 432 aggregation comparisons in the exploratory benchmark cover three alternative mappings; the reusable source test covers the selected implementation with 168 production-expression cases. These counts describe different suites and must not be combined into an independent sample count. Output object lifetime and R-annotation compression retain separate full-output and full-row validation evidence; this small suite does not exercise them.
+
+## Incremental burden coverage tests
+
+The selected accumulator uses custom R with existing compiled Bioconductor
+operations; it adds no custom non-R scientific helper. Its regression drivers
+are R. The allocated integration runner uses Python and shell for source checks,
+measurement and job control only.
+
+From the repository root inside the pipeline container, with one CPU, 4 GiB and
+ten minutes allocated, run:
+
+```sh
+Rscript --vanilla tests/test_burden_native_coverage.R .
+Rscript --vanilla tests/test_burden_coverage_optimization.R . /path/to/installed/BSgenome.package
+Rscript --vanilla tests/test_burden_sensitivity_optimization.R .
+```
+
+The native suite compares 70 cases against independent preserved functions from
+`ea8d06f`, including coverage sharing and guarded sensitivity paths. The other
+two suites retain their earlier assertions; their loaders also import the new
+helpers. Supply the installed BSgenome package directory to the coverage suite
+to exercise its actual chrM/chrY checks. These tests do not measure the complete
+pipeline or validate the final combined run.

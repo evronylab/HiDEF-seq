@@ -2,7 +2,8 @@
 
 This ledger records the completed full-workflow comparison of baseline
 `6b6598b` and optimized revision `3911047` on 2026-10-06. The subsequent
-Python/R revision `ea8d06f` is undergoing a separate full-workflow comparison;
+Python/R revision `ea8d06f` completed a separate full-workflow comparison and
+remains scientifically unaccepted because of the ordering failure below;
 its completed component benchmarks are recorded in
 [the implementation notes](workflow-optimization.md#pythonr-follow-up-status).
 Both historical full workflows completed successfully. Their common downstream workload used
@@ -14,6 +15,62 @@ QS2 objects passed all 18 components with zero numerical discrepancies. All 22
 prepared-cache comparison products passed. The
 [machine-readable summary](benchmarks/torch-2026-10-06.json) records measurements,
 source revisions, comparison scope and evidence checksums.
+
+## Python/R follow-up: output ordering under repair
+
+The `ea8d06f` workflow completed all 650 tasks, but its LIB1 final QS2 failed the
+original scientific comparison because the mitochondrial strict and lenient
+blocks arrived in reversed order. That run is **not scientifically accepted**.
+Its complete publication report contains all 711 required paths: 704 passed,
+three failed (LIB1 QS2 and both BAMs), and four BAM-index rows remain delegated
+to their owning BAMs without acceptance. There are no numerical review rows or
+other failures. LIB2 QS2 passed the original strict comparison. The current BAM
+ordering differences still need their own full coordinate/multiplicity and
+index-rebuild diagnostics; the earlier revision's proof does not cover them.
+Diagnostic job `19401886` compared all 18 components after aligning complete
+chromgroup/filtergroup blocks: zero value, type, attribute or within-block order
+differences remained, with only the nine existing metadata exclusions. This
+diagnostic does not broaden the acceptance rules or replace the failed report.
+
+The draft repair orders input filenames by configuration in Nextflow before R reads
+them. It uses custom non-R Nextflow/Groovy orchestration and leaves the existing
+per-sample readiness condition unchanged. Job `19401930` exercised the actual
+channel fragment with all 24 arrival permutations across interleaved samples:
+the original fragment produced configured order once, and the repaired fragment
+did so in all 24 cases. The reusable
+`tests/test_output_assembly_order.py` also passed against the local draft in
+job `19402677` (exit 0, 13 seconds). Both the workflow repair and this fixture
+remain uncommitted while the output-ordering decision is pending.
+
+The real LIB1 output replay, job `19403548`, completed its scientific worker but
+failed the unchanged comparison gate: 301 of 311 publication paths passed,
+nine failed, and one had the existing run-metadata exclusion. Eight statistics
+TSVs contain exactly the same row multisets in different orders. The remaining
+failure is the final QS2: 19 strict differences were confined to column ordering
+in `finalCalls` and `germlineVariantCalls`. All 56 own-file index rebuild checks
+passed. Nuclear-first configured order changes the first-seen column union and
+statistics-row order relative to the original mitochondrial-first execution.
+
+Diagnostic job `19407393` aligned columns by their exact, unique names in those
+two tables only. All 18 QS components then passed with zero failures or numerical
+reviews and the nine existing metadata exclusions. Each affected table has 96
+columns, with 15 column positions moved. Values, types, attributes and record
+order within chromosome groups remain exact under the original cross-chromgroup
+row-block rule. Negative controls reject changed data, types, attributes, names
+and disallowed row permutations. This is diagnostic evidence, not acceptance.
+
+Choosing reproducible configured order would require explicit approval for these
+two table-column permutations and eight statistics-file row permutations per
+sample. That choice is pending. The draft code and diagnostic do not change the
+approved comparison rules; both failed strict reports remain preserved. The
+final combined workflow still needs validation under the agreed policy.
+
+Disabled policy-v2 synthetic controls passed in job `19412603`. The QS helper is
+custom R; the TSV helper is custom Python; shell/SLURM provide validation
+infrastructure. Persisted policies remain `ready=false`, approval remains
+`PENDING`, and no scientific output was accepted by these tests. The independent
+review is workspace `runtime/layout-policy-toy-preflight-review-v1/review.json`,
+SHA-256 `8f548f965834c0042cf38663d2b5ecd695cfc95357d17019b1ac9e1ff925a932`.
 
 ## Publication comparison and approved BAM coordinate ordering
 
@@ -175,6 +232,50 @@ pipelines with concurrent children: that value can understate their combined
 memory requirement. Preserve Slurm allocation and step records separately without
 double-counting them. Distinguish intrinsic successful-workload performance from
 total expenditure including retries, failed experiments, and validation itself.
+
+Torch currently uses Slurm 25.05.4 with `jobacct_gather/cgroup` and automatic
+cgroup-version selection. Slurm's cgroup-v2 accounting includes the process tree
+and filesystem cache; its reported memory is not individual-process RSS
+([version-matched documentation](https://github.com/SchedMD/slurm/blob/slurm-25-05-4-1/doc/html/cgroup_v2.shtml#L764),
+[memory accounting implementation](https://github.com/SchedMD/slurm/blob/slurm-25-05-4-1/src/plugins/cgroup/v2/cgroup_v2.c#L2833)).
+The observed worker records support v2, but no job-specific `memory.stat` snapshot
+was retained. Compare terminal Slurm batch peaks with each other and process
+peaks with each other; do not subtract assumed cache use or interpret their
+difference as a measured amount of live R data. The read-only configuration and
+source review is retained in workspace
+`runtime/exploration-burdens-v2/native-memory-accounting-review-v1/`.
+
+The retained Nextflow traces provide a separate process-memory comparison for
+the original `6b6598b` pipeline and the `ea8d06f` Python/R run. All 20 selected
+task wrappers contain the same Nextflow 26.04.0 profiler. Its `peak_rss` is the
+largest sampled sum of visible task processes' resident high-water marks
+(`VmHWM`), not Slurm cgroup memory or the R heap. Raw values are KiB; the table
+converts those integers to GiB rather than using rounded trace display strings.
+
+| Matched task | Original sampled peak (GiB) | `ea8d06f` sampled peak (GiB) |
+|---|---:|---:|
+| LIB1 nuclear lenient burdens | 125.999 | 36.871 |
+| LIB1 nuclear strict burdens | 230.534 | 48.900 |
+| LIB1 mitochondrial lenient burdens | 3.982 | 0.988 |
+| LIB1 mitochondrial strict burdens | 4.020 | 1.025 |
+| LIB2 nuclear lenient burdens | 150.359 | 43.266 |
+| LIB2 nuclear strict burdens | 235.352 | 54.277 |
+| LIB2 mitochondrial lenient burdens | 3.983 | 0.988 |
+| LIB2 mitochondrial strict burdens | 4.022 | 1.030 |
+| LIB1 final output | 66.078 | 59.368 |
+| LIB2 final output | 76.446 | 65.936 |
+
+These stages have custom R implementations with existing compiled packages and
+CLI tools; the existing Nextflow profiler uses Bash and Linux process statistics.
+The supplemental analysis uses Python on retained metadata only. The profiler
+eventually samples at 30-second intervals: short-lived descendants can be missed,
+individual high-water marks need not be simultaneous, and shared mappings can
+be counted more than once. These are neither exact concurrent memory totals nor
+a measurement of filesystem-cache size. The source-bound supplement is workspace
+`runtime/candidate-python-r-trace-rss-review-v1/review.json`, SHA-256
+`8f46edd16cda9c95d0fcb806d57ef058d36c541a31849aa1d6a7756b3e19e90b`.
+It does not replace primary Slurm accounting, accept the failed `ea8d06f` run,
+or measure the later burden alternatives and five follow-on changes.
 
 Acceptance considers lower total actual CPU and lower memory in high-memory
 steps. Individual stages may slow down when the full workload improves; there is
@@ -443,6 +544,9 @@ rule are reported at the top of this ledger.
 
 ## Completed: full-reference summary preparation
 
+Implementation: custom R using existing compiled Bioconductor packages, with
+Nextflow/shell cache integration; no custom non-R scientific helper.
+
 Job `19190017` compared the original reference scans with the reusable reference
 summary in three independent pairs on the full hg38 reference.
 
@@ -459,6 +563,9 @@ reference preparation only. Wall time and allocated CPU-hours are not transcribe
 in this ledger; retain the raw measurement/accounting records for those metrics.
 
 ## Completed: one real LIB1 extraction chunk
+
+Implementation: custom R using existing R/Bioconductor packages; no new custom
+non-R scientific helper. Python provides replay and measurement infrastructure.
 
 The original and candidate extraction scripts were replayed once each on LIB1
 chunk 1 with the same configuration and a two-CPU allocation. Complete scientific
@@ -482,6 +589,9 @@ command, not its containing job's setup or validation overhead.
 
 ## Completed: matched extraction with compressed Rle slicing
 
+Implementation: custom R with existing compiled Rle operations; no new custom
+non-R scientific helper. The paired replay driver is Python.
+
 Job `19193173` froze both source trees and alternated two pairs of independent
 extraction processes within one allocation on `cl014`. Both complete scientific
 QS comparisons passed exactly, with only `/run_metadata` ignored.
@@ -500,6 +610,9 @@ lookup change below. Sources, per-arm metrics and both comparison reports are
 retained in workspace `runs/extract-paired/`.
 
 ## Completed: real sa query lookup and interval extraction validation
+
+Implementation: custom R lookup and fallback code using existing R/Bioconductor
+operations; no new custom non-R scientific helper.
 
 Job `19195014` replayed **182,949 real read/category query groups**, containing
 **1,533,808 own-strand positions**, from the original LIB1 chunk-1 extraction.
@@ -545,6 +658,9 @@ the remaining measured extraction cost.
 
 ## Completed: indexed indel tag lookup, two whole-extraction pairs
 
+Implementation: custom R name matching and integer indexing; no new custom
+non-R scientific helper. Python drives the paired complete-worker benchmark.
+
 Diagnostic profiling localized about 48% of sampled original extraction time to
 six indel tag assignments. Each read group repeatedly searched named tag lists.
 The candidate resolves read names once with `match()` and uses integer indices
@@ -583,6 +699,9 @@ Torch's short-job partition; no timed scientific worker was rerun for that chang
 
 ## Completed: germline VCF annotation block, three pairs
 
+Implementation: custom R filtering and summaries using existing packages. The
+loader retains its existing shell/`bcftools` pipeline; no new non-R helper.
+
 The full VCF load/conversion, quality filter, deduplication, summary, and call
 annotation block was replayed on LIB1 chunk 1, nuclear chromosome group `1-22X`,
 filtergroup `lenient`. Both arms used the same actual calls from the candidate
@@ -620,6 +739,9 @@ documented in the [benchmark harness](../scripts/benchmark/README.md).
 
 ## Completed: one real nuclear lenient burden chunk
 
+Implementation: custom R using existing compiled Bioconductor operations and
+the existing annotation CLI chain; no new custom non-R scientific helper.
+
 Job `19194158` replayed complete `calculateBurdens.R` baseline and candidate
 processes within one allocation using the same original LIB1 chunk-1 nuclear
 lenient filter output. Both arms included the unchanged full coverage BED writer.
@@ -639,6 +761,9 @@ configuration, complete per-process metrics and comparison reports are retained
 in workspace `runs/burdens-one-chunk/`.
 
 ## Completed: germline formatting, three fresh-process pairs
+
+Implementation: custom R table formatting using existing package internals;
+no new custom non-R production helper.
 
 Job `19194048` alternated three pairs of independent R workers on `cl012`, each
 loading the same benchmark packet containing only raw germline data and config.
@@ -693,6 +818,10 @@ TSV, VCF, PDF, BED.gz, and Tabix products. No call batching or output sharding i
 introduced, and no scientific schema change is authorized by these measurements.
 
 ## Completed: BAM dispatch and Nextflow integration
+
+This historical dispatcher used custom C++ with HTSlib and Nextflow/shell
+compilation and indexing commands. Python supplied benchmark/fixture drivers;
+the current Python production replacement is documented in the implementation notes.
 
 Job `19191730` dispatched the full LIB1 analysis BAM into 60 chunks. All chunks
 passed BAM readability checks and received PacBio and samtools indices. Chunk 1
@@ -751,6 +880,9 @@ uses `-r optimization -latest` and records its resolved revision separately.
 
 ## Completed: chromosome 22 coverage annotation experiment
 
+This historical candidate used a custom C++ annotation helper called from R,
+with existing compression/indexing tools; these measurements precede the R port.
+
 Job `19192378` alternated two complete legacy/candidate operation pairs for all
 eight strict coverage rows on actual LIB1 chromosome 22. Both used the unchanged
 original R BED writer and `chunk_runs=1e7`. The candidate substitutes direct FASTA
@@ -774,6 +906,10 @@ are also retained under workspace `runs/coverage-annotation-chr22/`. This
 chromosome-specific percentage is not projected to the full nuclear operation.
 
 ## Completed and integrated: full nuclear coverage annotation
+
+This historical integration used a custom C++ annotation helper, R dispatch,
+Nextflow/shell compilation, and existing compression/indexing tools. The later
+R replacement has separate measurements in the implementation notes.
 
 Job `19194115` completed one legacy/candidate pair for all eight strict nuclear
 coverage rows from the original LIB1 final QS. Every decompressed BED byte and
@@ -865,6 +1001,9 @@ replays above. Evidence: `runs/coverage-annotation-integrated-workflow/`.
 
 ## Rejected: coordinate-sort reuse
 
+Implementation considered: custom Nextflow/shell command changes using existing
+`pbmerge`/`samtools`; no new R or compiled scientific helper.
+
 The completed tiny fixture matched ordered SAM records for one input but failed
 for every tested multi-input order (`AB`, `BA`, `ABC`, `CBA`) because coordinate
 ties changed record order. Record multisets, headers excluding program records,
@@ -874,6 +1013,9 @@ sort-reuse implementation is adopted. Results are retained in workspace
 `runs/coordinate-merge-fixtures/results.json`.
 
 ## Rejected: mitochondrial shared-session filtering
+
+The prototype is custom R using existing package internals; adoption would need
+Nextflow/shell changes. Python is the benchmark driver, not a scientific kernel.
 
 Job `19191880` completed one paired mitochondrial replay of lenient and strict
 filtergroups. Both complete QS outputs matched exactly between separate R
@@ -892,6 +1034,9 @@ Records and strict comparison reports are in workspace `runs/filter-chain-mito/`
 The separate nuclear experiment is described below.
 
 ## Rejected: nuclear shared-session filtering
+
+The prototype is custom R using existing package internals; adoption would need
+Nextflow/shell changes. Python is the benchmark driver, not a scientific kernel.
 
 Job `19191877` completed one paired replay of the full nuclear lenient→strict
 chain on the original LIB1 extraction chunk. Both full QS outputs matched
@@ -915,6 +1060,9 @@ current filtering source. Sources, complete measurements, cache-use counts and
 both exact comparisons are retained in workspace `runs/filter-chain-1-22X/`.
 
 ## Completed: all four complete chunk-filtering comparisons
+
+The filtering changes are custom R with existing packages and CLI tools;
+Nextflow/shell handles prepared-cache integration, without a new non-R kernel.
 
 Job `19194137` replayed all four chromosome/filtergroup combinations for the
 original LIB1 chunk-1 extraction with 24 GiB and two CPUs. Both it and original
@@ -949,6 +1097,9 @@ This is not a whole-pipeline or preparation-inclusive result. Wall times and
 per-group results are retained in `comparisons/four-group-summary.json`.
 
 ## Completed: matched complete nuclear-lenient filtering, two pairs
+
+The filtering changes are custom R with existing packages and CLI tools;
+Python controls this benchmark and adds no production scientific implementation.
 
 Job `19196053` completed two alternating pairs of independent R workers on
 `cl017`, using the same full chunk-1 extraction and identical prepared YAML for
@@ -1031,6 +1182,10 @@ event metrics, payload disclosure and comparisons are in workspace
 
 ## Completed: native VCF writer buffer, two fresh-process pairs
 
+Implementation: one R argument change to existing VariantAnnotation code;
+compiled package internals and Rsamtools remain existing dependencies. Python
+provides benchmark/validation infrastructure, with no new production helper.
+
 Job `19198553` alternated independent default→native and native→default workers
 on `cs648`, retaining the same complete final QS payload. Only the existing
 `writeVcf(..., nchunk=100000L)` argument changed; timed workers had no expression
@@ -1092,3 +1247,68 @@ Independent review of jobs `19352943` and `19352944` passed all 128 exact QS com
 Each chain contains one real chunk's extraction and four separate nuclear/mitochondrial strict/lenient filters. Arm order reverses across libraries and filesystem cache state is uncontrolled. The chains do not exercise output lifetime or coverage compression. Component gains are not additive, and full-workflow acceptance and whole-pipeline measurements remain pending. The reviewed chain receipt is workspace `runtime/followon-chain-review-v1/reviewed-result.json`, SHA-256 `cad39e08a89ed0238c017040089592d04e968c237136119d0f7d8f73b76c8827`.
 
 Reusable fixtures passed in job `19355705`: 16 generated-parser cases, 168 selected production aggregation cases and 32 VCF target comparisons. The [test commands](../scripts/benchmark/README.md#follow-on-regression-tests) use three entry points across four source files. Integration job `19374216` also passed: all four R parsed expression trees matched the measured source, the relocated 16/168/32 suites passed, and all 26 source pins and the SIF identity remained unchanged (`COMPLETED`, exit 0, 23 seconds). The compact report keeps measured and integrated source hashes separate, linked by this parsed-expression check. The integration receipt remains workspace `runtime/followon-integration-v1/reviewed-result.json`.
+
+
+## Burden accumulator whole-worker comparison and selection
+
+Both alternatives use **custom R**, existing compiled Bioconductor operations
+and unchanged annotation CLI tools. Neither adds custom non-R scientific code;
+Python and shell provide benchmark/validation infrastructure only.
+
+Both complete LIB1 strict nuclear replays passed all 20 QS components, including
+configuration and run metadata, with no exclusions, alignment or numerical
+tolerance. All eight compressed BEDs match the `ea8d06f` baseline byte-for-byte;
+decoded TBI payloads, own-index proofs and ordered indexed-query checks pass.
+Sources, input identities and execution copies remained unchanged. This is one
+complete burden task, not acceptance of either entire pipeline revision.
+
+| Complete burden task | Actual CPU hours | Slurm batch peak (GiB) | Separate process/descendant maximum (GiB) |
+|---|---:|---:|---:|
+| `ea8d06f` baseline, job `19341390` | 10.0415 | 120.258 | Not recorded with this wrapper |
+| Incremental Rle sharing, job `19366281` | 8.0790 | 112.563 | 41.486 |
+| Retained endpoints, job `19386851` | 8.3746 | 108.373 | 35.066 |
+
+Primary CPU is normal Slurm allocation UserCPU plus SystemCPU once; rounded
+TotalCPU is only a cross-check. The native and endpoint validators used another
+1,906.119 and 2,128.765 CPU seconds, respectively, excluded from these numbers.
+The observed reductions against `ea8d06f` are 19.54% CPU/6.40% Slurm peak for
+native and 16.60% CPU/9.88% Slurm peak for endpoints. This baseline already
+contains earlier optimizations; it is not the original `6b6598b` pipeline.
+
+These single whole-worker comparisons are unpaired and ran on different nodes.
+The baseline requested 288 GiB and both replays requested 160 GiB, all with two
+CPUs. Slurm cgroup memory can include filesystem cache; the independent
+RUSAGE_CHILDREN maximum is not concurrent aggregate memory or an R-heap measure.
+Do not attribute the peak differences solely to R allocations. The separate
+matched 60-chunk component pairs omit raw-call/germline accumulation and coverage
+annotation; their larger percentage improvements cannot replace these results.
+
+Native accumulation was selected for its simpler chunk-local cache lifetime,
+lack of retained interval history and preservation of ordinary acceleration
+with asymmetric final-round barcodes. Endpoints have the lower observed peak,
+but add history, finalization and fallback state that grows with input. Native
+also used less observed whole-worker CPU; the small cross-node difference is
+not a causal timing estimate. Raw calls, germline data and one final QS2 still
+grow with input under either approach. Both preserve the single-QS design and
+introduce no call batches or extra chromosome jobs.
+
+Evidence is retained in workspace `runtime/exploration-burdens-v2/`:
+
+- Native complete proof: `whole-worker-native-postrun-v1/review.json`, SHA-256 `c25289659decc7e1cc342cc380704b098797112947894c8342b07205c66b40eb`.
+- Endpoint complete proof: `whole-worker-endpoints-postrun-v1/review.json`, SHA-256 `ab2fd7839b9fa0ec64ca1abf06f465f2c801469d9e9640713379d16b13156554`.
+- Actual request/node context: `whole-worker-resource-context-v1/review.json`, SHA-256 `80c325af3af7024f9e26bb6ef3ba6099be02e2af44671e30dc7d8179cf6a65cf`.
+- Selection and limits: `accumulator-selection-v1/selection.json`, SHA-256 `57a5852c6380847ca7cfd08bbc2d35ebbeb67ddd309bda0f29d89554d2a5dcb3`.
+
+The measured native source is `d938f522a4311c0e6e79a6b54b7cbaf99a9b7ef4c9354fd2579efb44926d89fe`.
+The measured endpoint source is `a9159a047e86969ecc8d5a26a008bbacea3ea81ad87cbd1ca75d5fc0542dd181`, before the later capacity guard;
+its later readable capacity guard has separate fixture/component evidence and
+was not selected. Native integration job `19421102` passed all seven parsed-source
+comparisons, 70 native cases and coverage/sensitivity suites, with actual chrM/chrY
+exercised in the coverage suite.
+All source/copy/reference/SIF checks passed; its 141.406 CPU seconds are validation
+cost. The exact handoff was installed, then three complete comment blocks were
+clarified; all other lines remain byte-identical in order. Installed source SHA-256
+is `e3b025b08d6ff777e9bfbe57c8057da4cfa003778f3af41b806259e02907ffd1`.
+The [compact report](benchmarks/torch-2026-10-08-burden-accumulator.json) binds both
+sources, the integration proof and the comment-only difference. Final combined
+workflow validation and matched-resource measurements remain required.

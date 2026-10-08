@@ -19,7 +19,8 @@ assignment <- function(expressions, name, occurrence = 1L) {
   expressions[[which(matches)[[occurrence]]]]
 }
 for(name in c("sum_RleList", "bc_orientation_is_asymmetric", "validate_bam.gr.filtertrack",
-              "calc_duplex_coverage", "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result",
+              "calc_duplex_coverage", "duplex_plus_ranges", "make_chunk_coverage_kernels",
+              "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result",
               "make_per_bc_orientation_coverage")) {
   eval(assignment(expressions, name))
 }

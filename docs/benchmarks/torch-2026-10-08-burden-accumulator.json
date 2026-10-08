@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "report_state": "completed_component_and_integration_report",
+  "created_utc": "2026-10-08T07:01:33.707356+00:00",
+  "status": "Both complete burden-task scientific proofs and selected native current-shared integration PASS; native installed; final combined workflow acceptance pending",
+  "selected_accumulator": "native",
+  "selection_evidence_ref": "selection",
+  "selection_rationale": [
+    "Prefer native chunk-local caches and incremental Rles over retained endpoint history and additional finalization/fallback state.",
+    "Native ordinary accumulation retains its optimization with asymmetric final-round barcodes; endpoints permanently fall back to legacy on asymmetry on either strand. Sensitivity has independent guards.",
+    "Both observed Slurm batch peaks were lower than the ea8 task baseline. Endpoints had the lower observed batch and process/descendant peaks; native had slightly lower whole-worker CPU. These unpaired observations do not establish causal differences."
+  ],
+  "whole_worker_scope": "One complete LIB1 nuclear 1-22X strict calculateBurdens task, same 60 ordered chunks and effective config: raw calls/germline retention, preparation, ordinary/orientation/sensitivity coverage, annotation, eight BEDs with native indexes and one complete QS2.",
+  "baseline": {
+    "scientific_revision": "ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77",
+    "scope": "The ea8 LIB1 nuclear strict task only; not the original pipeline or an accepted combined-workflow result",
+    "whole_measured_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-20261006/nextflow-assets/.repos/evronylab/HiDEF-seq/clones/ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77/bin/calculateBurdens.R",
+      "sha256": "47bac8c08ba60533f11ac2b79e488376c57bc2faf87e14574b12899615d75211"
+    },
+    "whole_shared_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-20261006/nextflow-assets/.repos/evronylab/HiDEF-seq/clones/ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77/bin/sharedFunctions.R",
+      "sha256": "273e405ceb059770edcc8fefac93108202b2ff5cc485eecfb1f3e2467b8c7d0d"
+    },
+    "metrics": {
+      "job_id": "19341390",
+      "node": "cl017",
+      "allocated_cpus": 2,
+      "requested_memory_GiB": 288,
+      "actual_cpu_seconds": 36149.475,
+      "user_seconds": 34024.0,
+      "system_seconds": 2125.475,
+      "wall_seconds": 35475,
+      "slurm_batch_MaxRSS_GiB": 120.2576904296875
+    }
+  },
+  "whole_worker_image": {
+    "identity": {
+      "path": "/projects/rps/evrong01/evronylab/bin/HiDEF-seq/hidef-seq_3.0.sif",
+      "bytes": 1569312768,
+      "mtime_ns": 1791349042467738505,
+      "ctime_ns": 1791349042471828203,
+      "device": 57,
+      "inode": 8386719381065691200
+    },
+    "binding": "Same stat-bound SIF in both immutable worker plans; no new SIF hash computed for this report"
+  },
+  "matched60_component_scope": {
+    "included": "Input loading/unpacking, ordinary coverage, sensitivity, materialization and component serialization",
+    "excluded": "Retained raw-call/germline payload and coverage annotation; not a complete calculateBurdens task",
+    "design": "Each candidate versus its own same-allocation baseline, separate pairs/nodes; baseline then candidate without cache/order balancing",
+    "source_limit": "Earlier prototypes, not the final whole-worker sources: later semantic guards and endpoint fallback-lifetime fixes have separate evidence",
+    "evidence_ref": "matched60_comparison",
+    "gains_additive_or_extrapolatable": false
+  },
+  "alternatives": [
+    {
+      "id": "native",
+      "selected": true,
+      "implementation": {
+        "custom_production_languages": [
+          "R"
+        ],
+        "new_custom_non_R_scientific_code": false,
+        "existing_compiled_operations": "Bioconductor coverage, countOverlaps and Rle operations; no new C++/Rcpp kernel",
+        "production_Nextflow_or_shell_changes": "None introduced by this accumulator alternative; existing annotation/compression/index CLI remains unchanged",
+        "validation_infrastructure": "Separate R, Python and shell helpers; excluded from production-worker metrics"
+      },
+      "whole_measured_source": {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-replay-v3/calculateBurdens.R",
+        "sha256": "d938f522a4311c0e6e79a6b54b7cbaf99a9b7ef4c9354fd2579efb44926d89fe"
+      },
+      "whole_worker": {
+        "status": "PASS",
+        "metrics": {
+          "job_id": "19366281",
+          "node": "cl014",
+          "allocated_cpus": 2,
+          "requested_memory_GiB": 160,
+          "actual_cpu_seconds": 29084.372,
+          "user_seconds": 27595.0,
+          "system_seconds": 1489.372,
+          "wall_seconds": 28471,
+          "slurm_batch_MaxRSS_GiB": 112.56256484985352,
+          "change_percent_vs_ea8_task": {
+            "actual_cpu": -19.54413722467615,
+            "wall": -19.743481324876676,
+            "slurm_batch_MaxRSS": -6.398863600605386
+          },
+          "independent_candidate_measurement": {
+            "cpu_method": "Linux resource.getrusage(RUSAGE_CHILDREN) delta (waited-for descendants)",
+            "actual_cpu_seconds": 29084.799791999998,
+            "wall_seconds": 28467.5542756652,
+            "process_or_descendant_max_rss_KiB": 43501616,
+            "process_or_descendant_max_rss_GiB": 41.48637390136719,
+            "peak_definition": "Largest observed individual waited-for process/descendant peak, not simultaneous process-tree RSS or R heap"
+          }
+        },
+        "proof": {
+          "validator_job_id": "19368467",
+          "exact_QS_components": 20,
+          "all_QS_metadata_and_config_included": true,
+          "numeric_tolerance": 0,
+          "QS_components_ignored": 0,
+          "produced_files": 17,
+          "byte_identical_compressed_BEDs": 8,
+          "own_native_index_and_indexed_query_proofs": 8,
+          "immutable_inputs_sources_and_execution_copies": true
+        },
+        "evidence_ref": "native_whole_review"
+      },
+      "matched60_component": {
+        "job_id": "19361894",
+        "baseline_actual_cpu_seconds": 11741.4842,
+        "candidate_actual_cpu_seconds": 9473.692967,
+        "actual_cpu_reduction_pct": 19.314348973019946,
+        "baseline_individual_peak_rss_kib": 38471756,
+        "candidate_individual_peak_rss_kib": 30518928,
+        "individual_peak_rss_reduction_pct": 20.67186119604211,
+        "exact_qs_components": 10,
+        "status": "PASS",
+        "evidence_ref": "native_matched60_review"
+      }
+    },
+    {
+      "id": "endpoints",
+      "selected": false,
+      "implementation": {
+        "custom_production_languages": [
+          "R"
+        ],
+        "new_custom_non_R_scientific_code": false,
+        "existing_compiled_operations": "Bioconductor coverage, countOverlaps and Rle operations; no new C++/Rcpp kernel",
+        "production_Nextflow_or_shell_changes": "None introduced by this accumulator alternative; existing annotation/compression/index CLI remains unchanged",
+        "validation_infrastructure": "Separate R, Python and shell helpers; excluded from production-worker metrics"
+      },
+      "whole_measured_source": {
+        "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-endpoints-replay-v1/calculateBurdens.R",
+        "sha256": "a9159a047e86969ecc8d5a26a008bbacea3ea81ad87cbd1ca75d5fc0542dd181"
+      },
+      "whole_worker": {
+        "status": "PASS",
+        "metrics": {
+          "job_id": "19386851",
+          "node": "cl012",
+          "allocated_cpus": 2,
+          "requested_memory_GiB": 160,
+          "actual_cpu_seconds": 30148.661,
+          "user_seconds": 28928.0,
+          "system_seconds": 1220.661,
+          "wall_seconds": 29500,
+          "slurm_batch_MaxRSS_GiB": 108.37286376953125,
+          "change_percent_vs_ea8_task": {
+            "actual_cpu": -16.60000318123569,
+            "wall": -16.84284707540521,
+            "slurm_batch_MaxRSS": -9.882799692635945
+          },
+          "independent_candidate_measurement": {
+            "cpu_method": "Linux resource.getrusage(RUSAGE_CHILDREN) delta (waited-for descendants)",
+            "actual_cpu_seconds": 30148.426105000002,
+            "wall_seconds": 29497.873259821907,
+            "process_or_descendant_max_rss_KiB": 36769484,
+            "process_or_descendant_max_rss_GiB": 35.06611251831055,
+            "peak_definition": "Largest observed individual waited-for process/descendant peak, not simultaneous process-tree RSS or R heap"
+          }
+        },
+        "proof": {
+          "validator_job_id": "19386866",
+          "exact_QS_components": 20,
+          "all_QS_metadata_and_config_included": true,
+          "numeric_tolerance": 0,
+          "QS_components_ignored": 0,
+          "produced_files": 17,
+          "byte_identical_compressed_BEDs": 8,
+          "own_native_index_and_indexed_query_proofs": 8,
+          "immutable_inputs_sources_and_execution_copies": true
+        },
+        "evidence_ref": "endpoint_whole_review"
+      },
+      "matched60_component": {
+        "job_id": "19347620",
+        "baseline_actual_cpu_seconds": 10416.999624,
+        "candidate_actual_cpu_seconds": 3773.835028,
+        "actual_cpu_reduction_pct": 63.772341708591775,
+        "baseline_individual_peak_rss_kib": 37975464,
+        "candidate_individual_peak_rss_kib": 27493976,
+        "individual_peak_rss_reduction_pct": 27.60068448406582,
+        "exact_qs_components": 10,
+        "status": "PASS",
+        "evidence_ref": "endpoint_matched60_review"
+      }
+    }
+  ],
+  "endpoint_later_source": {
+    "status": "Not selected; separate readability/capacity evidence, not another whole-worker timing",
+    "staged_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/endpoint-integration-handoff-v1/staged/bin/calculateBurdens.R",
+      "sha256": "25c78a1a49ab411e75937d35d79b5aaf0fd1136c8f740a7b19c875d2366902e0"
+    },
+    "evidence_refs": [
+      "endpoint_readability_proof",
+      "endpoint_capacity_proof"
+    ],
+    "limit": "Capacity fallback avoids aggregate IRanges count overflow; it does not bound retained history/RAM or establish billion-interval performance"
+  },
+  "metric_interpretation": {
+    "primary_CPU": "Actual Slurm UserCPU + SystemCPU once per worker; allocated CPU-hours and validation costs are excluded",
+    "whole_comparison": "Single unpaired observations: baseline cl017/288G, native cl014/160G, endpoints cl012/160G, two CPUs each; no causal cross-node timing or memory claim",
+    "memory": "Keep Slurm batch MaxRSS, RUSAGE_CHILDREN individual maximum and Nextflow sampled peaks separate; never sum or substitute them",
+    "cgroup": "Aggregate cgroup accounting established; cgroup/v2 including filesystem cache strongly supported. Job memory.stat snapshots were not captured, so no heap/cache/descendant decomposition or presumed-cache subtraction is justified",
+    "resource_review_time_scope": "Resource-context review captured endpoints while running; final endpoint metrics/status come from endpoint_whole_review",
+    "evidence_refs": [
+      "resource_context",
+      "cgroup_interpretation"
+    ]
+  },
+  "native_integration": {
+    "status": "PASS; installed with comment-only clarification",
+    "preflight_job_id": "19421102",
+    "preflight_scope": "Exact staged native source plus current sharedFunctions.R; all three relocated regressions, independent fixtures, real chrM/chrY and source/AST/reference/SIF checks",
+    "staged_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-integration-handoff-v1/staged/bin/calculateBurdens.R",
+      "sha256": "d938f522a4311c0e6e79a6b54b7cbaf99a9b7ef4c9354fd2579efb44926d89fe"
+    },
+    "current_shared_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/repo/bin/sharedFunctions.R",
+      "sha256": "2b962f5311c13cc8b622f72309b895b627a3980647364560955311a5e8e80111"
+    },
+    "evidence_refs": [
+      "native_handoff",
+      "native_current_shared_ready_plan",
+      "native_current_shared_submission",
+      "native_current_shared_review",
+      "native_installation",
+      "native_comment_clarification"
+    ],
+    "integration_proof": {
+      "evidence_ref": "native_current_shared_review",
+      "AST_identical_files": 7,
+      "whole_native_AST_expressions": 156,
+      "native_regression_checks": 70,
+      "source_copy_reference_SIF_guards": true,
+      "coverage_and_sensitivity_regressions_passed": true,
+      "coverage_actual_chrM_chrY": true
+    },
+    "final_repository_source_sha256": "e3b025b08d6ff777e9bfbe57c8057da4cfa003778f3af41b806259e02907ffd1",
+    "comment_only_clarification": "Three full-line comment blocks clarified after exact handoff installation; all other lines remain byte-identical in order, as recorded separately."
+  },
+  "acceptance_limits": {
+    "combined_pipeline_accepted": false,
+    "combined_pipeline_status": "Final combined full-workflow validation remains required",
+    "main_ea8_workflow": "Original complete three-failure strict report and coordinator rejection remain failed; using one task as a numerical reference does not accept that workflow",
+    "output_ordering_policy": "User choice remains pending; this selection changes no comparison policy",
+    "scaling": "Native aggregate Rles grow with run/category/orientation complexity; endpoints retain input interval history. Both retain growing raw-call/germline payload and one final QS2; no constant-memory guarantee or universal barcode/chromosome speedup",
+    "historical_reports": "Frozen reports retain their time-of-report pending/unselected labels; current selection is bound separately"
+  },
+  "references": {
+    "selection": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/accumulator-selection-v1/selection.json",
+      "sha256": "57a5852c6380847ca7cfd08bbc2d35ebbeb67ddd309bda0f29d89554d2a5dcb3"
+    },
+    "native_whole_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-native-postrun-v1/review.json",
+      "sha256": "c25289659decc7e1cc342cc380704b098797112947894c8342b07205c66b40eb"
+    },
+    "endpoint_whole_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-endpoints-postrun-v1/review.json",
+      "sha256": "ab2fd7839b9fa0ec64ca1abf06f465f2c801469d9e9640713379d16b13156554"
+    },
+    "resource_context": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-resource-context-v1/review.json",
+      "sha256": "80c325af3af7024f9e26bb6ef3ba6099be02e2af44671e30dc7d8179cf6a65cf"
+    },
+    "cgroup_interpretation": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-memory-accounting-review-v1/review.json",
+      "sha256": "76bcae2c0f9e7a86d6e4d8b0af86039e7b89213406f17bf003a6cdf3389554a4"
+    },
+    "matched60_comparison": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/postrun-review-v1/component-comparison.json",
+      "sha256": "bd98c9db3a09cba409b213fd34e4824d3433554f6815ed6a4b25e241e742dfdb"
+    },
+    "native_matched60_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/postrun-review-v1/native-reviewed-summary.json",
+      "sha256": "a1c88a733045ed2870298551709319a8aef7caba88bd5cf016a01aac4f922f94"
+    },
+    "endpoint_matched60_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/postrun-review-v1/endpoint-reviewed-summary.json",
+      "sha256": "0626618a2a7c0801b6b508b596e329411fc5f23c1530f7cb55b399f8581dabd7"
+    },
+    "endpoint_growth": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/postrun-review-v1/endpoint-growth-review.json",
+      "sha256": "55a4c79037efd5439cd57bc682b91d360779f7e0117900c828b1ce28c99b34d7"
+    },
+    "native_worker_plan": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-replay-v3/plan.json",
+      "sha256": "f2dea96e97a0a3593de44ae902e500836becb573ee3bd65cc923b79bf1929249"
+    },
+    "endpoint_worker_plan": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/whole-worker-endpoints-replay-v1/plan.json",
+      "sha256": "b346c2e4d68ba6c814fcfd1687d9b56e7eba868baf456dc0ff61f739c8656eab"
+    },
+    "native_handoff": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-integration-handoff-v1/manifest.json",
+      "sha256": "ebd8ad05fec001dc992ebee4aec1875406f0efe142ac9ccf9a4dfef16c4af1a4"
+    },
+    "endpoint_readability_proof": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/endpoint-readable-preflight-v1/review.json",
+      "sha256": "46ec99d5e0a296f91e7d03180053eb4b2f827b69309aeadaaebf275448ffdb9c"
+    },
+    "endpoint_capacity_proof": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/endpoint-capacity-postrun-review-v1/review.json",
+      "sha256": "86e9733872106a2ef1a52f595db756f6428b9dc8e46688be0d062774d26c65eb"
+    },
+    "native_current_shared_ready_plan": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-current-integration-preflight-v1/plan.ready.json",
+      "sha256": "f797b3f5472cc155ed78c70bebe24bfad8b6c69e389728403c28d11d456b724c"
+    },
+    "native_current_shared_submission": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-current-integration-preflight-v1/submission-result.json",
+      "sha256": "6aff3cc865c67000c6a74f279ce45953c70ce14dca29d2ed1baf432d75b2cc39"
+    },
+    "native_current_shared_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/native-current-integration-preflight-v1/reviewed-result.json",
+      "sha256": "7215e0b8cb97fb5bdae5e772464b689617b9bfcf1409d2cf646b72927f00ceed"
+    },
+    "native_installation": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/accumulator-selection-v1/installation.json",
+      "sha256": "4bb2bcb694e3de7ccb80cb5d067b7928f4e0f9532466aa69caf40d633ce10f48"
+    },
+    "native_comment_clarification": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/accumulator-selection-v1/comment-clarification.json",
+      "sha256": "a1e1d9389ccc8ad0d9c9d997207658cad7a2fec88a8b26606cf900dca1cf1a48"
+    },
+    "endpoint_validator_accounting": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/exploration-burdens-v2/accumulator-selection-v1/endpoint-validator-accounting.json",
+      "sha256": "cca052c67abb251015b09705d01566040b59764ef5b2e6391353986af0c7872b"
+    }
+  },
+  "date": "2026-10-08",
+  "finalized_utc": "2026-10-08T07:04:08.890021+00:00",
+  "validation_costs_excluded_from_production_CPU_seconds": {
+    "native_whole_validator": 1906.119,
+    "endpoint_whole_validator": 2128.765,
+    "native_integration_preflight": 141.406
+  }
+}

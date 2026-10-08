@@ -16,7 +16,8 @@ assignment <- function(name) {
   expressions[[which(hits)[[1]]]]
 }
 for(name in c("validate_bam.gr.filtertrack", "calc_duplex_coverage", "gr_1bp_cov", "sum_RleList",
-              "make_sensitivity_coverage_queries", "sum_filtertrack_sensitivity_coverage")) {
+              "make_sensitivity_coverage_queries", "duplex_plus_ranges", "sensitivity_site_counts",
+              "sum_filtertrack_sensitivity_coverage")) {
   eval(assignment(name))
 }
 si <- Seqinfo(c("chr1", "chr2"), c(100L, 100L))

@@ -238,6 +238,89 @@ calc_duplex_coverage <- function(gr){
 	cov %/% 2L
 }
 
+# Matching validated strand pairs, chromosome assignments and no extra strands
+# permit plus-strand coverage to replace full coverage divided by two. The caller
+# states whether pair validation is complete; unsupported geometry uses the
+# original coverage and even-depth checks.
+duplex_plus_ranges <- function(gr, validate=TRUE) {
+  if(validate) validate_bam.gr.filtertrack(gr)
+  plus <- gr[strand(gr)=="+"]; minus <- gr[strand(gr)=="-"]
+  if(length(gr)!=2*length(plus) || length(gr)>.Machine$integer.max ||
+     !identical(seqnames(plus),seqnames(minus))) return(NULL)
+  plus
+}
+
+# Each accumulation call caches incoming categories and returned chromosome Rles.
+# Unchanged one-sided chromosomes may reuse an old Rle, but no cache retains
+# operand pairs or accumulation history. Clear both caches before sensitivity
+# processing and loading the next file.
+make_chunk_coverage_kernels <- function(first_chunk) {
+  # Resolve this before the caller initializes state$metadata for its first file.
+  force(first_chunk)
+  cov_cache <- new.env(parent = emptyenv())
+  cov_cache$keys <- list()
+  cov_cache$values <- list()
+  new_rle_cache <- new.env(parent = emptyenv())
+
+  same_coordinates <- function(a, b) {
+    identical(seqinfo(a), seqinfo(b)) &&
+      identical(seqnames(a), seqnames(b)) &&
+      identical(ranges(a), ranges(b))
+  }
+  simple_cov <- function(gr) {
+    # The accumulator has already validated every incoming duplex pair.
+    for(i in seq_along(cov_cache$keys)) {
+      if(same_coordinates(gr, cov_cache$keys[[i]])) return(cov_cache$values[[i]])
+    }
+    plus <- duplex_plus_ranges(gr, FALSE)
+    value <- if(is.null(plus)) calc_duplex_coverage(gr) else coverage(plus)
+    cov_cache$keys[[length(cov_cache$keys) + 1L]] <- gr
+    cov_cache$values[[length(cov_cache$values) + 1L]] <- value
+    value
+  }
+  intern_new_rle <- function(chromosome, value) {
+    canonical <- new_rle_cache[[chromosome]]
+    match <- detect_index(canonical, ~ identical(value, .x))
+    if(match > 0L) return(canonical[[match]])
+    new_rle_cache[[chromosome]] <- c(canonical, list(value))
+    value
+  }
+  intern_first_coverage <- function(gr) {
+    value <- simple_cov(gr)
+    if(!first_chunk) return(value)
+    names(value) %>%
+      map(~ intern_new_rle(.x, value[[.x]])) %>%
+      set_names(names(value)) %>%
+      RleList(compress = FALSE)
+  }
+  # Preserve chromosome order and one-sided sum behavior. Share each returned
+  # chromosome Rle immediately, including unchanged one-sided chromosomes.
+  sum_RleList_intern <- function(a, b) {
+    seqs_union <- union(names(a), names(b))
+    seqs_union %>%
+      map(function(nm) {
+        seq_in_a <- nm %in% names(a)
+        seq_in_b <- nm %in% names(b)
+        value <- if(seq_in_a && seq_in_b) {
+          a[[nm]] + b[[nm]]
+        } else if(seq_in_a) {
+          a[[nm]]
+        } else {
+          b[[nm]]
+        }
+        intern_new_rle(nm, value)
+      }) %>%
+      set_names(seqs_union) %>%
+      RleList(compress = FALSE)
+  }
+  clear <- function() {
+    cov_cache$keys <- list()
+    cov_cache$values <- list()
+    rm(list = ls(new_rle_cache, all.names = TRUE), envir = new_rle_cache)
+  }
+  list(coverage = intern_first_coverage, sum = sum_RleList_intern, clear = clear)
+}
+
 #Accumulate duplex genome coverage while retaining only one category's old/new
 #addition at a time. Duplex coverage counts one unit per base pair; after duplex
 #filtering it has the same numeric depth/positions as coverage of either strand.
@@ -245,6 +328,11 @@ calc_duplex_coverage <- function(gr){
 #Observed bc_orientation already encodes each sample's actual final barcode round.
 #A NULL orientation_call_types disables orientation coverage.
 accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_types=NULL){
+	chunk_kernels <- make_chunk_coverage_kernels(is.null(state$metadata))
+	on.exit(chunk_kernels$clear())
+	calc_duplex_coverage <- chunk_kernels$coverage
+	sum_RleList <- chunk_kernels$sum
+
 	#Helper function to calculate strand-level coverage for each barcode configuration and aligned read strand.
 	calc_by_bc_orientation_strand_coverage <- function(gr, needed){
 		#Keep the same column types for empty and populated orientation tables,
@@ -498,37 +586,54 @@ make_sensitivity_coverage_queries <- function(variants, reference_seqinfo){
 		select(call_type, query_start, query_end)
 }
 
-#Retain only site counts for sensitivity. Whole-genome coverage exists for one
-#incoming category at a time so all legacy invariants are still checked, even
-#outside queried loci or when sensitivity is disabled for this chromgroup.
-#Crucially, accumulate the two flanks independently; take their minimum only
-#after every chunk has contributed.
-sum_filtertrack_sensitivity_coverage <- function(bytype, queries, previous = NULL){
-	walk(bytype$bam.gr.filtertrack, validate_bam.gr.filtertrack)
-	current <- bytype %>% select(-bam.gr.filtertrack)
-	current$coverage_start <- vector("list", nrow(current))
-	current$coverage_end <- vector("list", nrow(current))
-	for(i in seq_len(nrow(current))){
-		cov <- calc_duplex_coverage(bytype$bam.gr.filtertrack[[i]])
-		query_index <- match(current$call_type[i], queries$call_type)
-		if(is.na(query_index)){
-			current$coverage_start[[i]] <- numeric()
-			current$coverage_end[[i]] <- numeric()
-		}else{
-			current$coverage_start[[i]] <- gr_1bp_cov(queries$query_start[[query_index]], cov)
-			current$coverage_end[[i]] <- gr_1bp_cov(queries$query_end[[query_index]], cov)
-		}
-		rm(cov)
-	}
-	if(is.null(previous)){return(current)}
-	previous %>%
-		left_join(current, by = setdiff(names(current), c("coverage_start", "coverage_end")), suffix = c("", ".2")) %>%
-		mutate(
-			coverage_start = map2(coverage_start, coverage_start.2, `+`),
-			coverage_end = map2(coverage_end, coverage_end.2, `+`)
-		) %>%
-		select(-coverage_start.2, -coverage_end.2)
+# Count sensitivity at the original query positions with the native overlap
+# kernel when duplex/query invariants allow it. Preserve whole-track validation
+# and the original coverage/indexing path for unsupported inputs. The start/end
+# vectors are summed independently; their minimum is taken only after all chunks.
+sensitivity_site_counts <- function(gr,query_start,query_end,validated=FALSE) {
+  plus <- duplex_plus_ranges(gr,!validated)
+  legacy <- function() {
+    cov <- calc_duplex_coverage(gr)
+    list(start=gr_1bp_cov(query_start,cov),end=gr_1bp_cov(query_end,cov))
+  }
+  # Legacy indexing validates width and ignores query Seqinfo metadata. Preserve
+  # those semantics for query objects outside the production builder contract.
+  if(is.null(plus) || any(width(query_start)!=1L) || any(width(query_end)!=1L) ||
+     !identical(seqinfo(query_start),seqinfo(query_end))) return(legacy())
+  # Inspect the separate coordinate vectors before c(): constructing a GRanges
+  # with out-of-reference coordinates can itself emit a new warning.
+  chr <- c(as.character(seqnames(query_start)),as.character(seqnames(query_end)))
+  query_starts <- c(start(query_start),start(query_end))
+  query_ends <- c(end(query_start),end(query_end))
+  present <- chr %in% seqlevels(gr); lens <- seqlengths(gr)[chr]; circular <- isCircular(gr)[chr]
+  query_circular <- isCircular(query_start)[chr]
+  compatible <- tryCatch({merge(seqinfo(query_start),seqinfo(gr));TRUE},
+    error=function(e)FALSE,warning=function(w)FALSE)
+  if(!compatible || any(!present) || anyNA(lens[present]) ||
+     any(!is.na(circular)&circular) || any(!is.na(query_circular)&query_circular) ||
+     any(query_starts[present]<1L) ||
+     any(query_ends[present]>lens[present])) return(legacy())
+  query <- c(query_start,query_end,ignore.mcols=TRUE)
+  counts <- as.numeric(countOverlaps(query,plus,ignore.strand=TRUE,minoverlap=1L))
+  list(start=counts[seq_along(query_start)],end=counts[length(query_start)+seq_along(query_end)])
 }
+sum_filtertrack_sensitivity_coverage <- function(bytype,queries,previous=NULL) {
+  walk(bytype$bam.gr.filtertrack,validate_bam.gr.filtertrack)
+  current <- bytype %>% select(-bam.gr.filtertrack)
+  values <- map(seq_len(nrow(current)),function(i) {
+    gr <- bytype$bam.gr.filtertrack[[i]]; q <- match(current$call_type[i],queries$call_type)
+    if(is.na(q)) {
+      if(is.null(duplex_plus_ranges(gr,FALSE))) invisible(calc_duplex_coverage(gr))
+      list(start=numeric(),end=numeric())
+    } else sensitivity_site_counts(gr,queries$query_start[[q]],queries$query_end[[q]],TRUE)
+  })
+  current <- current %>% mutate(coverage_start=map(values,"start"),coverage_end=map(values,"end"))
+  if(is.null(previous)) return(current)
+  previous %>% left_join(current,by=setdiff(names(current),c("coverage_start","coverage_end")),suffix=c("",".2")) %>%
+    mutate(coverage_start=map2(coverage_start,coverage_start.2,`+`),coverage_end=map2(coverage_end,coverage_end.2,`+`)) %>%
+    select(-coverage_start.2,-coverage_end.2)
+}
+
 
 sensitivity_enabled_for_chromgroup <- !is.null(sensitivity_parameters$use_chromgroup) && sensitivity_parameters$use_chromgroup == chromgroup_toanalyze
 high_confidence_germline_vcf_variants <- NULL

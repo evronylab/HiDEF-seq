@@ -72,6 +72,35 @@ Final sample QS2 files remain about 2.57 GB and 2.84 GB. The retained stat-based
 report is `runtime/main-publication-storage-20261009/report.json`; content
 acceptance remains part of the publication checks above.
 
+### Completed experimental storage evaluation
+
+The separate [coverage-storage evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
+is complete for one full LIB1 strict nuclear burden task and its ordinary
+downstream consumer. All 20 burden QS components, eight byte-identical BEDs,
+eight index-payload proofs and 552 indexed queries passed. A fresh unmodified
+`outputResults.R` consumed the standalone candidate QS with its backing files
+hidden; all 18 final QS components, 311 exports and 56 own-file index checks
+then passed separately. These tests do not confer full-workflow acceptance.
+
+Observed task CPU fell from 7.54434 to 6.82530 hours (9.53%). Reported Slurm
+batch peaks were 128.668 and 98.723 GiB, with different nodes, requests and
+cache conditions; this is not a matched R-memory comparison. Candidate command
+peaks were 20.847 GiB for burden calculation and 18.731 GiB for fresh burden-QS
+assembly. The ordinary sample-output command still peaked at 43.025 GiB,
+essentially matching the native output replays. Validation costs are separate.
+
+The recommendation is to **retain the native production implementation**. The
+coverage prototype adds 455 lines of storage/reduction logic and retained 1,760
+private files; input loading, calls and final assembly still grow with data.
+The tested transparent Arrow call-table route failed ordinary-operation
+feasibility, so a disk-backed final user object was not developed. This does not
+reject all possible backends or treat DuckDB's startup error as a data failure.
+The [compact evidence report](benchmarks/torch-2026-10-09-storage-evaluation.json)
+records actual measurements and proof hashes. Scientific prototype code is R
+using existing compiled packages and CLI tools; Python/shell are benchmark
+controls. No new custom non-R scientific kernel or production storage change
+was introduced.
+
 ## Historical accepted comparison: `3911047`
 
 The following records the completed full-workflow comparison of baseline

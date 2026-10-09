@@ -751,16 +751,31 @@ a sampled lower bound for those files, not total peak scratch usage.
 The ordinary output consumer completed from a standalone copy of the final QS2
 with the private parts hidden, producing 311 outputs. Its R worker used
 2,098.585498 CPU seconds and peaked at 45,114,820 KiB (43.025 GiB). The separate
-exact consumer comparison is still pending, so consumer execution alone does
-not establish compatibility. No production adoption or larger-input memory
-guarantee follows from these experiments.
+consumer comparison passed all 18 ordered QS components, all 311 exports and
+56 own-file index checks. QS configuration, metadata and TSV order remained exact;
+existing VCF date/encoding and PDF Info-date exceptions applied. Native output
+replays had essentially the same command memory peak. This proves compatibility
+for the tested consumer, with a substantial downstream memory requirement still
+present.
 
 Groups of eight limit input count, not bytes. One input QS2, the retained calls,
 complete final assembly and later sample-level output still impose growing
 memory requirements. The prototype retained 3.55 GB in 1,760 private files and
 adds 455 lines of reduction/storage logic before production lifecycle integration.
 The evaluation therefore weighs the further 9.53% observed task CPU saving
-against retry, cleanup and maintenance costs; it does not select a new default.
+against retry, cleanup and maintenance costs. The recommendation is to retain
+the current native default and single QS2. No production adoption or larger-input
+memory guarantee follows from these experiments.
+
+The requested transparent disk-backed call-table route stopped at feasibility:
+actual Arrow specimens preserved list cells, but ordinary filtering failed while
+applying table metadata. Preserving per-row vector names through projections,
+distinct, grouping and joins would require operation-aware compatibility code.
+This is a limit of the tested route, not proof that every backend is unsuitable;
+DuckDB did not pass startup configuration and its table correctness was not tested.
+The [completed evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
+and [compact evidence](benchmarks/torch-2026-10-09-storage-evaluation.json) retain
+the 5/15/60-input results, phase measurements, exactness proofs and limitations.
 
 ## Focused local validation
 

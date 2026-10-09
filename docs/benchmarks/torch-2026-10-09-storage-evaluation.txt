@@ -1,0 +1,136 @@
+Storage evaluation v4 — completed tested scope, 9 October 2026
+
+Recommendation: keep the current native production implementation and single
+final QS2. Internal coverage storage is scientifically exact on the tested task
+and reduced observed burden CPU, but its 9.53% saving alone does not justify the
+additional storage lifecycle. It remains a credible option when lower burden
+coverage residency is worth that complexity. No production adoption is selected.
+
+The requested calls-and-coverage evaluation had two different outcomes. Transparent
+Mode B tables did not meet the exact-data/ordinary-table contract in the tested
+Arrow 18.1.0.1 route. Two actual 16-row call-table specimens were written as
+Feather, Parquet and a two-file Dataset. All 1,536 integer-list cells survived;
+removing added outer list wrappers restored all 12 reopened/unfiltered tables
+exactly. But all six filter attempts failed during query construction, before a
+filtered result. Three character columns carry per-row names; preserving them
+through filtering, distinct, grouping and joins would need operation-aware
+bookkeeping. The inner error was not exposed, so this is not a proved data-loss
+mechanism or a rejection of all backends. DuckDB stopped at startup configuration;
+its table correctness was not tested. Reviewed HDF5Array/Alabaster APIs did not
+supply a ready lazy heterogeneous-table replacement. [1]
+
+Mode A instead keeps calls in ordinary R and stores private native-QS coverage
+components. Integer Rle runs stay compressed: the inspected coverage had 15.541
+GiB of run-pair payload versus 92.385 GiB if expanded to dense int32. Neither
+number predicts serialized size or a total memory limit. [2]
+
+Real coverage-only pilots used distinct ordered inputs and the already-optimized
+native accumulator. Each input was read once; calls/statistics/sensitivity were
+omitted equally. All nine ordered coverage/metadata components passed exactly at
+5, 15 and 60 inputs, including values, types and attributes. Cells below show
+scientific process CPU seconds / process peak GiB:
+
+Inputs       Native             Temporary QS, group8       In-memory, group8
+  5          137.287 / 4.974       305.628 / 5.496            170.089 / 5.554
+ 15          583.894 / 9.840       698.792 / 6.515            788.980 / 9.557
+ 60        6,828.598 /30.119     2,990.400 /12.942          3,229.824 /31.250
+
+Disk CPU includes reduction plus fresh assembly; peak means the larger of those
+process peaks. The 60-input disk pilot used 56.2% less CPU and 57.0% less process
+RSS than native; in-memory balancing did not reduce peak memory. The five-input
+disk pilot deliberately forced storage and measured its overhead. The full-task
+prototype uses the ordinary native path for <=8 inputs, avoiding that forced
+storage cost. Results are unreplicated: native/disk 5 and 60 used separate
+allocations on the same respective node; 15 shared one allocation; in-memory ran
+later on other nodes. They are not a fitted scaling law. Disk logical writes and
+reads each totaled 0.289/0.960/3.385 GB across 390/585/1,755 files. Validation costs
+are separate; logical bytes are not physical disk traffic. [3]
+
+The complete LIB1 strict burden task now passed all 20 ordered QS components,
+including metadata/config, eight byte-identical compressed BEDs, eight own-index
+payload proofs and 552 indexed queries. It retained ordinary calls, statistics,
+sensitivity, annotation and exports. Stored coverage and fresh assembly completed
+without native fallback. This is a whole burden-task result, not a whole-pipeline
+comparison. [4]
+
+Measurement                         Native              Coverage-storage candidate
+Actual allocation CPU hours         7.544343            6.825300
+Reported Slurm batch peak, GiB       128.668              98.723
+
+Observed CPU fell 9.53%, about 43.1 CPU minutes, including spill/checkpoint/assembly
+and control costs. Different nodes, requests (288 versus 160 GiB) and cache
+conditions limit causal interpretation. Slurm memory includes file cache and is
+not R heap; none is subtracted. Candidate command peaks were 21,858,152 KiB for
+the first R process and 19,639,388 KiB for assembly. Native only has a 43,499,956 KiB
+Nextflow sampled process-tree peak, so no matched R-peak percentage is available.
+
+Candidate phase costs separate the work without pretending export is pure I/O:
+
+Phase                                               CPU seconds
+Setup/calculation before coverage                      4,919.953
+Coverage emission plus reference annotation/export    17,815.885
+Calculations after coverage annotation                 1,544.061
+Checkpoint/native-final save                              15.599
+Fresh assembly, whole measured command                   159.994
+
+Annotation/export remains dominant and includes scientific calculations. Phase
+clocks have narrower boundaries than full command/allocation clocks. Phase RSS
+was sampled R-only and can miss peaks; cumulative VmHWM is not a phase peak.
+Fresh assembly reconstructs and serializes QS; it is not ordinary outputResults.
+
+The candidate retained 1,760 private checkpoint/coverage files totaling 3.548 GB.
+Separately, eight temporary raw BED paths reached at least 40.799 GB in stat
+samples: a lower bound for those paths, not peak total scratch or cumulative I/O.
+The burden QS2 is 1,836,242,528 bytes (1.836 GB). The final sample outputResults
+QS2 is 2,572,435,934 bytes (2.572 GB), combining four burden inputs and downstream
+results. These are different objects; compressed bytes do not estimate R memory.
+
+The ordinary standalone consumer test also passed. It copied only the candidate
+final QS under the original strict-nuclear filename, retained the other three
+inputs, and hid the prototype parts/checkpoint directory. The unchanged consumer
+produced all 311 outputs. Separate validation passed 18 ordered QS components,
+all exports and 56 own-file TBI checks, with metadata/config and TSV order exact;
+only existing VCF date/encoding and PDF Info-date exceptions applied. This proves
+actual consumer compatibility beyond mathematical equality of burden inputs. [5]
+
+That ordinary consumer used 2,098.585 process CPU seconds and 43.025 GiB command
+peak; its allocation used 2,115.369 CPU seconds. Native A/B output replays also
+measured about 43.025 GiB command peaks under the same measurement method. This
+is an observed remaining downstream memory requirement, not a speedup claim or
+a universal minimum. Separate compatibility validation used 766.851 allocation
+CPU seconds; it is excluded from the scientific performance figures.
+
+Memory still grows: one original input must fit; calls and derived tables remain
+ordinary R; group8 bounds counts, not bytes; assembly holds calls plus complete
+coverage; outputResults builds the larger sample object. Unsupported inputs can
+force prefix reconstruction and permanent native fallback, paying spill costs
+without the intended benefit. This partial coverage-only Mode A does not implement
+a transparent calls-and-coverage backend or guarantee bounded total memory.
+
+The tradeoff is concrete. Existing Rle/qs2 semantics, one input load and one final
+standalone QS are advantages. The 455-line reducer/adapter adds modes, private
+placeholders, row mapping, files and checkpoint handoff. Production integration
+would still need retry/stale-file cleanup, failure/output binding and safe
+publication, plus tests of the actual entrypoint. It could retain one
+sharedFunctions.R and calculateBurdens.R; moving helpers would broadly invalidate
+existing cache signatures. Keeping native avoids that maintenance burden. [6]
+
+Science remains custom R with existing compiled Bioconductor/qs2/data.table and
+annotation/compression/index CLIs. No new custom non-R scientific kernel is used.
+Python/shell are benchmark infrastructure; any future sequential production
+dispatch would be Nextflow/Groovy-generated shell. The separate main 7e workflow
+acceptance is not conferred here, and none of its metrics are attributed to this
+candidate. No end-to-end workflow benefit or future-size saving is projected.
+
+Local proofs (workspace-relative; exact values/hashes in the companion JSON):
+[1] runtime/disk-backed-burden-evaluation-v1/representation-diagnostic-v1/review.json
+[2] runtime/disk-backed-burden-evaluation-v1/reconnaissance-v1/component-review.v2.json
+[3] runtime/disk-backed-burden-evaluation-v1/evaluation-draft-20261009-v2.evidence.json
+[4] runtime/mode-a-full-task-replay-postrun-review-v1/reviewed-result.json
+    runtime/mode-a-full-task-validation-v3-root-review/terminal-review.json
+    runtime/mode-a-native-terminal-root-review-v1/review.json
+[5] runtime/mode-a-output-compatibility-worker-postrun-review-v1/reviewed-result.json
+    runtime/mode-a-output-compatibility-validator-postrun-review-v1/reviewed-result.json
+    runtime/mode-a-output-compatibility-v2-root-review/validator-terminal-review.json
+    runtime/output-reproducibility-monitor-v1/LIB1-terminal-review.json
+[6] runtime/mode-a-adoption-maintainability-review-v1/finding.txt

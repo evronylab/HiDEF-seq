@@ -1,0 +1,220 @@
+{
+  "coverage_pilot": [
+    {
+      "disk_files": 390,
+      "disk_logical_read_bytes": 288911920,
+      "disk_logical_write_bytes": 288911920,
+      "disk_max_process_peak_GiB": 5.496196746826172,
+      "disk_reduction_plus_assembly_CPU_seconds": 305.62775,
+      "exact_components": 9,
+      "inputs": 5,
+      "memory_process_CPU_seconds": 170.088863,
+      "memory_process_peak_GiB": 5.553874969482422,
+      "native_process_CPU_seconds": 137.286935,
+      "native_process_peak_GiB": 4.974266052246094
+    },
+    {
+      "disk_files": 585,
+      "disk_logical_read_bytes": 960105158,
+      "disk_logical_write_bytes": 960105158,
+      "disk_max_process_peak_GiB": 6.514835357666016,
+      "disk_reduction_plus_assembly_CPU_seconds": 698.7915700000001,
+      "exact_components": 9,
+      "inputs": 15,
+      "memory_process_CPU_seconds": 788.9802669999999,
+      "memory_process_peak_GiB": 9.556922912597656,
+      "native_process_CPU_seconds": 583.893768,
+      "native_process_peak_GiB": 9.840194702148438
+    },
+    {
+      "disk_files": 1755,
+      "disk_logical_read_bytes": 3385050385,
+      "disk_logical_write_bytes": 3385050385,
+      "disk_max_process_peak_GiB": 12.94205093383789,
+      "disk_reduction_plus_assembly_CPU_seconds": 2990.4002480000004,
+      "exact_components": 9,
+      "inputs": 60,
+      "memory_process_CPU_seconds": 3229.823614,
+      "memory_process_peak_GiB": 31.250259399414062,
+      "native_process_CPU_seconds": 6828.5983209999995,
+      "native_process_peak_GiB": 30.118915557861328
+    }
+  ],
+  "disk": {
+    "private_bytes": 3547991545,
+    "private_files": 1760,
+    "raw_BED_sampled_lower_bound_bytes": 40798612249
+  },
+  "full_burden": {
+    "candidate_allocation_CPU_seconds": 24571.078882,
+    "candidate_batch_peak_kib": 103518248,
+    "candidate_job": "19476015",
+    "candidate_phase_summaries": {
+      "assembly": {
+        "R_pid": 368,
+        "R_start_ticks": "197449866",
+        "interval_seconds": 0.2,
+        "phases": [
+          {
+            "boundary_R_RSS_kib": [
+              68380.0,
+              19542832.0
+            ],
+            "cpu_seconds": 158.07800000000003,
+            "cumulative_R_VmHWM_kib": [
+              68380.0,
+              19639388.0
+            ],
+            "elapsed_seconds": 161.986,
+            "maximum_sample_gap_seconds": 0.2201228141784668,
+            "maximum_sampled_R_RSS_kib": 19617368,
+            "phase": "fresh_final_assembly",
+            "sample_count": 783
+          }
+        ],
+        "scope": "Candidate-only diagnostic: sampled R RSS excludes child RSS, misses short peaks, and includes previously retained objects. VmHWM is cumulative; no GC or overhead subtraction."
+      },
+      "first-stage": {
+        "R_pid": 16,
+        "R_start_ticks": "195065695",
+        "interval_seconds": 0.2,
+        "phases": [
+          {
+            "boundary_R_RSS_kib": [
+              68572.0,
+              18277008.0
+            ],
+            "cpu_seconds": 4919.953,
+            "cumulative_R_VmHWM_kib": [
+              68572.0,
+              21858152.0
+            ],
+            "elapsed_seconds": 4933.719,
+            "maximum_sample_gap_seconds": 0.4053378105163574,
+            "maximum_sampled_R_RSS_kib": 21860828,
+            "phase": "setup_and_calculation_before_coverage",
+            "sample_count": 23670
+          },
+          {
+            "boundary_R_RSS_kib": [
+              18277008.0,
+              18277608.0
+            ],
+            "cpu_seconds": 17815.885000000002,
+            "cumulative_R_VmHWM_kib": [
+              21858152.0,
+              21858152.0
+            ],
+            "elapsed_seconds": 17331.523,
+            "maximum_sample_gap_seconds": 0.4203147888183594,
+            "maximum_sampled_R_RSS_kib": 19428488,
+            "phase": "coverage_emission_and_reference_annotation",
+            "sample_count": 83302
+          },
+          {
+            "boundary_R_RSS_kib": [
+              18277608.0,
+              18280136.0
+            ],
+            "cpu_seconds": 1544.060999999998,
+            "cumulative_R_VmHWM_kib": [
+              21858152.0,
+              21858152.0
+            ],
+            "elapsed_seconds": 1554.3549999999996,
+            "maximum_sample_gap_seconds": 0.33936429023742676,
+            "maximum_sampled_R_RSS_kib": 19488164,
+            "phase": "calculations_after_coverage_annotation",
+            "sample_count": 7472
+          },
+          {
+            "boundary_R_RSS_kib": [
+              18280136.0,
+              18280136.0
+            ],
+            "cpu_seconds": 15.599000000002206,
+            "cumulative_R_VmHWM_kib": [
+              21858152.0,
+              21858152.0
+            ],
+            "elapsed_seconds": 15.738999999997759,
+            "maximum_sample_gap_seconds": 0.23431968688964844,
+            "maximum_sampled_R_RSS_kib": 18280136,
+            "phase": "checkpoint_or_native_final_save",
+            "sample_count": 76
+          }
+        ],
+        "scope": "Candidate-only diagnostic: sampled R RSS excludes child RSS, misses short peaks, and includes previously retained objects. VmHWM is cumulative; no GC or overhead subtraction."
+      }
+    },
+    "candidate_process_CPU_seconds": {
+      "assembly": 159.993809,
+      "first-stage": 24297.340955
+    },
+    "candidate_process_peak_kib": {
+      "assembly": 19639388,
+      "first-stage": 21858152
+    },
+    "exact_components": 20,
+    "exact_encoded_BEDs": 8,
+    "fallback_observed": false,
+    "indexed_queries": 552,
+    "native_allocation_CPU_seconds": 27159.635572,
+    "native_batch_peak_kib": 134918240,
+    "native_job": "19466086",
+    "native_sampled_process_tree_peak_kib": 43499956,
+    "observed_CPU_change_percent": -9.530896256460263,
+    "own_index_payload_proofs": 8,
+    "validation_CPU_seconds": 2181.781585,
+    "validation_job": "19489723"
+  },
+  "implementation": "Custom R with existing compiled packages/CLI; Python/shell benchmark infrastructure. Future orchestration Nextflow/Groovy shell.",
+  "main_workflow_acceptance": "Separate evaluation; not conferred or included in candidate effect",
+  "ordinary_consumer": {
+    "allocation_CPU_seconds": 2115.368686,
+    "allocation_peak_kib": 52068676.0,
+    "exact_components": 18,
+    "native_replay_peaks_kib": {
+      "A": 45114188,
+      "B": 45114384
+    },
+    "output_comparisons": 311,
+    "own_index_checks": 56,
+    "process_CPU_seconds": 2098.585498,
+    "process_peak_RSS_kib": 45114820,
+    "root_terminal_review_sha256": "e945d6ab7a3970ac96ca464bcccd53b5ea2d9cb29342e7ea9f5ce6fe013b9ce4",
+    "scope": "Standalone copied candidate QS; private parts masked; no whole-workflow repeat or speedup claim.",
+    "validation_allocation_CPU_seconds": 766.851182,
+    "validation_job": "19492225",
+    "worker_job": "19490967"
+  },
+  "output_sizes": {
+    "burden_QS_bytes": 1836242528,
+    "ordinary_final_sample_QS_bytes": 2572435934
+  },
+  "pilot_limits": "Coverage only; no calls/statistics/sensitivity. Different runs/nodes/time and unreplicated. Disk scientific CPU includes reduction plus assembly; peak=max of sequential processes.",
+  "production_adoption": false,
+  "proof_sha256": {
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/coverage-scaling-results-v1.tsv": "5d22e4e7d29472ffb84167524665b15719a59bf77561e1f7dccdd8066f0ae674",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/evaluation-draft-20261009-v2.evidence.json": "acae00290075fc73819f2e6015907f12898c30053b06a030be26cb1000cbff12",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/evaluation-draft-20261009-v3.evidence.json": "98372c6ca3fe2658b8ecc3d5551a8e8e0ee8853d8dcbd0fa3f3c48e475605170",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/evaluation-draft-20261009-v3.txt": "6fd35191cc6089e8fbe4153ea6d99d339b0a5d1b18f88fbed5a87d27287824b4",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/reconnaissance-v1/component-review.v2.json": "c4779fb569ad935d05c8c7f94a0cca6ffad645924e61170d75e482a99c06d0e9",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/representation-diagnostic-v1/review.json": "3b2dc3add4426722e6565e1b1951f866d71f5e5744a12fc4137a0902a4e20e18",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-adoption-maintainability-review-v1/finding.txt": "cb17228efe8974a927dabfb2c07d30ea603ecb982645370a40e2f11cd81a9d03",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-full-task-proposal-v1/coverage-storage.R": "3181d8ac60d1adda3de897d3b6f81ae099064b4e49ed1b7f392d43a954ab5ab6",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-full-task-replay-postrun-review-v1/reviewed-result.json": "3fabd0e48f1721abf0f97bb58476132898e99ab7e3a7dfa62f6cb9b9dae0ec28",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-full-task-validation-v3-root-review/terminal-review.json": "dbb3cd165d64b1ca42c883d318c2f6cbbb6ec50d7a42d800450a078a73377bf3",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-native-terminal-root-review-v1/review.json": "c4554eb20a4cfc00fcb6aa3a0321beabdb8a045a60b2a29b5b8dd556285c969c",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-output-compatibility-v2-root-review/validator-terminal-review.json": "e945d6ab7a3970ac96ca464bcccd53b5ea2d9cb29342e7ea9f5ce6fe013b9ce4",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-output-compatibility-validator-postrun-review-v1/reviewed-result.json": "bda1e9813beb69ecf0a87d150244ac457aad40f801bffc36bc8eabdfcb436d64",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/mode-a-output-compatibility-worker-postrun-review-v1/reviewed-result.json": "c62290c40ec3d90b2ccc0c39e3b90b3f1de099894e1df2c9b2d91395050846d0",
+    "/projects/work/evrong01/HiDEF-seq/codex/runtime/output-reproducibility-monitor-v1/LIB1-terminal-review.json": "f717fa5cb4067f2736e9d0fb13c1455eed586022d98a105cb41d1d15e44e8f7a"
+  },
+  "recommendation": "Keep native; measured benefit alone does not justify455-line storage lifecycle. Coverage storage remains a conditional option if the memory/use-case benefit warrants that maintenance.",
+  "recorded_utc": "2026-10-09T17:16:03.598527+00:00",
+  "report_path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/disk-backed-burden-evaluation-v1/evaluation-draft-20261009-v4.txt",
+  "report_sha256": "bc7e5448d58d96bbb1ef2804ce7c29e3c91475537a78cea458b2a00ac4670fd4",
+  "small_case_behavior": "5-input disk pilot forced storage; full-task prototype uses native directly for known input_count<=8.",
+  "status": "Completed requested tested evaluation scope; no production adoption"
+}

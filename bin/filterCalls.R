@@ -259,13 +259,13 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 			as_tibble %>%
 			select(all_of(join_mcols)) %>%
 			as.list %>%
-			interaction(drop = TRUE)
+			observed_allele_interaction()
 		
 		key_s <- subject %>%
 			as_tibble %>%
 			select(all_of(join_mcols)) %>%
 			as.list %>%
-			interaction(drop = TRUE)
+			observed_allele_interaction()
 		
 		keys_all <- factor(c(key_q,key_s))
 		id_q <- as.integer(keys_all)[seq_len(nq)]

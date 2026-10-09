@@ -1364,3 +1364,57 @@ is `e3b025b08d6ff777e9bfbe57c8057da4cfa003778f3af41b806259e02907ffd1`.
 The [compact report](benchmarks/torch-2026-10-08-burden-accumulator.json) binds both
 sources, the integration proof and the comment-only difference. Final combined
 workflow validation and matched-resource measurements remain required.
+
+## Observed allele-key construction
+
+The selected helper is **custom R** using existing compiled vctrs/Bioconductor
+operations. It adds no custom non-R production code, dependency, CLI or
+Nextflow/shell change. Python and shell provide benchmark and validation control.
+Only the two key-construction calls in `overlapsAny_bymcols` and three appended
+shared definitions change. The tested conservative guard and legacy fallback
+remain; the later scalar-bound extension is excluded.
+
+The same frozen candidate passed 112 ordered QS component comparisons across
+four nuclear contexts and another 28 in four candidate-only mitochondrial
+contexts. Each nuclear comparison used ABBA order with two fresh workers per
+arm on the same extracted input; mitochondrial results are exactness evidence,
+without a paired speed claim. Configuration, values, types, attributes and order
+were compared with zero ignored fields and zero numerical tolerance.
+
+| Nuclear context | Mean worker CPU, baseline → candidate (s) | CPU change | Mean individual-process peak, baseline → candidate (GiB) |
+|---|---:|---:|---:|
+| LIB1 chunk 1 strict | 741.351 → 694.968 | −6.26% | 12.854 → 13.722 |
+| LIB1 chunk 1 lenient | 1373.241 → 1312.921 | −4.39% | 13.822 → 13.321 |
+| LIB2 chunk 1 strict | 1041.854 → 877.220 | −15.80% | 15.095 → 14.894 |
+| LIB2 chunk 1 lenient | 1589.111 → 1402.978 | −11.71% | 14.337 → 15.559 |
+| LIB1 distinct chunks 1–2, fresh extraction, strict | 1323.475 → 1221.723 | −7.69% | 23.245 → 19.520 |
+
+The two-chunk corpus preserved movie/ZMW and mapped run/ZMW disjointness across
+the original files, record multiplicities and coordinate order. Its approved
+comparison allowed only relocation of an unchanged unique typed RG tag; both
+new indices passed their own proofs. One fresh extraction supplied both filter
+arms. Job `19467344` passed the 60 helper cases, complete-source checks, all 21
+ordered B1/B2/A2 component comparisons against its fresh A1 output, and final
+source/input guards. Corpus preparation and extraction are separate costs;
+preflight and exact validation are excluded from timed workers.
+
+Memory changes vary by context, and some timings vary substantially. Individual
+worker peaks are distinct from Slurm allocation peaks and R heap measurements:
+the two-chunk ABBA allocation peaked at 56.804 GiB, versus worker means of
+23.245 and 19.520 GiB. These observations do not establish an eight-chunk limit,
+constant memory, a causal GC explanation or a whole-pipeline improvement.
+
+The [compact report](benchmarks/torch-2026-10-09-allele-interaction.json) binds
+the measured and installed source bytes, raw observations and reviewed evidence.
+Integration job `19471735` passed all 60 relocated cases, the two intended
+overlap-call substitutions and source/container guards. The installed helper
+remains byte-identical to the measured candidate. Independent review verified
+27 source pins and 16 evidence files, with normal/batch/extern `COMPLETED 0:0`.
+The allocation used 12.693 CPU seconds, 16 seconds elapsed and a 0.921 GiB Slurm
+batch peak; these are validation costs, not another filtering benchmark.
+The root integration receipt is workspace
+`runtime/filter-allele-integration-v1/root-postrun-review.json`, SHA-256
+`b2173056cfc9e205b41dadf6977d1d1de1444c63909b6d932943c01183685cc4`.
+Final workflow
+acceptance for the separate `7e37ada` run remains pending and does not include
+this later helper. See the [fixture command](../scripts/benchmark/README.md#allele-key-regression).

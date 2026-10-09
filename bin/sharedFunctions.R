@@ -3082,3 +3082,48 @@ artifact_cache_run <- function(root, identity, products, command) {
     artifact_cache_publish(root, identity, bundle)
   })
 }
+
+# Encode observed allele combinations with the same factor levels and codes as
+# interaction(drop = TRUE), without constructing unobserved Cartesian labels.
+allele_key_names <- c("call_class", "call_type", "ref_plus_strand", "alt_plus_strand")
+
+plain_allele_columns <- function(columns) {
+  if (!is.list(columns) || !identical(names(columns), allele_key_names)) return(FALSE)
+  n <- lengths(columns)
+  if (length(n) != 4L || !all(n == n[[1L]]) || n[[1L]] == 0L ||
+      n[[1L]] > .Machine$integer.max) return(FALSE)
+  all(vapply(columns, function(x) {
+    if (is.character(x) && is.null(attributes(x))) {
+      return(!anyNA(x) && !any(grepl(".", x, fixed = TRUE)))
+    }
+    if (!identical(class(x), "factor") || typeof(x) != "integer" ||
+        !setequal(names(attributes(x)), c("levels", "class"))) return(FALSE)
+    lev <- levels(x)
+    code <- as.integer(x)
+    is.character(lev) && !anyNA(lev) && !anyDuplicated(lev) &&
+      !anyNA(code) && all(code >= 1L & code <= length(lev)) &&
+      !any(grepl(".", lev, fixed = TRUE))
+  }, logical(1)))
+}
+
+observed_allele_interaction <- function(columns) {
+  if (!plain_allele_columns(columns)) return(base::interaction(columns, drop = TRUE))
+  # Match R 4.4.2's per-column factor preparation exactly. This can itself remain
+  # expensive; any benchmark must include it and the full-input guard scans.
+  factors <- lapply(columns, function(x) as.factor(x)[, drop = TRUE])
+  # Avoid silently correcting old integer Cartesian-code overflow behavior.
+  # This conservative upper bound may reject inputs that could be optimized.
+  if (prod(vapply(factors, nlevels, integer(1))) > .Machine$integer.max) {
+    return(base::interaction(columns, drop = TRUE))
+  }
+  codes <- lapply(factors, as.integer)
+  ids <- vctrs::vec_group_id(as.data.frame(codes, check.names = FALSE))
+  representatives <- match(seq_len(attr(ids, "n")), ids)
+  # Default interaction order: first column varies fastest. Sort only observed
+  # groups by the reverse tuple of original per-column factor codes.
+  ordered_groups <- do.call(order, rev(lapply(codes, function(x) x[representatives])))
+  first <- representatives[ordered_groups]
+  labels <- do.call(paste, c(lapply(factors, function(x) as.character(x[first])), sep = "."))
+  structure(as.integer(match(ids, ordered_groups)), levels = labels, class = "factor")
+}
+

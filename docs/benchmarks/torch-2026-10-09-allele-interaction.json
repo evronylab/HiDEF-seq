@@ -1,0 +1,747 @@
+{
+  "schema_version": 1,
+  "report_state": "completed_scoped_worker_and_installed_source_integration_report",
+  "created_utc": "2026-10-09T06:43:24.339244+00:00",
+  "selected": true,
+  "full_workflow_acceptance": false,
+  "full_workflow_scope": "The running 7e37ada full workflow predates this allele helper; its separate acceptance remains pending.",
+  "implementation": {
+    "custom_production_languages": [
+      "R"
+    ],
+    "custom_non_R_production_code": false,
+    "existing_compiled_packages": [
+      "vctrs",
+      "Bioconductor"
+    ],
+    "new_dependencies": false,
+    "Nextflow_shell_or_CLI_changes": false,
+    "validation_languages": [
+      "R",
+      "Python",
+      "shell"
+    ]
+  },
+  "baseline_revision": "7e37ada2664f07e9534e9dbd695b68a0fbcc22f3",
+  "installed_commit": null,
+  "source": [
+    {
+      "installed_path": "bin/filterCalls.R",
+      "installed_sha256": "9b8f4caee79deae2427e8692ec47b9c1f941e287cf05613d263e90ac61fc7b3e",
+      "measured_path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-whole-v2/candidate/bin/filterCalls.R",
+      "measured_sha256": "9b8f4caee79deae2427e8692ec47b9c1f941e287cf05613d263e90ac61fc7b3e",
+      "identity": "byte-identical"
+    },
+    {
+      "installed_path": "bin/sharedFunctions.R",
+      "installed_sha256": "51effa29105fd1044672492616bd4094a004162ac4b73e84e73e2585e6e3dcc3",
+      "measured_path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-whole-v2/candidate/bin/sharedFunctions.R",
+      "measured_sha256": "51effa29105fd1044672492616bd4094a004162ac4b73e84e73e2585e6e3dcc3",
+      "identity": "byte-identical"
+    }
+  ],
+  "integration": {
+    "status": "PASS",
+    "case_count": 60,
+    "test": "tests/test_allele_interaction.R",
+    "baseline_fixture": "tests/fixtures/overlapsAny_bymcols_7e37ada.R",
+    "command": [
+      "Rscript",
+      "--vanilla",
+      "tests/test_allele_interaction.R",
+      ".",
+      "NEW_OUTPUT_DIRECTORY"
+    ],
+    "job_id": "19471735",
+    "ordered_case_rows_match_original": true,
+    "source_byte_identity_to_measured_candidate": true,
+    "source_pins_verified": 27,
+    "evidence_files_independently_verified": 16,
+    "overlap_call_replacements": 2,
+    "normal_batch_extern_state": "COMPLETED",
+    "normal_batch_extern_exit_code": "0:0",
+    "source_and_SIF_metadata_guards": true,
+    "sif_guard_scope": "Existing size/mtime_ns/ctime_ns identity; no new SIF content hash",
+    "validation_allocation": {
+      "actual_cpu_seconds": 12.693,
+      "reported_TotalCPU_seconds": 12.694,
+      "rounding_note": "UserCPU plus SystemCPU is primary; TotalCPU differs by 0.001 seconds due to independent rounding.",
+      "elapsed_seconds": 16.0,
+      "slurm_batch_peak_rss_kib": 966232,
+      "scope": "Integration validation cost only; not scientific filtering-worker performance"
+    },
+    "fixture_process": {
+      "actual_cpu_seconds": 12.602175,
+      "wall_seconds": 13.062481164932251,
+      "max_individual_descendant_rss_kib": 866232
+    },
+    "postrun_evidence_ref": "integration_postrun",
+    "root_acceptance_evidence_ref": "integration_root_review"
+  },
+  "scalar_bound_extension_included": false,
+  "measured_nuclear_contexts": [
+    {
+      "context": "LIB1.1-22X.strict",
+      "job_id": "19452797",
+      "node": "cs787",
+      "exact_ordered_components": 28,
+      "metrics": {
+        "CPU seconds": {
+          "absolute_change": -46.38311049999993,
+          "candidate_change_percent": -6.2565687247699735,
+          "means": {
+            "baseline": 741.3506115,
+            "candidate": 694.9675010000001
+          },
+          "observations": {
+            "baseline": [
+              748.031707,
+              734.669516
+            ],
+            "candidate": [
+              706.183701,
+              683.751301
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              734.669516,
+              748.031707
+            ],
+            "candidate": [
+              683.751301,
+              706.183701
+            ]
+          }
+        },
+        "Individual process peak GiB": {
+          "absolute_change": 0.8682975769042969,
+          "candidate_change_percent": 6.755159987624482,
+          "means": {
+            "baseline": 12.853841781616211,
+            "candidate": 13.722139358520508
+          },
+          "observations": {
+            "baseline": [
+              12.872676849365234,
+              12.835006713867188
+            ],
+            "candidate": [
+              13.767982482910156,
+              13.67629623413086
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              12.835006713867188,
+              12.872676849365234
+            ],
+            "candidate": [
+              13.67629623413086,
+              13.767982482910156
+            ]
+          }
+        },
+        "Wall seconds": {
+          "absolute_change": -18.071554209920578,
+          "candidate_change_percent": -2.422030494772698,
+          "means": {
+            "baseline": 746.1323979579611,
+            "candidate": 728.0608437480405
+          },
+          "observations": {
+            "baseline": [
+              753.8309546289966,
+              738.4338412869256
+            ],
+            "candidate": [
+              767.7264555569272,
+              688.3952319391537
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              738.4338412869256,
+              753.8309546289966
+            ],
+            "candidate": [
+              688.3952319391537,
+              767.7264555569272
+            ]
+          }
+        }
+      },
+      "peak_observation": "Every candidate peak exceeds every baseline peak"
+    },
+    {
+      "context": "LIB1.1-22X.lenient",
+      "job_id": "19454413",
+      "node": "cl012",
+      "exact_ordered_components": 28,
+      "metrics": {
+        "CPU seconds": {
+          "absolute_change": -60.32067550000011,
+          "candidate_change_percent": -4.392576691148942,
+          "means": {
+            "baseline": 1373.2412600000002,
+            "candidate": 1312.9205845000001
+          },
+          "observations": {
+            "baseline": [
+              1152.476685,
+              1594.0058350000002
+            ],
+            "candidate": [
+              1126.310928,
+              1499.530241
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              1152.476685,
+              1594.0058350000002
+            ],
+            "candidate": [
+              1126.310928,
+              1499.530241
+            ]
+          }
+        },
+        "Individual process peak GiB": {
+          "absolute_change": -0.5008525848388672,
+          "candidate_change_percent": -3.623633690791883,
+          "means": {
+            "baseline": 13.821832656860352,
+            "candidate": 13.320980072021484
+          },
+          "observations": {
+            "baseline": [
+              13.653247833251953,
+              13.99041748046875
+            ],
+            "candidate": [
+              13.03384017944336,
+              13.60811996459961
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              13.653247833251953,
+              13.99041748046875
+            ],
+            "candidate": [
+              13.03384017944336,
+              13.60811996459961
+            ]
+          }
+        },
+        "Wall seconds": {
+          "absolute_change": -60.370271542924456,
+          "candidate_change_percent": -4.372702106069548,
+          "means": {
+            "baseline": 1380.6170664845267,
+            "candidate": 1320.2467949416023
+          },
+          "observations": {
+            "baseline": [
+              1158.130142875947,
+              1603.1039900931064
+            ],
+            "candidate": [
+              1131.9377720151097,
+              1508.555817868095
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              1158.130142875947,
+              1603.1039900931064
+            ],
+            "candidate": [
+              1131.9377720151097,
+              1508.555817868095
+            ]
+          }
+        }
+      },
+      "peak_observation": "Every candidate peak is below every baseline peak"
+    },
+    {
+      "context": "LIB2.1-22X.strict",
+      "job_id": "19454414",
+      "node": "cl012",
+      "exact_ordered_components": 28,
+      "metrics": {
+        "CPU seconds": {
+          "absolute_change": -164.63348400000007,
+          "candidate_change_percent": -15.80197919704297,
+          "means": {
+            "baseline": 1041.8535675,
+            "candidate": 877.2200835
+          },
+          "observations": {
+            "baseline": [
+              879.178313,
+              1204.528822
+            ],
+            "candidate": [
+              757.39679,
+              997.043377
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              879.178313,
+              1204.528822
+            ],
+            "candidate": [
+              757.39679,
+              997.043377
+            ]
+          }
+        },
+        "Individual process peak GiB": {
+          "absolute_change": -0.2009449005126953,
+          "candidate_change_percent": -1.3312429980633977,
+          "means": {
+            "baseline": 15.094532012939453,
+            "candidate": 14.893587112426758
+          },
+          "observations": {
+            "baseline": [
+              14.91476058959961,
+              15.274303436279297
+            ],
+            "candidate": [
+              15.100982666015625,
+              14.68619155883789
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              14.91476058959961,
+              15.274303436279297
+            ],
+            "candidate": [
+              14.68619155883789,
+              15.100982666015625
+            ]
+          }
+        },
+        "Wall seconds": {
+          "absolute_change": -166.30186094448436,
+          "candidate_change_percent": -15.862406148790253,
+          "means": {
+            "baseline": 1048.4024894115282,
+            "candidate": 882.1006284670439
+          },
+          "observations": {
+            "baseline": [
+              884.4581806019414,
+              1212.346798221115
+            ],
+            "candidate": [
+              761.0256968580652,
+              1003.1755600760225
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              884.4581806019414,
+              1212.346798221115
+            ],
+            "candidate": [
+              761.0256968580652,
+              1003.1755600760225
+            ]
+          }
+        }
+      },
+      "peak_observation": "Baseline and candidate peak ranges overlap"
+    },
+    {
+      "context": "LIB2.1-22X.lenient",
+      "job_id": "19454414",
+      "node": "cl012",
+      "exact_ordered_components": 28,
+      "metrics": {
+        "CPU seconds": {
+          "absolute_change": -186.1335899999999,
+          "candidate_change_percent": -11.71306196667513,
+          "means": {
+            "baseline": 1589.111289,
+            "candidate": 1402.977699
+          },
+          "observations": {
+            "baseline": [
+              1734.201744,
+              1444.020834
+            ],
+            "candidate": [
+              1392.160418,
+              1413.79498
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              1444.020834,
+              1734.201744
+            ],
+            "candidate": [
+              1392.160418,
+              1413.79498
+            ]
+          }
+        },
+        "Individual process peak GiB": {
+          "absolute_change": 1.2227058410644531,
+          "candidate_change_percent": 8.528573882221991,
+          "means": {
+            "baseline": 14.336580276489258,
+            "candidate": 15.559286117553711
+          },
+          "observations": {
+            "baseline": [
+              14.093544006347656,
+              14.57961654663086
+            ],
+            "candidate": [
+              15.473159790039062,
+              15.64541244506836
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              14.093544006347656,
+              14.57961654663086
+            ],
+            "candidate": [
+              15.473159790039062,
+              15.64541244506836
+            ]
+          }
+        },
+        "Wall seconds": {
+          "absolute_change": -186.33067285106517,
+          "candidate_change_percent": -11.659272831544754,
+          "means": {
+            "baseline": 1598.132881382946,
+            "candidate": 1411.8022085318808
+          },
+          "observations": {
+            "baseline": [
+              1744.533772040857,
+              1451.7319907250348
+            ],
+            "candidate": [
+              1401.338443459943,
+              1422.2659736038186
+            ]
+          },
+          "ranges": {
+            "baseline": [
+              1451.7319907250348,
+              1744.533772040857
+            ],
+            "candidate": [
+              1401.338443459943,
+              1422.2659736038186
+            ]
+          }
+        }
+      },
+      "peak_observation": "Every candidate peak exceeds every baseline peak"
+    }
+  ],
+  "mitochondrial": {
+    "candidate_only": true,
+    "contexts": 4,
+    "exact_ordered_components": 28,
+    "paired_speed_claim": false,
+    "evidence_ref": "four_contexts"
+  },
+  "growth": {
+    "job_id": "19467344",
+    "scope": "Fresh extraction from distinct original LIB1 chunks 1 and 2; strict nuclear; same QS input for both arms",
+    "design": "Four fresh workers in ABBA order; fresh A1 supplies the exact comparison reference",
+    "metrics": {
+      "actual_cpu_seconds": {
+        "candidate_change_percent": -7.688302189433038,
+        "means": {
+          "baseline": 1323.4754240000002,
+          "candidate": 1221.722634
+        },
+        "observations": {
+          "baseline": [
+            1333.081895,
+            1313.8689530000001
+          ],
+          "candidate": [
+            1223.536163,
+            1219.909105
+          ]
+        },
+        "ranges": {
+          "baseline": {
+            "maximum": 1333.081895,
+            "minimum": 1313.8689530000001
+          },
+          "candidate": {
+            "maximum": 1223.536163,
+            "minimum": 1219.909105
+          }
+        }
+      },
+      "max_rss_kib": {
+        "candidate_change_percent": -16.021917656248064,
+        "means": {
+          "baseline": 24373774,
+          "candidate": 20468628
+        },
+        "observations": {
+          "baseline": [
+            24307704,
+            24439844
+          ],
+          "candidate": [
+            20341380,
+            20595876
+          ]
+        },
+        "ranges": {
+          "baseline": {
+            "maximum": 24439844,
+            "minimum": 24307704
+          },
+          "candidate": {
+            "maximum": 20595876,
+            "minimum": 20341380
+          }
+        }
+      },
+      "wall_seconds": {
+        "candidate_change_percent": -7.661586899936745,
+        "means": {
+          "baseline": 1330.688187845517,
+          "candidate": 1228.7363559665391
+        },
+        "observations": {
+          "baseline": [
+            1340.398712432012,
+            1320.977663259022
+          ],
+          "candidate": [
+            1230.6069468930364,
+            1226.8657650400419
+          ]
+        },
+        "ranges": {
+          "baseline": {
+            "maximum": 1340.398712432012,
+            "minimum": 1320.977663259022
+          },
+          "candidate": {
+            "maximum": 1230.6069468930364,
+            "minimum": 1226.8657650400419
+          }
+        }
+      }
+    },
+    "paired_comparisons": [
+      {
+        "baseline_sequence": 1,
+        "candidate_sequence": 2,
+        "comparison": {
+          "actual_cpu_seconds": {
+            "baseline": 1333.081895,
+            "candidate": 1223.536163,
+            "candidate_change_percent": -8.21747954202019
+          },
+          "max_rss_kib": {
+            "baseline": 24307704,
+            "candidate": 20341380,
+            "candidate_change_percent": -16.317147847447867
+          },
+          "wall_seconds": {
+            "baseline": 1340.398712432012,
+            "candidate": 1230.6069468930364,
+            "candidate_change_percent": -8.190978141106243
+          }
+        },
+        "label": "forward A1 then B1",
+        "measured_sequence_order": [
+          1,
+          2
+        ]
+      },
+      {
+        "baseline_sequence": 4,
+        "candidate_sequence": 3,
+        "comparison": {
+          "actual_cpu_seconds": {
+            "baseline": 1313.8689530000001,
+            "candidate": 1219.909105,
+            "candidate_change_percent": -7.151386581246067
+          },
+          "max_rss_kib": {
+            "baseline": 24439844,
+            "candidate": 20595876,
+            "candidate_change_percent": -15.72828369935586
+          },
+          "wall_seconds": {
+            "baseline": 1320.977663259022,
+            "candidate": 1226.8657650400419,
+            "candidate_change_percent": -7.124412534485547
+          }
+        },
+        "label": "reverse B2 then A2",
+        "measured_sequence_order": [
+          3,
+          4
+        ]
+      }
+    ],
+    "exact_ordered_components": 21,
+    "exact_preflight_cases": 60,
+    "allocation": {
+      "cpu_seconds_from_displayed_User_plus_System": 5243.116,
+      "display_precision_note": "Hour-scale UserCPU/TotalCPU strings lack fractional precision; no subsecond accounting accuracy is implied.",
+      "elapsed_seconds": 5313.0,
+      "batch_peak_rss_kib": 59562920.0
+    },
+    "separate_validation_cpu_seconds": 92.26826,
+    "separate_preflight_parse_cpu_seconds": 11.332472,
+    "successful_shared_preparation": {
+      "corpus": {
+        "allocation": {
+          "batch_peak_kib": 5256248,
+          "cpus": 1,
+          "elapsed_seconds": 356,
+          "exit_code": "0:0",
+          "node": "cs605",
+          "requested_memory": "8G",
+          "scheduler_workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-corpus-v3",
+          "state": "COMPLETED",
+          "system_cpu_seconds": 7.379,
+          "total_cpu_seconds": 347.141,
+          "user_cpu_seconds": 339.762
+        },
+        "job_id": "19464510",
+        "measured": {
+          "cpu_seconds": 347.021876,
+          "individual_process_peak_kib": 78296,
+          "wall_seconds": 351.5832292078994
+        },
+        "review": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-corpus-postrun-review-v3/review.json"
+      },
+      "extraction": {
+        "allocation": {
+          "batch_peak_kib": 20629640,
+          "cpus": 1,
+          "elapsed_seconds": 584.0,
+          "exit_code": "0:0",
+          "node": "cs604",
+          "raw_total_cpu_seconds": 568.179,
+          "requested_memory": "32G",
+          "scheduler_workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-extraction-v2",
+          "state": "COMPLETED",
+          "system_cpu_seconds": 29.536,
+          "total_cpu_seconds": 568.1790000000001,
+          "user_cpu_seconds": 538.643
+        },
+        "job_id": "19466533",
+        "measured": {
+          "extraction": {
+            "accounting_method": "Linux resource.getrusage(RUSAGE_CHILDREN) delta (waited-for descendants)",
+            "actual_cpu_seconds": 529.753388,
+            "max_rss_kib": 16419724,
+            "wall_seconds": 538.3657769740093
+          },
+          "readback": {
+            "accounting_method": "Linux resource.getrusage(RUSAGE_CHILDREN) delta (waited-for descendants)",
+            "actual_cpu_seconds": 21.405475,
+            "max_rss_kib": 5564856,
+            "wall_seconds": 21.874689736170694
+          },
+          "reference-check": {
+            "accounting_method": "Linux resource.getrusage(RUSAGE_CHILDREN) delta (waited-for descendants)",
+            "actual_cpu_seconds": 7.526841,
+            "max_rss_kib": 759400,
+            "wall_seconds": 8.026658067014068
+          }
+        },
+        "review": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-extraction-postrun-review-v2/review.json"
+      },
+      "scope": "Accepted corpus and one shared extraction only, charged once and separately from four filter workers. Earlier failed preparation generations remain separately retained; no aggregate all-attempt cost claim."
+    },
+    "evidence_ref": "growth_whole"
+  },
+  "limits": [
+    "Complete-worker CPU includes startup, preparation and output; fixture/validation costs are separate. Component gains are not added to these results.",
+    "Each nuclear context has two observations per arm in one allocation; several contexts show substantial timing variability. Different contexts/nodes are not pooled for causal or workflow estimates.",
+    "Maximum individual-process RSS observations, their means and ranges are not simultaneous allocation memory or R heap measurements. Slurm batch peak may include other accounting such as file cache.",
+    "Memory improves in some contexts and increases in others. No eight-chunk bound, constant-memory claim or full-pipeline speedup follows from these tests.",
+    "Larger/unsupported key domains can take the original interaction fallback. The later scalar-bound extension was not tested by these complete-worker results and is excluded.",
+    "Shared preparation costs cover accepted corpus/extraction attempts only; failed earlier generations remain separately retained."
+  ],
+  "evidence": {
+    "primary_whole": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-whole-postrun-review-v2/reviewed-result.json",
+      "sha256": "c8058bf41976b1e99d6305f6004435ba269c19a0fde2210487dbaa8f525912b9"
+    },
+    "four_contexts": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-contexts-postrun-review-v1/four-nuclear-contexts-summary.json",
+      "sha256": "ae87009857e63447783c1f064bc67fa2d6a54f0cbd3180cb5675c3df5c2bfe23"
+    },
+    "four_contexts_root_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-contexts-postrun-review-v1/four-nuclear-contexts-root-review.json",
+      "sha256": "14fc7f6734fc39065f6e918b2f5a6cf57409a6cbdbca960f2edef0f94d29979a"
+    },
+    "growth_whole": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-allele-postrun-review-v1/reviewed-result.json",
+      "sha256": "a233f5c230acdd1ce6b997812af8972885f71ca17b66355ca9c4facda7e40acc"
+    },
+    "growth_root_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-allele-postrun-review-v1/root-final-review.json",
+      "sha256": "c5e6ab6aa639d585f5c9e1aee6c6a91050173e1b7b3d8adde1087ec94e4df78c"
+    },
+    "corpus": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-corpus-postrun-review-v3/review.json",
+      "sha256": "d42f47e10726c5b437e17a6bd3faf7396c2665a18463b1cf79dc8ee4a7c58a13"
+    },
+    "shared_extraction": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-growth-extraction-postrun-review-v2/review.json",
+      "sha256": "63ef25ad8d5b5adadc0b3218a6d77752b319c7103e5e09e3a87a2b4328fe8859"
+    },
+    "original_60_fixtures": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-key-construction-v1/root-postrun-review.json",
+      "sha256": "8cca6921338b0f0213992c62b58ffd9611e55ebd76fb3f682bf7ad8d60b854dc"
+    },
+    "fixture_relocation_source": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-whole-v2/preflight.R",
+      "sha256": "f2b02cbd4f44811056102eaa7cc1d7e1ef98e1b33d717d98e6e6ba0e887a37a6"
+    },
+    "integration_postrun": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-integration-v1/postrun-review.json",
+      "sha256": "3dad173d2f98d137d880fc1504692053cff8cd60561baaa30fac08083a35cca4"
+    },
+    "integration_root_review": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-integration-v1/root-postrun-review.json",
+      "sha256": "b2173056cfc9e205b41dadf6977d1d1de1444c63909b6d932943c01183685cc4"
+    },
+    "integration_submission": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-integration-v1/submission.json",
+      "sha256": "ab87eaa1838937083e82085836e5c30abbab346e2aff2b4dc92d562163d9550d"
+    },
+    "integration_ready_plan": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-integration-v1/plan.ready.json",
+      "sha256": "8efc737da4cd8747b21618af18e2a22cf5ee9960509f0f19002dd538b4388e24"
+    },
+    "integration_accounting": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/filter-allele-integration-v1/sacct-terminal.txt",
+      "sha256": "d73b15b50d9a500d47b05a543e53ed07b6c1f5b92b995be232347289f8a9a4ae"
+    }
+  },
+  "updated_utc": "2026-10-09T06:54:00.852726+00:00",
+  "installed_commit_note": "Prepared before the integration commit; exact measured/installed source SHA256 values identify this implementation. No self-referential commit hash is claimed."
+}

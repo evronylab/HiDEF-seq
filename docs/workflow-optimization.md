@@ -27,6 +27,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | BAM dispatch | Python using `pysam`; Nextflow/shell integration | **Yes: custom Python**; existing BAM indexing tools and pysam's compiled library |
 | Extraction quality lookup and generated-field parsing | R | Existing R packages; no new custom non-R implementation |
 | Chromosome restriction, germline summaries, threshold and coordinate helpers, region-read aggregation | R | Existing R/Bioconductor packages, including dtplyr/data.table; no new custom non-R implementation |
+| Observed allele-key construction, selected after context and two-chunk comparisons | R | Existing compiled vctrs/Bioconductor operations; no custom non-R code or new CLI |
 | Coalesced VCF lookup | R constructs the query commands | Changes shell command construction using existing Bash/`bcftools`; no new standalone executable |
 | Coverage accumulation and sensitivity calculations | R | Existing R/Bioconductor packages; no new custom non-R implementation |
 | Coverage annotation and lower compression level | R | Changes shell `bgzip` arguments using existing `bgzip`/`tabix`; legacy annotation also uses existing `bedtools`; no new standalone executable |
@@ -379,6 +380,28 @@ R's lazy argument evaluation included input construction in only the original
 arm. The diagnostic harness now forces inputs before either timing. Scientific
 comparisons were unaffected, and the separate complete-worker benchmark does
 not have that timing problem. The changes are retained on the strength of those complete-worker comparisons and their simpler function bodies. Subsequent profiling selected a targeted dtplyr conversion for region-read aggregation: it preserves `base::mean`, threshold semantics and ordered joins while avoiding repeated group work. Its separate component and combined-chain evidence is recorded in [the follow-on results](#follow-on-r-optimization-results). This does not introduce a broad dtplyr rewrite or a custom Rcpp helper.
+
+The subsequently selected allele-key helper constructs labels only for observed
+combinations of the four allele columns, avoiding unobserved Cartesian labels.
+It retains the original factor preparation and ordering. Unsupported names,
+types, attributes, missing values, separator-containing labels and excessive
+Cartesian cardinality use the original `interaction` path. This is custom R
+using existing compiled vctrs/Bioconductor operations; it adds no custom non-R
+production code, dependency, CLI or Nextflow/shell change.
+
+Four nuclear sample/filtergroup ABBA comparisons showed mean complete-worker CPU
+reductions of 4.39–15.80%, with context-dependent process-peak changes, including
+increases. A fresh extraction of distinct LIB1 chunks 1–2 gave a 7.69% CPU
+reduction and a 16.02% lower mean individual-process peak for strict nuclear
+filtering. Ordered scientific comparisons passed in all four nuclear contexts,
+four candidate-only mitochondrial contexts and the two-chunk comparison.
+These scoped results do not establish whole-pipeline speed or a memory bound
+for larger inputs. The [allele-key report](benchmarks/torch-2026-10-09-allele-interaction.json)
+retains observations, source identities and limits. The exact tested helper is
+installed; integration job `19471735` passed its relocated 60-case regression
+and source/container guards. This check adds no performance measurement.
+The running full-workflow acceptance remains attributed to `7e37ada`, which
+predates this helper. The separate scalar-bound extension was not integrated.
 
 ### Burden and sensitivity calculations
 

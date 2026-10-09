@@ -718,3 +718,36 @@ two suites retain their earlier assertions; their loaders also import the new
 helpers. Supply the installed BSgenome package directory to the coverage suite
 to exercise its actual chrM/chrY checks. These tests do not measure the complete
 pipeline or validate the final combined run.
+
+## Allele-key regression
+
+Observed allele-key construction is custom R using existing compiled
+vctrs/Bioconductor operations. It introduces no custom non-R production code,
+new dependency, CLI or Nextflow/shell change. The regression is R; its allocated
+runner uses Python/shell only for source guards, measurement and job control.
+
+From the repository root in the pipeline container, within a compute allocation
+with one CPU, 4 GiB RAM and five minutes, run:
+
+```sh
+Rscript --vanilla tests/test_allele_interaction.R . NEW_OUTPUT_DIRECTORY
+```
+
+The output directory must not exist. The test loads the actual installed encoder
+and overlap function without running the filtering CLI. Its preserved 7e
+baseline fixture and 60 cases compare exact factor codes/levels and overlap
+results, including row/factor order, unused and NA levels, separator collisions,
+attributes, fallback types, both strand/adjacency modes and zero-width ranges.
+Warnings and errors retain their classes/messages under `warn=2`; inputs must
+remain unchanged. The test also requires exactly the two intended helper-call
+substitutions. It writes comparisons, session information and a JSON result.
+
+The original 60-case job `19448420` passed in 15 seconds with a 1.17 GiB Slurm
+batch peak. The relocated test passed job `19471735`: all 60 exact rows matched
+the original fixture, source/container guards passed, and installed R bytes
+matched the measured candidate. The integration allocation completed in 16
+seconds using 12.693 CPU seconds and a 0.921 GiB Slurm batch peak.
+The four nuclear contexts, fresh two-chunk ABBA experiment and
+candidate-only mitochondrial checks are recorded in the
+[allele-key report](../../docs/benchmarks/torch-2026-10-09-allele-interaction.json).
+This fixture adds neither a performance measurement nor full-workflow acceptance.

@@ -326,7 +326,7 @@ rendered identically in SAM but was correctly rejected by raw-record comparison.
 Artifacts and frozen source hashes are in workspace `runs/bam-comparison-fixtures-v2/`.
 
 The original ordered comparator remains unchanged for reproducibility. The
-completed Torch comparison also has an explicitly approved coordinate-tie rule:
+historical `3911047` Torch comparison also has an explicitly approved coordinate-tie rule:
 all logical records, multiplicities, coordinates and coordinate ordering must
 match, but records at identical coordinates may have a different relative order.
 Full raw-record diagnostics checked that rule for both processed BAMs and rebuilt
@@ -353,8 +353,10 @@ under `runs/bam-coordinate-diagnosis-lib1/` and `runs/bam-coordinate-diagnosis-l
 Twenty-one synthetic acceptance and rejection tests cover altered records,
 missing/failed indexes, wrong files/owners, incomplete evidence, changed inputs,
 and extra scientific failures. See the
-[validation ledger](../../docs/optimization-validation.md) for final acceptance
-and the unchanged original failure counts.
+[historical validation summary](../../docs/optimization-validation.md#historical-accepted-comparison-3911047)
+for that acceptance and the unchanged original failure counts. The current
+follow-on uses separate composed layout/BAM evidence described at the start of
+the [validation ledger](../../docs/optimization-validation.md).
 
 The BED harness already exercises Tabix boundary/empty-region queries. Matching
 compressed scientific contents alone does not prove a changed index is valid;

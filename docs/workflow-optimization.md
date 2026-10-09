@@ -5,23 +5,27 @@ retaining the scientific output schemas and one final QS2 per sample. TSV, VCF,
 PDF and indexed coverage BED outputs are retained. The
 [validation ledger](optimization-validation.md) records completed component
 benchmarks, complete-workload measurements and acceptance of all 711 required
-scientific outputs under the agreed comparison rules for the earlier
-`3911047` production revision. The Python/R follow-up described below is being
-validated separately; those historical results do not establish acceptance of
-the current follow-up code.
+scientific output paths under the agreed comparison rules for `7e37ada`.
+Historical results for `3911047` and `ea8d06f` remain separately scoped. The later
+allele-key helper has its own component and integration evidence.
 
 ## Current full-workflow status
 
-The `7e37ada` workflow completed all 650 tasks and its accounting. The common
-631-task downstream workload used 157.81978 CPU hours versus 447.19417 in the
-original run (64.71% less). The 19 cold-preparation tasks used another 8.99136 CPU
-hours; the original run has no matching cold-preparation measurement. These are
-complete-workload accounting totals, separate from the component timings below.
+The `7e37ada` workflow completed all 650 tasks and its accounting. The comparable
+downstream workload used 631 candidate tasks versus 749 original tasks, consuming
+157.81978 CPU hours versus 447.19417 (64.71% less). The 19 cold-preparation tasks
+used another 8.99136 CPU hours; the original run has no matching cold-preparation
+measurement. These are complete-workload accounting totals, separate from the
+component timings below.
 
 All 22 prepared-cache comparisons and two startup checks passed. Both samples
 also passed the separate deterministic output-stage replays described below.
-The composed original-versus-new scientific acceptance gate remains **pending**;
-successful execution and accounting do not establish that acceptance.
+The composed original-versus-new scientific acceptance gate passed all **711
+required paths**: 687 direct strict passes, 18 approved layout proofs, and two
+BAMs with four owner-linked indices. Original failed reports remain intact.
+The [complete-workload report](benchmarks/torch-python-r-followon.json) binds
+execution, accounting and acceptance; the [validation ledger](optimization-validation.md)
+also records the separate strict output-stage repeatability proof.
 
 This run includes the selected native burden accumulator and the five follow-on
 R changes. It excludes the later allele-key helper installed in `00f6e33` and the
@@ -85,20 +89,20 @@ first controller or its workers are still active. An explicit
 `-resume <session-UUID>` selects the intended session when several runs share a
 launch directory. Use distinct report/trace filenames for repeated tests.
 
-The earlier accepted candidate ran production revision
-`391104794588819601f89bf6acfe588fc6c579bc`. The branch subsequently consolidated
-the three reference-summary functions into `sharedFunctions.R` without changing
-their definitions; focused container checks passed in job `19289528`. That source
-organization change was not another full-workload benchmark. To reproduce the
-fully benchmarked source exactly, set `HIDEFSEQ_GITTAG` to the full revision
-instead of the branch name. Final
-validation passed under the approved BAM rule: logical records, multiplicities,
+To reproduce the latest fully benchmarked and accepted workflow exactly, set
+`HIDEFSEQ_GITTAG=7e37ada2664f07e9534e9dbd695b68a0fbcc22f3` instead of the branch
+name. The branch additionally contains the separately tested allele-key helper
+from `00f6e33`. The earlier accepted candidate was `3911047`; subsequent
+reference-summary consolidation into `sharedFunctions.R` preserved its function
+definitions and passed focused container checks in job `19289528`.
+Final validation passed under the approved BAM rule: logical records, multiplicities,
 coordinates and coordinate ordering remain exact; only relative ordering at
 identical coordinates may differ. See the validation ledger for the complete
 comparison scope and preserved original strict-order report.
 
-The two-sample, 60-chunk-per-sample Torch comparison used the existing
-`hidef-seq_3.0.sif` and matched these allocations between baseline and candidate:
+The two-sample, 60-chunk-per-sample `7e37ada` Torch comparison used the rebuilt
+`hidef-seq_3.0.sif`; the original image was retained for baseline validation.
+These allocations matched between baseline and candidate:
 
 | YAML process suffix | Memory | Time | CPUs |
 | --- | ---: | ---: | ---: |
@@ -109,10 +113,10 @@ The two-sample, 60-chunk-per-sample Torch comparison used the existing
 
 Set the corresponding `mem_<suffix>` and `time_<suffix>` keys in the run YAML;
 CPU counts above come from the workflow process definitions. The template's
-64 GB burden/output requests are not validated for this workload. In that earlier
-comparison, candidate strict nuclear burden tasks reached about 120–128 GiB
-maximum Slurm RSS, and final output tasks reached about 69–76 GiB. Requests were
-kept unchanged for the comparison. Size future requests from representative full tasks with headroom;
+64 GB burden/output requests are not validated for this workload. The current
+comparison's maximum task Slurm memory was 135.261 GiB for burdens and 51.733 GiB
+for final output. Requests were kept unchanged for the comparison. Size future
+requests from representative full tasks with headroom;
 these peaks are workload-dependent and do not establish a universal lower limit.
 Slurm task RSS, Nextflow's sampled process RSS, and simultaneous pipeline memory
 are different measurements.
@@ -201,8 +205,8 @@ preparation algorithms. Filesystem page-cache state was uncontrolled. Evidence
 and source hashes are retained in `runs/r-cache-v1/result.json`. Accounting for
 the completed `ea8d06f` run is complete; that run remains scientifically
 unaccepted because LIB1 failed the strict comparison. The later combined
-`7e37ada` run has completed accounting and cache checks; its composed scientific
-acceptance remains pending.
+`7e37ada` run has completed accounting, cache checks and composed scientific
+acceptance, as summarized [above](#current-full-workflow-status).
 
 Preparation tasks verify bundle contents on every workflow launch, including
 resume. Cache hits restore products to the Nextflow work directory with hard
@@ -427,7 +431,8 @@ retains observations, source identities and limits. The exact tested helper is
 installed; integration job `19471735` passed its relocated 60-case regression
 and source/container guards. This check adds no performance measurement.
 The full-workflow measurements above remain attributed to `7e37ada`, which
-predates this helper; its composed scientific acceptance remains pending.
+predates this helper. Its completed acceptance does not extend the helper's
+scoped performance evidence into a full-workflow measurement.
 The separate scalar-bound extension was not integrated.
 
 ### Burden and sensitivity calculations
@@ -468,8 +473,8 @@ treats ambiguously also use it. Ordinary workflow and standalone calls default
 to R annotation. Annotation, compression and indexing failures stop the task
 before results can be saved. Fixtures cover exact context arithmetic across
 buffer boundaries, output formatting and ordering, empty output, reference
-edges and failure propagation. The full nuclear component comparison has passed;
-the full follow-up workflow comparison remains pending. The earlier 51.14%
+edges and failure propagation. The full nuclear component comparison and the
+full follow-up workflow comparison have passed. The earlier 51.14%
 nuclear CPU reduction in the validation ledger applies to the removed C++
 implementation, not the R port.
 
@@ -504,7 +509,7 @@ but that separate metric can double-count shared pages and miss brief peaks.
 These are annotation-worker measurements, including compression and indexing,
 not measurements of the whole burden task. Evidence is retained in
 `runs/r-coverage-v1/component-summary-after-nuclear.json`. Full-workflow accounting
-is now complete as summarized above; composed scientific acceptance remains pending.
+and scientific acceptance are complete as summarized [above](#current-full-workflow-status).
 
 ### Final output
 
@@ -518,11 +523,12 @@ performance optimization. Sample BAM merges also use YAML run and sample-entry
 order, including multiple barcode assignments to the same sample within a run;
 each BAM remains paired with its PBI. Demultiplex merge inputs use basename
 order. These changes order filenames before the existing tools run.
-The earlier LIB1 diagnostic replay confirmed exact named values and
-records after diagnostic alignment, with column permutations in its two raw QS
-tables and row permutations in eight LIB1 statistics TSVs. The migration policy
-lists the corresponding paths for both samples; the composed migration acceptance
-remains pending. The user approved this layout on 2026-10-08: comparison
+The follow-on's completed [migration layout proof](optimization-validation.md#completed-migration-layout-proof)
+confirmed both complete sample QS2 files and all 16 reviewed statistics TSVs,
+including exact per-row name attributes after the existing chromosome-group
+alignment. The original failed reports and a corrected validation-only check
+are preserved. BAM and composed migration acceptance also passed.
+The user approved this layout on 2026-10-08: comparison
 with the original run may align these reviewed ordering differences, while
 repeated optimized runs must preserve deterministic QS/TSV values, row order and
 column order. Migration exceptions must not be used for new-versus-new checks.
@@ -550,7 +556,7 @@ so no separate QS2 components or new reader API are introduced.
 
 ## Follow-on R optimization results
 
-Five integrated changes were assembled as candidate v3 against scientific baseline `ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77`: generated-field parsing, VCF target lookup, region-read aggregation, output object lifetime, and compression in R coverage annotation. The first three passed a combined extraction and filtering comparison on one real chunk from each library. Output lifetime and compression have separate component evidence. The complete `7e37ada` accounting is summarized above; composed scientific acceptance remains pending.
+Five integrated changes were assembled as candidate v3 against scientific baseline `ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77`: generated-field parsing, VCF target lookup, region-read aggregation, output object lifetime, and compression in R coverage annotation. The first three passed a combined extraction and filtering comparison on one real chunk from each library. Output lifetime and compression have separate component evidence. The complete `7e37ada` accounting and scientific acceptance are summarized [above](#current-full-workflow-status).
 
 ### Selected changes and component measurements
 
@@ -711,9 +717,9 @@ in job `19421102`: all seven parsed-source comparisons, 70 native cases and the
 coverage/sensitivity suites, with actual chrM/chrY exercised in the coverage
 suite. Three explanatory comment
 blocks were clarified after installation; all other source lines remain identical
-to the tested source. The combined `7e37ada` workflow has completed execution and
-accounting under the original resource requests; its composed scientific acceptance
-remains pending. The selection is recorded
+to the tested source. The combined `7e37ada` workflow completed execution,
+accounting and scientific acceptance under the original resource requests.
+The selection is recorded
 in workspace `runtime/exploration-burdens-v2/accumulator-selection-v1/selection.json`.
 Both implementations are R with existing compiled packages and unchanged external
 annotation tools; neither adds custom non-R scientific code.
@@ -822,10 +828,10 @@ The `ea8d06f` workflow completed all 650 tasks, its full comparison and CPU/memo
 accounting, but its LIB1 final QS2 failed the original strict comparison; that run
 is not scientifically accepted. The combined run is pinned to immutable revision
 `7e37ada`; execution, accounting, cache checks and both deterministic output-stage
-replays are complete, while composed scientific acceptance remains pending. It includes
+replays are complete, and all 711 required publication paths are accepted. It includes
 the five later changes and selected native burden accumulator, but predates the
-allele-key helper installed in `00f6e33`. Earlier complete-workload acceptance
-applies only to production revision `3911047`. Retained benchmark JSON files are
+allele-key helper installed in `00f6e33`. The earlier `3911047` acceptance remains
+a separate historical result. Retained benchmark JSON files are
 historical snapshots: their earlier pending or under-evaluation status text does
 not supersede this current status or the native-accumulator selection above.
 

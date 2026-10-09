@@ -1,6 +1,6 @@
 # Optimization validation ledger
 
-## Current follow-on: execution and accounting complete, scientific acceptance pending
+## Current accepted follow-on: `7e37ada`
 
 Revision `7e37ada` completed all 650 tasks on the two-sample Torch workload on
 2026-10-09, with no failed, cached or retried tasks. The common workload used
@@ -22,15 +22,21 @@ cold-preparation comparison.
 CPU is the sum of each normal allocation's reported user and system time, once;
 step records supply memory peaks separately. The frozen main-run accounting uses
 the retained display precision. Slurm memory is distinct from process RSS and R
-heap, and these runs used different nodes and times. No cache or controller cost
-has been subtracted. The completed controller elapsed time was 22 h 11 min;
+heap, and these runs used different nodes and times. No page-cache estimate was
+subtracted from memory. Controller CPU is included in the 166.85-hour total,
+outside the common-workload comparison. The controller elapsed time was 22 h 11 min;
 this is not a matched wall-time speedup measurement.
 
 All 22 prepared-cache comparison products and both startup audits passed. The
-original-versus-follow-on publication comparison and its separately bound layout,
-BAM and combined acceptance checks are **still pending**. Successful execution
-and completed accounting do not establish scientific acceptance. These results
-include the five later R optimizations and native burden accumulator, but exclude
+complete strict publication report covers all 711 required scientific paths:
+687 passed directly, 18 passed the approved layout proof, and two BAMs plus
+four owner-linked index paths passed the separate BAM proof. The combined
+acceptance check completed successfully: **all 711 required paths are accepted**
+under the agreed comparison rules, with no numerical tolerance. The original
+strict report remains unchanged: its overall entries include 690 passes,
+20 failures, 770 ignored paths and four owner-covered indices; the 690 includes
+startup/configuration checks and is not a count of required scientific passes.
+These results include the five later R optimizations and native burden accumulator, but exclude
 the allele-key helper introduced in `00f6e33` and the experimental coverage-storage
 prototype. Custom non-R production code comprises Python BAM dispatch and
 Nextflow/Groovy orchestration; the scientific R changes use existing packages and
@@ -39,9 +45,65 @@ command-line tools.
 The retained source run is `runs/candidate-python-r-followon-20261007/` in the
 workspace. Its `accounting/comparison.json` is independently reconciled in
 `runtime/main-accounting-root-review-20261009/review.json`; the cache proof is
-`runtime/cache-acceptance-root-review-20261009/review.json`. Historical reports
-below remain evidence for their own revisions, not substitutes for the pending
-follow-on acceptance.
+`runtime/cache-acceptance-root-review-20261009/review.json`. The
+[complete-workload report](benchmarks/torch-python-r-followon.json) binds the
+completed execution, cache, scientific and accounting evidence. Historical
+reports below remain evidence for their own revisions.
+
+### Completed BAM and combined acceptance proof
+
+Jobs `19498749` and `19498752` passed the full record and own-index checks.
+LIB1 contained 10,382,760 records in 5,779,641 coordinate groups; LIB2 contained
+10,878,071 records in 5,999,788 groups. Both had zero differences in coordinate
+groups or record multisets, preserving duplicate multiplicities. Only relative
+order at identical coordinates differed, in 824 and 1,325 groups respectively.
+Headers and the binary reference dictionaries passed under the existing metadata
+rules. All eight own-BAM index checks passed: original and candidate BAI/PBI for
+each library. The four required index paths are thereby accepted through their
+owning BAMs, rather than by comparing byte offsets across different BAM files.
+
+Combined acceptance job `19498753` passed on 2026-10-09. Root revalidation of
+the full composed gate reproduced the retained report exactly, including the
+711-path partition, source/input identities, job receipts and original failed
+reports. The root receipt is
+`runtime/main-composed-root-terminal-review-20261009.json`, SHA-256
+`e30eaf5e19e57f2853d033d91327579e51fb66d16ac014e14e47195b2979e121`.
+These validation costs are excluded from workflow performance. The separately
+completed output-stage repeatability proof remains necessary because migration
+ordering exceptions do not establish deterministic new-versus-new outputs.
+
+### Completed migration layout proof
+
+Job `19497597` passed all 18 reviewed paths: both complete sample QS2 files and
+16 statistics TSVs. Each QS comparison checked all 18 components with zero
+failures or review-required numerical differences. The nine existing metadata
+exceptions per sample remain explicit. Only column permutations in the two
+approved raw tables per sample, the approved statistics-TSV row permutations, and the existing
+cross-chromosome-group row normalization are applied. QS-table order within a
+chromosome group and all scientific values, types and attributes remain exact;
+the 16 approved TSVs preserve exact rows and multiplicities while allowing row
+permutations.
+
+The first layout validator (`19495957`) incorrectly compared per-row column
+names before applying that same chromosome-group ordering. It reported six
+name-attribute differences in each QS2; all 16 TSVs passed. Its dependent job
+stopped without dispatching BAM checks. A separate validation version aligns
+supported per-row names by each table's existing stable chromosome-group index,
+while comparing every other column attribute without reordering. It does not
+ignore names, sort them independently, or change production code. The original
+failed reports remain intact.
+
+The corrected driver passed 51 allocated fixtures in job `19497070`, including
+data-frame and tibble cases, incorrect or missing names, names attached to the
+wrong rows, within-group changes, and unrelated attributes whose length happens
+to equal the row count. Fixture construction explicitly preserves names that
+ordinary data-frame replacement can otherwise strip. The subsequent real-data
+proof verified source, input, staging and container identities before and after
+comparison. Its root review is
+`runtime/layout-v2-root-terminal-review-20261009.json`, SHA-256
+`180eb2bf21b27ccbb5f31a3e11ef168bfb1ad941fba385bf5b2cb7dbe348ad3b`.
+This migration-layout proof is incorporated into the separately completed BAM
+and combined acceptance proof above.
 
 ### Ordered output-stage repeatability
 
@@ -70,7 +132,7 @@ This full-run observation complements the separately measured compression
 operation; it does not attribute the entire pipeline CPU reduction to compression.
 Final sample QS2 files remain about 2.57 GB and 2.84 GB. The retained stat-based
 report is `runtime/main-publication-storage-20261009/report.json`; content
-acceptance remains part of the publication checks above.
+acceptance is included in the completed publication checks above.
 
 ### Completed experimental storage evaluation
 
@@ -85,8 +147,9 @@ then passed separately. These tests do not confer full-workflow acceptance.
 Observed task CPU fell from 7.54434 to 6.82530 hours (9.53%). Reported Slurm
 batch peaks were 128.668 and 98.723 GiB, with different nodes, requests and
 cache conditions; this is not a matched R-memory comparison. Candidate command
-peaks were 20.847 GiB for burden calculation and 18.731 GiB for fresh burden-QS
-assembly. The ordinary sample-output command still peaked at 43.025 GiB,
+peaks were 20.847 GiB for the first burden R process, including annotation/export
+and checkpointing, and 18.731 GiB for fresh burden-QS assembly. The ordinary
+sample-output command still peaked at 43.025 GiB,
 essentially matching the native output replays. Validation costs are separate.
 
 The recommendation is to **retain the native production implementation**. The
@@ -165,8 +228,9 @@ the original fragment produced configured order once, and the repaired fragment
 did so in all 24 cases. The reusable
 `tests/test_output_assembly_order.py` also passed against the local draft in
 job `19402677` (exit 0, 13 seconds). This establishes the small channel's ordering
-behavior; the combined final workflow and ordered reproducibility comparison
-remain required.
+behavior; it did not itself establish full-workflow acceptance or output
+repeatability. The current workflow status is recorded at the start of this
+ledger, with the separate [ordered output-stage proof](#ordered-output-stage-repeatability).
 
 The integrated channel regressions subsequently passed in job `19437345`
 (exit 0, 18 seconds): 24 output-assembly permutations, 50 sample merge groups
@@ -219,8 +283,9 @@ records the decision (SHA-256
 Disabled policy-v2 synthetic controls passed in job `19412603`. The QS helper is
 custom R; the TSV helper is custom Python; shell/SLURM provide validation
 infrastructure. Those historical draft policies remain `ready=false` with their
-original `PENDING` approval; the actual later authorization above will be bound
-in fresh controls. No scientific output was accepted by these tests. The independent
+original `PENDING` approval; the actual later authorization above was bound
+in fresh controls for the [completed layout proof](#completed-migration-layout-proof).
+No scientific output was accepted by these synthetic tests. The independent
 review is workspace `runtime/layout-policy-toy-preflight-review-v1/review.json`,
 SHA-256 `8f548f965834c0042cf38663d2b5ecd695cfc95357d17019b1ac9e1ff925a932`.
 
@@ -442,7 +507,8 @@ raw-QS column and statistics-TSV row permutations are limited to the reviewed
 paths described above. Repeated optimized QS/TSV outputs must match in order as
 well as content; these migration exceptions do not apply. BAM coordinate ordering is preserved; records at
 identical coordinates may differ in relative order under the approved rule above.
-Run metadata and compressed encoding may differ. Generic text comparison permits
+For original-versus-new migration comparisons, approved run metadata and
+compressed encoding may differ. Generic text comparison permits
 line-ending normalization; scientific values and published numeric precision
 remain exact.
 Internal floating-point differences at relative error up to `1e-12` require
@@ -538,7 +604,8 @@ An earlier candidate controller finished with failure after the discovered burde
 all healthy filtering tasks were allowed to finish and remain cached. Failed and
 deliberately stopped development burden attempts are retained separately, with
 signal-interrupted CPU marked as a lower bound. Complete successful-workload CPU
-and memory, along with final publication acceptance, are summarized above.
+and memory, along with final publication acceptance, are summarized in the
+[historical `3911047` comparison](#historical-accepted-comparison-3911047).
 
 ## Completed: first full 60-chunk nuclear burden comparison
 
@@ -1014,8 +1081,8 @@ CPU**. The compiler is included in the candidate total. Allocated CPU-hours were
 stage totals from the full runs, not paired node-controlled trials or complete
 pipeline totals. The updated frozen traces and accounting are in
 `runtime/accounting-checkpoints/20261005T082229Z/`; neither dispatch scope has
-unresolved accounting. Full downstream scientific acceptance is now recorded at
-the top of this ledger.
+unresolved accounting. Full downstream scientific acceptance is recorded in the
+[historical `3911047` comparison](#historical-accepted-comparison-3911047).
 
 Follow-up job `19198407` strengthened the real chunk-1 check: all **173,355 ordered
 decompressed BAM record blocks** and the binary reference dictionary matched
@@ -1101,8 +1168,8 @@ Contention was not identical: baseline burden jobs `19210990` and `19211105`
 started on that node at 08:23:45 UTC during the candidate arm. Earlier and other
 colocated work was not fully inventoried; `colocation-note.json` records this
 limitation. This is one observed full-operation pair, not a projection to all
-groups or total pipeline CPU. Complete pipeline scientific and high-memory-stage
-validation remain required; production resource requests remain unchanged.
+groups or total pipeline CPU. At that stage, complete pipeline scientific and
+high-memory-stage validation were still required; resource requests were unchanged.
 
 The accepted helper is integrated through an optional `--coverage-annotator`
 argument, preserving the saved YAML schema. Without that argument, or for a
@@ -1293,7 +1360,8 @@ complete BAM record/index diagnostics are also finished. The approved
 coordinate-tie rule and separately bound supplemental report resolve the two BAM
 failures and four delegated index paths, while preserving the original failed
 comparison. All 711 required scientific paths and 22 prepared-cache products
-are accepted. The compact summary at the top of this ledger retains the original
+are accepted for `3911047`. The
+[historical summary](#historical-accepted-comparison-3911047) retains the original
 failure counts separately from the final acceptance result.
 
 The baseline source revision is
@@ -1321,8 +1389,9 @@ whole-job accounting measure from the R process maximum. It must not be
 substituted into the paired per-worker RSS comparisons or compared directly
 with historical full-stage peaks from another metric source. The residual
 historical peak difference is not assigned wholly to formatter retention.
-The completed workload's stage-level Slurm measurements are reported at the top
-of this ledger. Production memory requests were retained for that comparison;
+The completed workload's stage-level Slurm measurements are reported in the
+[historical `3911047` comparison](#historical-accepted-comparison-3911047).
+Production memory requests were retained for that comparison;
 this diagnostic alone does not establish suitable lower requests.
 
 The diagnostic normalization/export region took **248.469 actual CPU seconds**
@@ -1401,7 +1470,7 @@ Five selected changes have separate component evidence: generated-field parsing,
 
 Independent review of jobs `19352943` and `19352944` passed all 128 exact QS component comparisons across 20 fresh extraction/filter workers, with zero ignored fields or numeric tolerance. Both arms matched the current pipeline reference; source, execution-copy, input and producer guards passed. LIB1 CPU fell from 5173.631 to 3293.236 seconds (36.35%), while its highest individual worker RSS fell 3.56%. LIB2 CPU fell from 4349.449 to 2790.702 seconds (35.84%), while its highest individual worker RSS rose 0.25%. Summed scientific-worker CPU across these two chunks fell from 9523.079 to 6083.938 seconds (36.11%). Exact comparisons and preflight are excluded, and process peaks are not concurrent workflow memory.
 
-Each chain contains one real chunk's extraction and four separate nuclear/mitochondrial strict/lenient filters. Arm order reverses across libraries and filesystem cache state is uncontrolled. The chains do not exercise output lifetime or coverage compression. Component gains are not additive, and full-workflow acceptance and whole-pipeline measurements remain pending. The reviewed chain receipt is workspace `runtime/followon-chain-review-v1/reviewed-result.json`, SHA-256 `cad39e08a89ed0238c017040089592d04e968c237136119d0f7d8f73b76c8827`.
+Each chain contains one real chunk's extraction and four separate nuclear/mitochondrial strict/lenient filters. Arm order reverses across libraries and filesystem cache state is uncontrolled. The chains do not exercise output lifetime or coverage compression. Component gains are not additive, and these chain results do not establish full-workflow acceptance or whole-pipeline performance. The current full-workflow accounting and acceptance status are recorded at the start of this ledger. The reviewed chain receipt is workspace `runtime/followon-chain-review-v1/reviewed-result.json`, SHA-256 `cad39e08a89ed0238c017040089592d04e968c237136119d0f7d8f73b76c8827`.
 
 Reusable fixtures passed in job `19355705`: 16 generated-parser cases, 168 selected production aggregation cases and 32 VCF target comparisons. The [test commands](../scripts/benchmark/README.md#follow-on-regression-tests) use three entry points across four source files. Integration job `19374216` also passed: all four R parsed expression trees matched the measured source, the relocated 16/168/32 suites passed, and all 26 source pins and the SIF identity remained unchanged (`COMPLETED`, exit 0, 23 seconds). The compact report keeps measured and integrated source hashes separate, linked by this parsed-expression check. The integration receipt remains workspace `runtime/followon-integration-v1/reviewed-result.json`.
 
@@ -1467,8 +1536,9 @@ cost. The exact handoff was installed, then three complete comment blocks were
 clarified; all other lines remain byte-identical in order. Installed source SHA-256
 is `e3b025b08d6ff777e9bfbe57c8057da4cfa003778f3af41b806259e02907ffd1`.
 The [compact report](benchmarks/torch-2026-10-08-burden-accumulator.json) binds both
-sources, the integration proof and the comment-only difference. Final combined
-workflow validation and matched-resource measurements remain required.
+sources, the integration proof and the comment-only difference. The completed
+combined `7e37ada` workflow validation and accounting under the original resource
+requests are recorded at the start of this ledger.
 
 ## Observed allele-key construction
 
@@ -1520,6 +1590,5 @@ batch peak; these are validation costs, not another filtering benchmark.
 The root integration receipt is workspace
 `runtime/filter-allele-integration-v1/root-postrun-review.json`, SHA-256
 `b2173056cfc9e205b41dadf6977d1d1de1444c63909b6d932943c01183685cc4`.
-Final workflow
-acceptance for the separate `7e37ada` run remains pending and does not include
+Completed workflow acceptance for the separate `7e37ada` run does not include
 this later helper. See the [fixture command](../scripts/benchmark/README.md#allele-key-regression).

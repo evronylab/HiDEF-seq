@@ -131,9 +131,12 @@ restriction in call loading.
 These reference-summary functions live in the single common
 `bin/sharedFunctions.R` file. The separate helper file has been removed, and its
 production callers, benchmark and cache dependency list use the common file.
-The consolidation changes that file's hash, so affected prepared artifacts and
-downstream tasks receive new cache identities on the next run. Existing cache
-bundles are retained; they are not silently reused under changed source hashes.
+Every prepared-artifact identity includes the complete `sharedFunctions.R` hash.
+Any change to that file, including the consolidation or the later allele-key
+helper addition, therefore changes all prepared-cache identities on the next
+launch, even when a preparer's own calculation is unchanged. Downstream R task
+signatures also include this hash. Existing cache bundles are retained; they are
+not silently reused under changed source hashes.
 
 Large external files use an explicitly labeled identity comprising canonical
 path, size, modification time, and Unix change time and inode where supported.
@@ -718,11 +721,15 @@ without replacing the separate full-reference workflow validation.
 
 The follow-up was authorized on 2026-10-06. The rebuilt-container Python/R changes and the five additional R optimizations have component evidence. The parser, VCF lookup and targeted dtplyr changes also passed combined extraction/filter chains on one real chunk from each library, with 128 exact QS component comparisons and 36.11% lower summed scientific-worker CPU. Memory results were mixed. Output lifetime and R-annotation compression retain their separate component measurements.
 
-The `ea8d06f` workflow completed all 650 tasks and its CPU/memory accounting is
-complete, but its LIB1 final QS2 failed the original strict comparison; that run
-is not scientifically accepted. The five later changes and the selected native
-burden accumulator still require a combined full-workflow test. Earlier complete-workload
-acceptance applies only to production revision `3911047`.
+The `ea8d06f` workflow completed all 650 tasks, its full comparison and CPU/memory
+accounting, but its LIB1 final QS2 failed the original strict comparison; that run
+is not scientifically accepted. The combined run is pinned to immutable revision
+`7e37ada`; its full-workflow validation and measurements remain pending. It includes
+the five later changes and selected native burden accumulator, but predates the
+allele-key helper installed in `00f6e33`. Earlier complete-workload acceptance
+applies only to production revision `3911047`. Retained benchmark JSON files are
+historical snapshots: their earlier pending or under-evaluation status text does
+not supersede this current status or the native-accumulator selection above.
 
 1. **Python BAM splitter:** implemented, with exact full LIB1 comparisons and
    measured splitting/indexing costs, including the final system-Python/pysam

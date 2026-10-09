@@ -54,6 +54,7 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
 - `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
+- `effectiveParams.<sha256>.yaml`, the immutable effective configuration passed to R tasks. It includes runtime overrides and prepared-cache paths; its filename hashes its exact contents.
 - `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).  Each log name begins with the process name followed by identifiers that scope the task (for example `makeBarcodesFasta.${analysis_id}.${run_id}.command.log`, `ccsChunk.${analysis_id}.${run_id}.chunk003.command.log`, `processGermlineVCFs.${individual_id}.command.log`, `prepareRegionFilters.${region_filter_file}.bin${binsize}.${threshold}.command.log`, or simply `installBSgenome.command.log`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
 - CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
@@ -309,7 +310,7 @@ The pipeline produces several files per below, and each table contains metadata 
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
-Top-level configuration loaded from the analysis YAML, stored as nested lists per the structure and parameters documented in [`config_templates/`](../config_templates).
+The effective configuration passed to R, stored as nested lists. It retains the original analysis keys documented in [`config_templates/`](../config_templates), with intentional runtime overrides and the prepared-cache fields `reference_cache_dir`, `reference_summary_file`, `cache_artifacts`, and `germline_coverage_filters`. The matching `effectiveParams.<sha256>.yaml` is retained in the shared logs; see [prepared caches and configuration](workflow-optimization.md#prepared-caches-and-publication).
 
 #### run_metadata
 Columns as per `run_metadata.tsv` described above. 

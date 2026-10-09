@@ -58,6 +58,15 @@ Preserve records rather than filling missing values with zero. Sum task-level GN
 time CPU over the same executed workflow scope, including retries; do not compare
 a cached/resumed run against a complete run.
 
+For precise standalone-job comparisons, also retain `sacct --json -j JOBID` and
+read the normal allocation's CPU fields as integer microseconds:
+`seconds * 1000000 + microseconds`. Slurm may return an unnormalized microsecond
+field greater than one million; that is valid and must not be rejected or
+counted twice. Verify that exact user plus system equals total, and keep step
+memory records separate. The later storage and output-replay controls use this
+check. The collectors above and frozen full-workflow reports retain their
+original displayed-field precision; this documentation does not change them.
+
 `summarize_workflow.py` joins one or more Nextflow traces to saved accounting.
 It deduplicates original job IDs across resumed traces and uses allocation CPU
 totals without adding their `.batch` or other steps a second time. Failed attempts
@@ -649,9 +658,15 @@ Nextflow/Groovy; the regression drivers are Python. These correctness tests add
 no CPU-saving claim.
 
 The separate disabled layout-policy helper tests are recorded in the
-[output-ordering ledger](../../docs/optimization-validation.md#pythonr-follow-up-output-ordering-under-repair).
+[output-ordering ledger](../../docs/optimization-validation.md#historical-pythonr-run-ordering-failure-and-subsequent-repair).
 They exercise R QS-column and Python TSV-row validation helpers, not this
 Nextflow arrival-order regression, and do not activate an acceptance policy.
+
+The subsequent [ordered output-stage replay](../../docs/optimization-validation.md#ordered-output-stage-repeatability)
+passed two fresh workers per sample and comparisons with the actual pipeline
+outputs. It checks strict QS/TSV data and layout without migration normalization.
+This is separate from both the synthetic fixtures and original-versus-new
+publication acceptance; it does not represent two complete pipeline reruns.
 
 The integrated source passed job `19374216`: all four changed R expression trees were identical to the measured candidate, the 16 parser/168 aggregation/32 VCF cases passed, and all 26 pins and the container identity remained unchanged. These scientific regressions add no performance measurement. See the [compact report](../../docs/benchmarks/torch-2026-10-07-followon.json) for measured scopes and provenance.
 

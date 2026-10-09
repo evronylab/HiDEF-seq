@@ -10,9 +10,30 @@ scientific outputs under the agreed comparison rules for the earlier
 validated separately; those historical results do not establish acceptance of
 the current follow-up code.
 
+## Current full-workflow status
+
+The `7e37ada` workflow completed all 650 tasks and its accounting. The common
+631-task downstream workload used 157.81978 CPU hours versus 447.19417 in the
+original run (64.71% less). The 19 cold-preparation tasks used another 8.99136 CPU
+hours; the original run has no matching cold-preparation measurement. These are
+complete-workload accounting totals, separate from the component timings below.
+
+All 22 prepared-cache comparisons and two startup checks passed. Both samples
+also passed the separate deterministic output-stage replays described below.
+The composed original-versus-new scientific acceptance gate remains **pending**;
+successful execution and accounting do not establish that acceptance.
+
+This run includes the selected native burden accumulator and the five follow-on
+R changes. It excludes the later allele-key helper installed in `00f6e33` and the
+experimental temporary coverage storage described below. Production includes
+custom Python BAM dispatch and Nextflow/Groovy orchestration alongside R and
+existing compiled packages and CLI tools; benchmark-only Python/shell controls
+are identified separately.
+
 ## Implementation languages
 
-The labels below describe production implementation, including orchestration.
+The labels below distinguish implemented, rejected and experimental approaches,
+including orchestration.
 An R implementation can use existing packages with compiled internals without
 adding a custom C++ or Rcpp helper. Existing external tools are listed separately.
 Benchmark and regression infrastructure also uses Python and shell; the VCF
@@ -23,7 +44,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Prepared reference summaries and germline coverage caches | R preparers; Nextflow and shell integration | Nextflow/shell orchestration and existing reference/coverage tools; no new compiled helper |
 | Artifact-cache protocol | R, including shared functions | Existing `flock`, `stat`, `sync` and `cp`; Nextflow/shell invokes the R entry point |
 | Output publication with hard links or copies | Nextflow/Groovy | **Yes: custom non-R orchestration** using existing JVM/Nextflow filesystem APIs; no new scientific kernel |
-| Deterministic final-output assembly (approved correctness fix; final validation pending) | Nextflow/Groovy | **Yes: custom non-R orchestration**; orders the small input-file list without sorting scientific records |
+| Deterministic final-output assembly (output-stage reproducibility passed) | Nextflow/Groovy | **Yes: custom non-R orchestration**; orders the small input-file list without sorting scientific records |
 | BAM dispatch | Python using `pysam`; Nextflow/shell integration | **Yes: custom Python**; existing BAM indexing tools and pysam's compiled library |
 | Extraction quality lookup and generated-field parsing | R | Existing R packages; no new custom non-R implementation |
 | Chromosome restriction, germline summaries, threshold and coordinate helpers, region-read aggregation | R | Existing R/Bioconductor packages, including dtplyr/data.table; no new custom non-R implementation |
@@ -38,6 +59,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Endpoint accumulation, tested and not selected | R | Existing Bioconductor packages; no new custom Python/C++/Rcpp implementation |
 | Endpoint capacity fallback, tested and not selected | R | Existing Bioconductor coverage and Rle addition; no new custom non-R implementation |
 | Native Rle addition and immediate sharing, selected after whole-worker proof | R | Uses existing Bioconductor compiled operations; no new custom Python/C++/Rcpp implementation |
+| Temporary-QS coverage storage, experimental and not adopted | R | Existing compiled qs2/Bioconductor packages and annotation/index CLIs; Python/shell benchmark controls only, no custom non-R scientific kernel |
 
 ## Torch launch and resource settings
 
@@ -63,7 +85,7 @@ first controller or its workers are still active. An explicit
 `-resume <session-UUID>` selects the intended session when several runs share a
 launch directory. Use distinct report/trace filenames for repeated tests.
 
-The completed candidate ran production revision
+The earlier accepted candidate ran production revision
 `391104794588819601f89bf6acfe588fc6c579bc`. The branch subsequently consolidated
 the three reference-summary functions into `sharedFunctions.R` without changing
 their definitions; focused container checks passed in job `19289528`. That source
@@ -87,10 +109,10 @@ The two-sample, 60-chunk-per-sample Torch comparison used the existing
 
 Set the corresponding `mem_<suffix>` and `time_<suffix>` keys in the run YAML;
 CPU counts above come from the workflow process definitions. The template's
-64 GB burden/output requests are not validated for this workload. Candidate
-strict nuclear burden tasks reached about 120–128 GiB maximum Slurm RSS, and
-final output tasks reached about 69–76 GiB. Requests were kept unchanged for the
-comparison. Size future requests from representative full tasks with headroom;
+64 GB burden/output requests are not validated for this workload. In that earlier
+comparison, candidate strict nuclear burden tasks reached about 120–128 GiB
+maximum Slurm RSS, and final output tasks reached about 69–76 GiB. Requests were
+kept unchanged for the comparison. Size future requests from representative full tasks with headroom;
 these peaks are workload-dependent and do not establish a universal lower limit.
 Slurm task RSS, Nextflow's sampled process RSS, and simultaneous pipeline memory
 are different measurements.
@@ -179,7 +201,8 @@ preparation algorithms. Filesystem page-cache state was uncontrolled. Evidence
 and source hashes are retained in `runs/r-cache-v1/result.json`. Accounting for
 the completed `ea8d06f` run is complete; that run remains scientifically
 unaccepted because LIB1 failed the strict comparison. The later combined
-follow-on still requires its own full-workflow measurements and acceptance.
+`7e37ada` run has completed accounting and cache checks; its composed scientific
+acceptance remains pending.
 
 Preparation tasks verify bundle contents on every workflow launch, including
 resume. Cache hits restore products to the Nextflow work directory with hard
@@ -403,8 +426,9 @@ for larger inputs. The [allele-key report](benchmarks/torch-2026-10-09-allele-in
 retains observations, source identities and limits. The exact tested helper is
 installed; integration job `19471735` passed its relocated 60-case regression
 and source/container guards. This check adds no performance measurement.
-The running full-workflow acceptance remains attributed to `7e37ada`, which
-predates this helper. The separate scalar-bound extension was not integrated.
+The full-workflow measurements above remain attributed to `7e37ada`, which
+predates this helper; its composed scientific acceptance remains pending.
+The separate scalar-bound extension was not integrated.
 
 ### Burden and sensitivity calculations
 
@@ -479,8 +503,8 @@ sum of process RSS fell from 31.768 GiB in the original to 19.642 GiB in R,
 but that separate metric can double-count shared pages and miss brief peaks.
 These are annotation-worker measurements, including compression and indexing,
 not measurements of the whole burden task. Evidence is retained in
-`runs/r-coverage-v1/component-summary-after-nuclear.json`; full-pipeline CPU,
-peak-memory and scientific acceptance still require the follow-up run.
+`runs/r-coverage-v1/component-summary-after-nuclear.json`. Full-workflow accounting
+is now complete as summarized above; composed scientific acceptance remains pending.
 
 ### Final output
 
@@ -494,19 +518,28 @@ performance optimization. Sample BAM merges also use YAML run and sample-entry
 order, including multiple barcode assignments to the same sample within a run;
 each BAM remains paired with its PBI. Demultiplex merge inputs use basename
 order. These changes order filenames before the existing tools run.
-The LIB1 replay confirmed exact named values and
+The earlier LIB1 diagnostic replay confirmed exact named values and
 records after diagnostic alignment, with column permutations in its two raw QS
 tables and row permutations in eight LIB1 statistics TSVs. The migration policy
-lists the corresponding paths for both samples; LIB2 still needs independent
-proof under that policy. The user approved this layout on 2026-10-08: comparison
+lists the corresponding paths for both samples; the composed migration acceptance
+remains pending. The user approved this layout on 2026-10-08: comparison
 with the original run may align these reviewed ordering differences, while
 repeated optimized runs must preserve deterministic QS/TSV values, row order and
 column order. Migration exceptions must not be used for new-versus-new checks.
 The existing BAM coordinate-tie exception remains applicable to repeated runs;
 it does not permit changes to records, multiplicities or coordinate ordering.
 The original failed comparison reports remain intact; the
-[validation ledger](optimization-validation.md#pythonr-follow-up-output-ordering-under-repair)
+[validation ledger](optimization-validation.md#historical-pythonr-run-ordering-failure-and-subsequent-repair)
 distinguishes the failed strict replay from the passing diagnostic.
+
+Both samples have now passed two fresh output-stage executions, compared with
+each other and with their actual `7e37ada` outputs. Across the four comparisons,
+all 72 ordered QS component checks, 1,244 scientific-file comparisons and 224
+own-index checks passed. QS/TSV values, types, attributes and row/column order
+were exact, with no ignored QS fields or ordering normalization. Existing VCF
+date/encoding and PDF date exceptions remain applicable. These are output-stage
+replays, not two additional full-workflow runs. Scientific writers remain R;
+the replay and validation controls use R, Python and shell.
 
 `outputResults.R` skips expensive list-column conversions that the following
 germline-table pivot discards. Its native `VariantAnnotation::writeVcf()` call uses
@@ -517,7 +550,7 @@ so no separate QS2 components or new reader API are introduced.
 
 ## Follow-on R optimization results
 
-Five integrated changes were assembled as candidate v3 against scientific baseline `ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77`: generated-field parsing, VCF target lookup, region-read aggregation, output object lifetime, and compression in R coverage annotation. The first three passed a combined extraction and filtering comparison on one real chunk from each library. Output lifetime and compression have separate component evidence. Full-workflow acceptance and whole-pipeline CPU and memory results remain pending.
+Five integrated changes were assembled as candidate v3 against scientific baseline `ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77`: generated-field parsing, VCF target lookup, region-read aggregation, output object lifetime, and compression in R coverage annotation. The first three passed a combined extraction and filtering comparison on one real chunk from each library. Output lifetime and compression have separate component evidence. The complete `7e37ada` accounting is summarized above; composed scientific acceptance remains pending.
 
 ### Selected changes and component measurements
 
@@ -536,6 +569,12 @@ Region aggregation uses `dtplyr::lazy_dt(immutable = TRUE)`, computes the origin
 The output change saves the same single final QS object earlier and releases raw calls and coverage before VCF/export construction. Per-file traversal and formatted data remain unchanged. Failed tasks must still prevent publication, because the intermediate QS file now appears earlier. The output pilot used four completed historical candidate-optimization burdens inputs and their effective configuration. Its comparison allowed only VCF `fileDate` and PDF `CreationDate`/`ModDate` differences; it used no numeric tolerance or ignored QS metadata. Passing 311 scientific files does not imply identical compressed or PDF bytes.
 
 Level-1 compression applies only to BED output from the R `annotate_coverage_row()` path. Explicit `--coverage-annotation legacy` and automatic fallback retain their existing `bgzip -c` behavior. The tested R-annotation BED grew from 8,038,272,657 to 10,198,489,389 compressed bytes (+26.87%). The full-row timer includes packet loading, the original writer, annotation, compression and indexing. It is not a complete burdens-stage measurement. Compressor-only timings are attribution within that total and must not be added to it.
+
+In the completed full workflow, the 36 published coverage BEDs grew from
+151.27 to 192.15 GB (+27.0%). These are summed compressed file lengths in decimal
+GB, excluding indexes and temporary files, rather than physical filesystem usage
+or an isolated compression-only comparison. Final sample QS2 sizes were nearly
+unchanged. This storage cost accompanies the CPU results above.
 
 ### Combined extraction and filtering
 
@@ -569,7 +608,7 @@ The [compact benchmark](benchmarks/torch-2026-10-07-followon.json) records the m
 
 ### Scaling limits
 
-The current 60 chunks per sample divide work but do not cap chunk size as input grows. Extraction and filtering can therefore need more memory on larger inputs. Burdens processing still retains raw calls and germline data, and its final Rle memory depends on run complexity. Earlier object release reduces simultaneous live objects in output generation, but the final result remains one complete QS object. None of these measurements establishes constant memory with increasing input. Native burden-accumulation experiments are not included in these changes or claims.
+The current 60 chunks per sample divide work but do not cap chunk size as input grows. Extraction and filtering can therefore need more memory on larger inputs. Burdens processing still retains raw calls and germline data, and its final Rle memory depends on run complexity. Earlier object release reduces simultaneous live objects in output generation, but the final result remains one complete QS object. None of these measurements establishes constant memory with increasing input. The selected native accumulator is included in `7e37ada`; later temporary-storage experiments remain separate.
 
 ### Burden accumulator comparison and selection
 
@@ -672,13 +711,56 @@ in job `19421102`: all seven parsed-source comparisons, 70 native cases and the
 coverage/sensitivity suites, with actual chrM/chrY exercised in the coverage
 suite. Three explanatory comment
 blocks were clarified after installation; all other source lines remain identical
-to the tested source. The final combined pipeline still needs its own complete
-validation and measurements under the original resource requests. The selection is recorded
+to the tested source. The combined `7e37ada` workflow has completed execution and
+accounting under the original resource requests; its composed scientific acceptance
+remains pending. The selection is recorded
 in workspace `runtime/exploration-burdens-v2/accumulator-selection-v1/selection.json`.
 Both implementations are R with existing compiled packages and unchanged external
 annotation tools; neither adds custom non-R scientific code.
 The [compact comparison report](benchmarks/torch-2026-10-08-burden-accumulator.json)
 keeps measured-source, installed-source and integration evidence distinct.
+
+### Experimental temporary coverage storage
+
+A separate R prototype stores coverage groups temporarily as QS files, reduces
+them, then assembles the ordinary self-contained final QS2 in a fresh R process.
+Calls, statistics and sensitivity retain their existing calculations. It uses
+existing compiled qs2/Bioconductor packages and annotation/index CLIs; custom
+Python/shell code controls the benchmark only. This approach is **not adopted**,
+and the production single-QS2 output remains unchanged.
+
+For one complete LIB1 strict nuclear burden task using the same 60 inputs,
+allocation CPU was 6.82530 hours versus 7.54434 for the native task, including
+temporary I/O and fresh assembly. All 20 ordered QS components, eight compressed
+coverage BEDs and their index proofs passed exact comparison. These descriptive
+runs occurred separately; they are neither a paired causal estimate nor a
+whole-pipeline result. Earlier 5/15/60-input coverage-only pilots omitted other
+burden work, and the five-input temporary-storage pilot was more costly; their
+results should not be substituted for this complete-task comparison. The full
+prototype uses the native route for eight or fewer inputs; the five-input pilot
+deliberately forced storage to measure its overhead.
+
+Observed Slurm batch peaks were 98.723 GiB for the prototype and 128.668 GiB for
+native, with different nodes/times and 160 versus 288 GiB memory requests.
+Torch's cgroup accounting includes file cache. Native has no isolated R-process
+peak comparable to the prototype's process measurements, so these figures do
+not establish a causal R-memory reduction or a safe lower allocation. Stat-only
+sampling observed a maximum of about 38.0 GiB across eight temporary raw BED files; that is
+a sampled lower bound for those files, not total peak scratch usage.
+
+The ordinary output consumer completed from a standalone copy of the final QS2
+with the private parts hidden, producing 311 outputs. Its R worker used
+2,098.585498 CPU seconds and peaked at 45,114,820 KiB (43.025 GiB). The separate
+exact consumer comparison is still pending, so consumer execution alone does
+not establish compatibility. No production adoption or larger-input memory
+guarantee follows from these experiments.
+
+Groups of eight limit input count, not bytes. One input QS2, the retained calls,
+complete final assembly and later sample-level output still impose growing
+memory requirements. The prototype retained 3.55 GB in 1,760 private files and
+adds 455 lines of reduction/storage logic before production lifecycle integration.
+The evaluation therefore weighs the further 9.53% observed task CPU saving
+against retry, cleanup and maintenance costs; it does not select a new default.
 
 ## Focused local validation
 
@@ -724,7 +806,8 @@ The follow-up was authorized on 2026-10-06. The rebuilt-container Python/R chang
 The `ea8d06f` workflow completed all 650 tasks, its full comparison and CPU/memory
 accounting, but its LIB1 final QS2 failed the original strict comparison; that run
 is not scientifically accepted. The combined run is pinned to immutable revision
-`7e37ada`; its full-workflow validation and measurements remain pending. It includes
+`7e37ada`; execution, accounting, cache checks and both deterministic output-stage
+replays are complete, while composed scientific acceptance remains pending. It includes
 the five later changes and selected native burden accumulator, but predates the
 allele-key helper installed in `00f6e33`. Earlier complete-workload acceptance
 applies only to production revision `3911047`. Retained benchmark JSON files are

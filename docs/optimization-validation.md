@@ -1,12 +1,86 @@
 # Optimization validation ledger
 
-This ledger records the completed full-workflow comparison of baseline
+## Current follow-on: execution and accounting complete, scientific acceptance pending
+
+Revision `7e37ada` completed all 650 tasks on the two-sample Torch workload on
+2026-10-09, with no failed, cached or retried tasks. The common workload used
+**157.82 actual CPU-hours versus 447.19**, a **64.71% reduction**. Cold preparation
+used another **8.99 CPU-hours**. Including that preparation and the controller,
+the candidate consumed **166.85 CPU-hours**. These figures exclude all separate
+validation and exploratory jobs. The original run does not supply a matched
+cold-preparation comparison.
+
+| Common stage | Original CPU-hours | Follow-on CPU-hours | Original / follow-on maximum task Slurm memory, GiB |
+|---|---:|---:|---:|
+| BAM dispatch and indexing | 66.384 | 2.294 | 7.996 / 7.995 |
+| Extraction | 29.314 | 11.519 | 14.324 / 11.285 |
+| Filtering | 257.645 | 94.543 | 37.030 / 26.607 |
+| Burdens | 68.941 | 24.600 | 287.992 / 135.261 |
+| Final outputs | 1.625 | 1.129 | 88.218 / 51.733 |
+| Other read processing | 23.287 | 23.736 | 31.996 / 31.996 |
+
+CPU is the sum of each normal allocation's reported user and system time, once;
+step records supply memory peaks separately. The frozen main-run accounting uses
+the retained display precision. Slurm memory is distinct from process RSS and R
+heap, and these runs used different nodes and times. No cache or controller cost
+has been subtracted. The completed controller elapsed time was 22 h 11 min;
+this is not a matched wall-time speedup measurement.
+
+All 22 prepared-cache comparison products and both startup audits passed. The
+original-versus-follow-on publication comparison and its separately bound layout,
+BAM and combined acceptance checks are **still pending**. Successful execution
+and completed accounting do not establish scientific acceptance. These results
+include the five later R optimizations and native burden accumulator, but exclude
+the allele-key helper introduced in `00f6e33` and the experimental coverage-storage
+prototype. Custom non-R production code comprises Python BAM dispatch and
+Nextflow/Groovy orchestration; the scientific R changes use existing packages and
+command-line tools.
+
+The retained source run is `runs/candidate-python-r-followon-20261007/` in the
+workspace. Its `accounting/comparison.json` is independently reconciled in
+`runtime/main-accounting-root-review-20261009/review.json`; the cache proof is
+`runtime/cache-acceptance-root-review-20261009/review.json`. Historical reports
+below remain evidence for their own revisions, not substitutes for the pending
+follow-on acceptance.
+
+### Ordered output-stage repeatability
+
+Two fresh ordinary `outputResults.R` processes per sample passed both the A/B
+comparison and a comparison with the actual main-run outputs. Each comparison
+checked all 18 QS components, all 311 files and 56 own-file index rebuilds.
+Across the two samples this is 72 QS-component checks, 1,244 file comparisons and
+224 index checks. QS and TSV values, types, attributes and row/column layout were
+strict, including configuration and metadata; no migration ordering normalization
+was applied. Existing VCF encoding/file-date and PDF Info-date exceptions remain.
+
+This establishes **output-stage repeatability**, not two complete pipeline reruns.
+The configured input order was the same after normalizing opposite arrival orders.
+Both replay jobs (`19485468`, `19485470`) completed successfully, with separate
+root proofs in `runtime/output-reproducibility-root-review-v1/`. Their execution
+and comparison costs are validation expenditure, not part of the pipeline CPU
+totals. Production ordering uses Nextflow/Groovy; writers remain R; validation
+uses R/Python/shell.
+
+### Published storage tradeoff
+
+The 36 final coverage BED.gz files totaled **151.27 GB in the original run and
+192.15 GB in the follow-on**, an increase of **27.0%** (40.88 GB). These are logical
+compressed-file sizes, excluding indexes, temporary files and private components.
+This full-run observation complements the separately measured compression
+operation; it does not attribute the entire pipeline CPU reduction to compression.
+Final sample QS2 files remain about 2.57 GB and 2.84 GB. The retained stat-based
+report is `runtime/main-publication-storage-20261009/report.json`; content
+acceptance remains part of the publication checks above.
+
+## Historical accepted comparison: `3911047`
+
+The following records the completed full-workflow comparison of baseline
 `6b6598b` and optimized revision `3911047` on 2026-10-06. The subsequent
 Python/R revision `ea8d06f` completed a separate full-workflow comparison and
 remains scientifically unaccepted because of the ordering failure below;
 its completed component benchmarks are recorded in
 [the implementation notes](workflow-optimization.md#pythonr-follow-up-status).
-Both historical full workflows completed successfully. Their common downstream workload used
+The baseline and `3911047` workflows both completed successfully. Their common downstream comparison used
 **48.53% less actual CPU**, and the maximum burden-task Slurm RSS fell **55.64%**.
 All **711 required scientific publication paths are accepted** under the agreed
 comparison rules: 705 passed the original comparison, and two BAMs plus their
@@ -16,7 +90,7 @@ prepared-cache comparison products passed. The
 [machine-readable summary](benchmarks/torch-2026-10-06.json) records measurements,
 source revisions, comparison scope and evidence checksums.
 
-## Python/R follow-up: output ordering under repair
+## Historical Python/R run: ordering failure and subsequent repair
 
 The `ea8d06f` workflow completed all 650 tasks, but its LIB1 final QS2 failed the
 original scientific comparison because the mitochondrial strict and lenient
@@ -287,8 +361,10 @@ cgroup-version selection. Slurm's cgroup-v2 accounting includes the process tree
 and filesystem cache; its reported memory is not individual-process RSS
 ([version-matched documentation](https://github.com/SchedMD/slurm/blob/slurm-25-05-4-1/doc/html/cgroup_v2.shtml#L764),
 [memory accounting implementation](https://github.com/SchedMD/slurm/blob/slurm-25-05-4-1/src/plugins/cgroup/v2/cgroup_v2.c#L2833)).
-The observed worker records support v2, but no job-specific `memory.stat` snapshot
-was retained. Compare terminal Slurm batch peaks with each other and process
+Those earlier worker records support v2, but no job-specific `memory.stat` snapshot
+was retained for those experiments. The later complete coverage-storage trial did
+retain cgroup-v2 counters; it still does not justify subtracting end-of-job cache
+from a historical peak. Compare terminal Slurm batch peaks with each other and process
 peaks with each other; do not subtract assumed cache use or interpret their
 difference as a measured amount of live R data. The read-only configuration and
 source review is retained in workspace

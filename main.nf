@@ -311,7 +311,7 @@ workflow {
     processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
     extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
     filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
     outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
   ]
 
@@ -831,7 +831,7 @@ workflow {
     file("${projectDir}/bin/splitBamByZmw.py", checkIfExists: true),
     fileSha256("${projectDir}/bin/splitBamByZmw.py")))
 
-  // Keep the exact legacy enumeration once, and dispatch all chunks per sample.
+  // Enumerate ZMW IDs once, preserving their order, then dispatch every chunk.
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
       .join(countAnalysisZMWs.out, by: [0, 1])
       .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile, zmwIdsFile ->
@@ -1468,7 +1468,7 @@ process countAnalysisZMWs {
 }
 
 /*
-  splitBAM: Dispatch all legacy partitions per sample, then index sequentially.
+  splitBAM: Dispatch the ordered ZMW partitions per sample, then index sequentially.
 */
 process splitBAM {
     cpus 2

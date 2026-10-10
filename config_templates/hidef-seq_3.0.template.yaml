@@ -85,8 +85,6 @@ bcftools_bin: bcftools
 bedGraphToBigWig_bin: /hidef/bin/bedGraphToBigWig
 wiggletools_bin: /hidef/bin/WiggleTools/bin/wiggletools
 wigToBigWig_bin: /hidef/bin/wigToBigWig
-seqkit_bin: /hidef/bin/seqkit
-bedtools_bin: bedtools
 bgzip_bin: bgzip
 tabix_bin: tabix
 

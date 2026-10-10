@@ -2,7 +2,7 @@
 
 Here, we describe the HiDEF-seq pipeline's parameters, which are configured in a [YAML-format](https://en.wikipedia.org/wiki/YAML) parameters file.
 
-We provide example template YAML files in this directory: a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that capture commonly used settings for the hg38 reference genome.
+We provide example template YAML files in this directory: a generic template (`hidef-seq_3.0.template.yaml`) and an hg38-focused template (`hidef-seq_3.0.template.hg38.yaml`) that capture commonly used settings for the hg38 reference genome.
 
 Below, the `parameter[].subparameter` notation indicates that `parameter` is a list that can contain multiple `subparameter` items.
 
@@ -81,7 +81,7 @@ Barcode uniqueness rules within a run:
 | `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path used for all processes. |
 | `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating conda environment in the docker image. |
 | `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools in the docker image. |
-| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `seqkit_bin`, `bedtools_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
+| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
 | `verifybamid_bin` | string | optional | Absolute path to the VerifyBamID2 binary inside the container. Leave blank to skip the `verifyBAMID` task. |
 | `verifybamid_resource_UD`, `verifybamid_resource_Bed`, `verifybamid_resource_Mean` | string | required if `verifybamid_bin` is set | Paths to VerifyBamID2 resource files (UD, BED, and mean tables). Resource downloads are available from the [VerifyBamID2 repository](https://github.com/Griffan/VerifyBamID). The `verifyBAMID` task is skipped if any of these parameters are not set. |
 | `ccs_ld_preload` | path | optional | Shared library path exported via `LD_PRELOAD` before invoking the PacBio `ccs` binary, mitigating thread-affinity issues described in <a href="https://github.com/microsoft/onnxruntime/issues/10736" target="_blank" rel="noopener noreferrer">onnxruntime issue #10736</a>. Leave blank to disable. |

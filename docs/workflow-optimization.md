@@ -491,7 +491,9 @@ parser's truncation of names containing colons or hyphens. Invalid indexes and
 annotation, compression or indexing failures stop the task.
 
 The obsolete whole-genome trinucleotide BED preparation and its cache entry
-have been removed. Existing cache files are left untouched. Fixtures cover
+have been removed. Their unused `seqkit_bin` and `bedtools_bin` entries have
+also been removed from configuration templates; existing YAML files may retain
+those keys. Existing cache files are left untouched. Fixtures cover
 ordinary and compressed references, literal names, empty contigs, exact context
 arithmetic, formatting, ordering, reference edges and failure cleanup. Earlier
 full-workflow and C++ comparisons below retain their original revision scopes;

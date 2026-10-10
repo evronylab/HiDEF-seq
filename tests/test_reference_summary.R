@@ -5,6 +5,7 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(Biostrings)
   library(tidyverse)
+  library(qs2)
 })
 options(warn = 2)
 args <- commandArgs(trailingOnly = TRUE)
@@ -48,17 +49,49 @@ assignment <- function(file, name) {
   expressions[[which(matches)[[1]]]]
 }
 env <- new.env(parent = globalenv())
-env$test_reference <- sequences
-env$getSeq <- function(x, names) x[names]
 eval(assignment(file.path(repo, "bin", "calculateBurdens.R"), "get_genome_reftnc"), env)
 for(chromosomes in chromosome_sets) {
-  env$reference_summary <- NULL
-  original <- env$get_genome_reftnc("test_reference", chromosomes)
   env$reference_summary <- list(trinucleotide_counts = counts)
-  cached <- env$get_genome_reftnc("test_reference", chromosomes)
+  env$reference_counts_for_chromosomes <- function(counts, chromosomes) {
+    trinucleotideFrequency(sequences[chromosomes], simplify.as = "collapsed")
+  }
+  original <- env$get_genome_reftnc(chromosomes)
+  rm("reference_counts_for_chromosomes", envir = env)
+  cached <- env$get_genome_reftnc(chromosomes)
   stopifnot(identical(original, cached))
 }
 cat("PASS: reference N ranges/Seqinfo, empty/N-free/all-N references, linear/circular boundaries, exact count types/order and burden tables\n")
+
+# Standalone and prepared consumers share the builders and preserve all types
+# and attributes. A declared missing/invalid prepared product must never cause
+# an implicit rebuild from the standalone cache.
+summary <- prepare_reference_summary(genome)
+stopifnot(identical(summary, list(n_ranges = expected_n, trinucleotide_counts = counts)))
+summary_file <- tempfile(fileext = ".qs2")
+qs_save(summary, summary_file)
+for(components in list("n_ranges", "trinucleotide_counts", names(summary))) {
+  standalone <- load_reference_summary(list(), genome, components)
+  prepared <- load_reference_summary(list(reference_summary_file = summary_file),
+                                     stop("Prepared reads must not access the genome"), components)
+  stopifnot(identical(standalone, prepared), identical(standalone, summary[components]))
+}
+expect_error <- function(expr, message) {
+  error <- tryCatch({ force(expr); NULL }, error = identity)
+  stopifnot(inherits(error, "error"), grepl(message, conditionMessage(error), fixed = TRUE))
+}
+qs_save(list(), summary_file)
+expect_error(load_reference_summary(list(reference_summary_file = summary_file), genome), "missing requested components")
+unlink(summary_file)
+expect_error(load_reference_summary(list(reference_summary_file = summary_file), genome), "")
+cache_config <- list(cache_dir = "/standalone/cache", reference_cache_dir = "/prepared/library",
+                     cache_artifacts = list("one.qs2" = "/prepared/one.qs2", "two.bw" = "/prepared/two.bw"))
+stopifnot(identical(cache_file(c("/standalone/cache/two.bw", "/standalone/cache/one.qs2"), cache_config),
+                    c("/prepared/two.bw", "/prepared/one.qs2")),
+          identical(cache_file("/standalone/cache/one.qs2", list()), "/standalone/cache/one.qs2"),
+          identical(reference_cache_dir(cache_config), "/prepared/library"),
+          identical(reference_cache_dir(list(cache_dir = "/standalone/cache")), "/standalone/cache"))
+expect_error(cache_file("/standalone/cache/missing.qs2", cache_config), "No prepared cache artifact")
+cat("PASS: shared standalone/prepared reference builders, strict artifact maps and missing-product errors\n")
 
 # Compare the production calls-loading expression against the previous join-
 # then-filter order, including factor levels, duplicate rows, NA chromosomes,

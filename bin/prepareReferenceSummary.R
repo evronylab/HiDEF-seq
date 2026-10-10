@@ -24,6 +24,5 @@ BSgenome_name <- get_bsgenome_name(yaml.config)
 suppressPackageStartupMessages(library(BSgenome_name, character.only = TRUE,
                                        lib.loc = reference_cache_dir(yaml.config)))
 genome <- get(BSgenome_name)
-summary <- list(n_ranges = reference_n_ranges(genome),
-                trinucleotide_counts = reference_trinucleotide_counts(genome))
+summary <- prepare_reference_summary(genome)
 qs2::qs_save(summary, opt$output)

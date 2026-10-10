@@ -1068,24 +1068,14 @@ coverage_rows <- coverage_rows %>%
 	select(-row_id, -bam.gr.filtertrack.by_bc_orientation_strand.coverage, -bam.gr.filtertrack.reftnc_plus_strand, -bam.gr.filtertrack.reftnc_minus_strand)
 
 #Calculate trinucleotide distributions of the whole genome and of the genome in the analyzed chromgroup
-reference_summary <- if(!is.null(yaml.config$reference_summary_file)){
-	qs_read(yaml.config$reference_summary_file)
-}else{
-	NULL
-}
+reference_summary <- load_reference_summary(
+  yaml.config, get(BSgenome_name), "trinucleotide_counts")
 
  #Function to extract trinucleotide distribution for selected chromosomes
-get_genome_reftnc <- function(BSgenome_name, chroms){
-	
-	reftnc_counts <- if(!is.null(reference_summary)){
-		reference_counts_for_chromosomes(reference_summary$trinucleotide_counts, chroms)
-	}else{
-		BSgenome_name %>%
-			get %>%
-			getSeq(chroms) %>%
-			DNAStringSet %>%
-			trinucleotideFrequency(simplify.as = "collapsed")
-	}
+get_genome_reftnc <- function(chroms){
+
+  reftnc_counts <- reference_counts_for_chromosomes(reference_summary$trinucleotide_counts, chroms)
+
 	reftnc_plus_strand <- reftnc_counts %>%
 		enframe(name = "reftnc", value = "count") %>%
 		mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64))
@@ -1125,13 +1115,11 @@ get_genome_reftnc <- function(BSgenome_name, chroms){
 
 	#Whole genome
 genome.reftnc <- get_genome_reftnc(
-	BSgenome_name = BSgenome_name,
 	chroms = BSgenome_name %>% get %>% seqnames
 	)
 
  #genome in the analyzed chromgroup
 genome_chromgroup.reftnc <- get_genome_reftnc(
-	BSgenome_name = BSgenome_name,
 	chroms = chroms_toanalyze
 )
 rm(reference_summary)

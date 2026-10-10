@@ -46,7 +46,7 @@ def generate(args):
     identity = identity.replace('${workflow.projectDir}', '${params.repo_dir}')
     barrier = source[source.index('  prepareFilters_done = BSgenome_name_ch'):source.index('  // Create input channel\n  extractCalls_input_ch')]
     barrier = barrier.replace('BSgenome_name_ch', "channel.value('fixture-reference-ready')")
-    for name in ('prepareReferenceSummary', 'extractGenomeTrinucleotides', 'processGermlineVCFs', 'processGermlineBAMs'):
+    for name in ('prepareReferenceSummary', 'processGermlineVCFs', 'processGermlineBAMs'):
         barrier = barrier.replace(name + '.out', "channel.value('fixture-" + name + "-ready')")
     audit_process = '''process auditPreparedCache {
   cpus 1
@@ -90,7 +90,7 @@ def generate(args):
       def entry = makeCacheEntry.call('germline-coverage-filter', 'prepareGermlineCoverageFilters',
         [individual: individual, threshold: threshold, rawCoverage: rawIdentity,
          wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
-        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R'], [product])
+        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R', 'sharedFunctions.R'], [product])
       coverageEntries[product] = entry
       entries << [product: product, entry: entry]
       tuple(individual, threshold, file("${params.fixture_inputs}/coverage.bw"), product)

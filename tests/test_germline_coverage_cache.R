@@ -8,6 +8,8 @@ suppressPackageStartupMessages(library(qs2))
 args <- commandArgs(trailingOnly=TRUE)
 if(length(args) != 2L) stop("Usage: test_germline_coverage_cache.R HELPER OUTPUT_DIR")
 helper <- normalizePath(args[[1]], mustWork=TRUE)
+source(file.path(dirname(helper), "sharedFunctions.R"))
+Sys.setenv(PATH = paste(dirname(helper), Sys.getenv("PATH"), sep = .Platform$path.sep))
 dir.create(args[[2]], recursive=TRUE, showWarnings=FALSE)
 setwd(args[[2]])
 wiggletools <- Sys.which("wiggletools")
@@ -24,7 +26,7 @@ writeLines(c("chr1\t30\t0\t30\t31", "chr2\t20\t0\t20\t21", "chrEmpty\t8\t0\t8\t9
 query <- GRanges(c("chr1", "chr1", "chr2", "chrEmpty"),
                  IRanges(c(4L, 13L, 7L, 1L), c(5L, 14L, 8L, 8L)), seqinfo=reference)
 
-for(threshold in c(0, 1, 15, 16, 26)) {
+for(threshold in c(0, 0.1, 1, 15, 16, 26)) {
   # Literal legacy shell/import/Seqinfo/select sequence on a tiny sparse track.
   commands <- c("set -euo pipefail",
     "awk '{print $1 \"\t0\t\" $2}' reference.fa.fai | sort -k1,1 -k2,2n > legacy.chromsizes.bed",
@@ -40,7 +42,10 @@ for(threshold in c(0, 1, 15, 16, 26)) {
   if(threshold == 0) {
     # Existing wigToBigWig rejects the empty comparison stream. Preserve that
     # failure rather than silently changing the pipeline's empty-filter policy.
-    stopifnot(legacy_status != 0L, status != 0L, !file.exists(output))
+    error <- tryCatch(prepare_germline_coverage_filter("coverage.bw", "reference.fa.fai",
+                       threshold, wiggletools, wigToBigWig), error = identity)
+    stopifnot(legacy_status != 0L, status != 0L, !file.exists(output), inherits(error, "error"),
+              !length(list.files(pattern = "^\\.germline-coverage-", all.files = TRUE)))
     next
   }
   stopifnot(legacy_status == 0L, status == 0L)
@@ -49,9 +54,24 @@ for(threshold in c(0, 1, 15, 16, 26)) {
   seqinfo(expected) <- reference
   expected <- plyranges::select(expected, -score)
   actual <- qs_read(output)
+  standalone <- load_germline_coverage_filter(
+    list(genome_fai = "reference.fa.fai", wiggletools_bin = wiggletools,
+         wigToBigWig_bin = wigToBigWig), "sample", threshold, "coverage.bw")
+  prepared_config <- list(germline_coverage_filters = list(
+    list(individual_id = "other", threshold = threshold, file = "missing.qs2"),
+    list(individual_id = "sample", threshold = threshold + 1, file = "missing.qs2"),
+    list(individual_id = "sample", threshold = as.character(threshold), file = output)))
+  prepared <- load_germline_coverage_filter(prepared_config, "sample", threshold,
+                                            stop("Prepared interval read must not rebuild"))
+  stopifnot(identical(actual, standalone), identical(actual, prepared))
+  for(bad_entries in list(list(), prepared_config$germline_coverage_filters[c(3, 3)])) {
+    error <- tryCatch(load_germline_coverage_filter(list(germline_coverage_filters = bad_entries),
+                     "sample", threshold, "coverage.bw"), error = identity)
+    stopifnot(inherits(error, "error"), grepl("Expected one prepared", conditionMessage(error)))
+  }
   seqlevels(actual) <- seqlevels(reference)
   seqinfo(actual) <- reference
   stopifnot(identical(actual, expected), identical(sum(width(actual)), sum(width(expected))),
             identical(overlapsAny(query, actual), overlapsAny(query, expected)))
 }
-cat("Germline coverage cache matches legacy GRanges, Seqinfo, widths and overlaps at four thresholds; both paths reject the legacy empty-stream edge.\n")
+cat("Germline coverage cache matches legacy GRanges, Seqinfo, widths and overlaps at five thresholds; shared standalone/prepared paths agree and reject the empty-stream edge.\n")

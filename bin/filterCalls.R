@@ -875,14 +875,8 @@ passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
 #Keep full-reference N ranges so the whole-genome filtered-base statistic is
 #unchanged even when this task analyzes only a small chromosome group.
-region_genome_filter <- if(!is.null(yaml.config$reference_summary_file)){
-	qs_read(yaml.config$reference_summary_file)$n_ranges
-}else{
-	BSgenome_name %>%
-		get %>%
-		vmatchPattern("N",.) %>%
-		GenomicRanges::reduce(ignore.strand=TRUE)
-}
+region_genome_filter <- load_reference_summary(
+  yaml.config, get(BSgenome_name), "n_ranges")$n_ranges
 
 #Subtract regions from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -1221,45 +1215,12 @@ germline_bam_samtools_mpileup_file <- cache_dir %>%
 		".bw"
 	) %>% cache_file(yaml.config)
 
-if(!is.null(yaml.config$germline_coverage_filters)) {
-  coverage_entries <- Filter(function(entry) {
-    as.character(entry$individual_id) == individual_id_toanalyze &&
-      as.numeric(entry$threshold) == filtergroup_toanalyze_config$min_germlineBAM_TotalReads
-  }, yaml.config$germline_coverage_filters)
-  if(length(coverage_entries) != 1L) {
-    stop("Expected one prepared germline coverage filter for this individual and threshold", call.=FALSE)
-  }
-  germline_bam_samtools_mpileup_filter <- qs_read(coverage_entries[[1]]$file)
-} else {
-  tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".",fileext=".bed")
-  system(paste("/bin/bash -c",shQuote(paste(
-    "awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
-    "| sort -k1,1 -k2,2n >",
-    tmpchromsizes
-  )
-  )))
+germline_bam_samtools_mpileup_filter <- load_germline_coverage_filter(
+  yaml.config, individual_id_toanalyze,
+  filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
+  germline_bam_samtools_mpileup_file)
 
-  tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
-
-  system(paste("/bin/bash -c",shQuote(paste(
-    yaml.config$wiggletools_bin, "lt",
-    filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
-    "trim", tmpchromsizes, "fillIn", tmpchromsizes,
-    germline_bam_samtools_mpileup_file, "|",
-    yaml.config$wigToBigWig_bin, "stdin <(cut -f 1,2",
-    yaml.config$genome_fai,")",
-    tmpbw
-    )
-  )))
-
-  germline_bam_samtools_mpileup_filter <- tmpbw %>%
-    import(format = "bigWig") %>%
-    select(-score)
-
-  invisible(file.remove(tmpchromsizes, tmpbw))
-}
-
-# Preserve the original full-reference Seqinfo assignment after either path.
+# Assign full-reference Seqinfo to the prepared intervals.
 seqlevels(germline_bam_samtools_mpileup_filter) <- seqlevels(genome_chromgroup.gr)
 seqinfo(germline_bam_samtools_mpileup_filter) <- seqinfo(genome_chromgroup.gr)
 

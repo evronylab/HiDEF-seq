@@ -36,6 +36,64 @@ reference_counts_for_chromosomes <- function(counts, chromosomes) {
   Reduce(`+`, counts[chromosomes])
 }
 
+# Both preparation tasks and standalone consumers use these builders. A
+# standalone consumer requests only the component it needs, avoiding an extra
+# reference scan. Prepared configurations must supply their declared products.
+prepare_reference_summary <- function(genome, components = c("n_ranges", "trinucleotide_counts")) {
+  builders <- list(n_ranges = reference_n_ranges,
+                   trinucleotide_counts = reference_trinucleotide_counts)
+  components <- match.arg(components, names(builders), several.ok = TRUE)
+  setNames(lapply(components, function(component) builders[[component]](genome)), components)
+}
+
+load_reference_summary <- function(yaml.config, genome,
+                                   components = c("n_ranges", "trinucleotide_counts")) {
+  if(is.null(yaml.config$reference_summary_file)) {
+    return(prepare_reference_summary(genome, components))
+  }
+  summary <- qs2::qs_read(yaml.config$reference_summary_file)
+  if(any(!components %in% names(summary))) {
+    stop("Prepared reference summary is missing requested components", call. = FALSE)
+  }
+  summary[components]
+}
+
+prepare_germline_coverage_filter <- function(bigwig, fai, threshold, wiggletools, wig_to_bigwig) {
+  if(length(threshold) != 1L || !is.finite(threshold)) {
+    stop("threshold must be one finite number", call. = FALSE)
+  }
+  tmpchromsizes <- tempfile(tmpdir = getwd(), pattern = ".germline-coverage-", fileext = ".bed")
+  tmpbw <- tempfile(tmpdir = getwd(), pattern = ".germline-coverage-", fileext = ".bw")
+  on.exit(unlink(c(tmpchromsizes, tmpbw)), add = TRUE)
+  commands <- c(
+    paste("awk '{print $1 \"\\t0\\t\" $2}'", shQuote(fai),
+          "| sort -k1,1 -k2,2n >", shQuote(tmpchromsizes)),
+    paste(shQuote(wiggletools), "lt", threshold,
+          "trim", shQuote(tmpchromsizes), "fillIn", shQuote(tmpchromsizes),
+          shQuote(bigwig), "|", shQuote(wig_to_bigwig),
+          "stdin <(cut -f 1,2", shQuote(fai), ")", shQuote(tmpbw))
+  )
+  status <- system2("/bin/bash", args = "-s", input = c("set -euo pipefail", commands))
+  if(status != 0L) stop("Failed to prepare germline coverage filter", call. = FALSE)
+  intervals <- rtracklayer::import(tmpbw, format = "bigWig")
+  plyranges::select(intervals, -score)
+}
+
+load_germline_coverage_filter <- function(yaml.config, individual_id, threshold, bigwig) {
+  if(is.null(yaml.config$germline_coverage_filters)) {
+    return(prepare_germline_coverage_filter(
+      bigwig, yaml.config$genome_fai, threshold,
+      yaml.config$wiggletools_bin, yaml.config$wigToBigWig_bin))
+  }
+  entries <- Filter(function(entry) {
+    as.character(entry$individual_id) == individual_id && as.numeric(entry$threshold) == threshold
+  }, yaml.config$germline_coverage_filters)
+  if(length(entries) != 1L) {
+    stop("Expected one prepared germline coverage filter for this individual and threshold", call. = FALSE)
+  }
+  qs2::qs_read(entries[[1]]$file)
+}
+
 # Coverage annotation works in bounded genomic windows. It never expands a
 # whole chromosome or holds its sequence alongside the coverage RleLists.
 coverage_annotation_index <- function(fasta, fai){
@@ -226,7 +284,7 @@ annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
 }
 
 # Workflow-generated configurations resolve prepared products to immutable,
-# process-scoped bundles. Standalone scripts retain the legacy cache layout.
+# process-scoped bundles. Standalone scripts use the configured cache directory.
 cache_file <- function(path, yaml.config){
   if(is.null(yaml.config$cache_artifacts)) return(path)
   vapply(path, function(item){

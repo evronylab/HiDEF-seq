@@ -26,18 +26,24 @@ suppressPackageStartupMessages(library(tidyverse))
 ######################
 source(Sys.which("sharedFunctions.R"))
 
-# Split the pipeline's generated two-field identifiers with tidyr's newer parser.
-# Preserve separate()'s replacement semantics for existing destination columns.
+#Parse generated pairs once, then insert their columns at the source position.
+#Reconstruction follows tidyr's data-frame contract: row names survive, grouped
+#tibbles retain remaining groups, and non-tibble subclasses become data frames.
 separate_generated_pair <- function(data, col, into) {
-  ordinary_frame <- identical(class(data), 'data.frame')
-  unusual_frame <- !inherits(data, 'tbl_df') &&
-    (!ordinary_frame || .row_names_info(data, type=1L) > 0L ||
-       length(setdiff(names(attributes(data)), c('names','row.names','class'))) > 0L)
-  if(any(into %in% names(data)) || unusual_frame) {
-    return(tidyr::separate(data, {{ col }}, sep='_', into=into))
+  source <- tidyselect::vars_pull(names(data), !!rlang::enquo(col))
+  parsed <- tidyr::separate_wider_delim(
+    tibble(value = as.character(data[[source]])), value, delim = "_", names = into
+  )
+  position <- match(source, names(data))
+  before <- setdiff(names(data)[seq_len(position - 1L)], into)
+  after <- setdiff(names(data)[seq.int(position, ncol(data))][-1L], into)
+  result <- vctrs::new_data_frame(c(as.list(data)[before], as.list(parsed), as.list(data)[after]),
+                                  n = nrow(data), row.names = .row_names_info(data, type = 0L))
+  if(inherits(data, "grouped_df")) {
+    groups <- intersect(setdiff(dplyr::group_vars(data), source), names(result))
+    return(dplyr::grouped_df(result, groups, drop = dplyr::group_by_drop_default(data)))
   }
-  result <- tidyr::separate_wider_delim(data, {{ col }}, delim='_', names=into)
-  if(ordinary_frame) as.data.frame(result) else result
+  if(inherits(data, "tbl_df")) as_tibble(result, .name_repair = "minimal") else result
 }
 
 
@@ -152,32 +158,30 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
-#Decode alternating sa length/value pairs without expanding whole reads. Rle
-#coalesces adjacent equal runs and removes zero-length runs just as the former
-#inverse.rle -> Rle path did. Retain legacy behavior for unusual tag lengths.
+#Decode alternating sa length/value pairs in run space. Fractional repeat counts
+#follow rep.int's truncation rule; malformed or negative counts are rejected
+#before constructing the Rle, without allocating the expanded read.
 decode_sa_rle <- function(tag){
   lengths <- tag[c(TRUE, FALSE)]
   values <- tag[c(FALSE, TRUE)]
-  if(length(lengths) != length(values) || !is.numeric(lengths) || anyNA(lengths) ||
-     any(!is.finite(lengths) | lengths < 0 | lengths != trunc(lengths))){
-    return(Rle(inverse.rle(list(lengths = lengths, values = values))))
+  if(is.null(lengths) || is.null(values) || length(lengths) != length(values)) {
+    stop("invalid 'rle' structure")
   }
+  if(!is.numeric(lengths)) lengths <- as.numeric(lengths)
+  if(!is.integer(lengths)) lengths <- trunc(lengths)
+  if(anyNA(lengths) || any(!is.finite(lengths) | lengths < 0)) stop("invalid 'times' value")
+  if(!is.integer(lengths) && all(lengths <= .Machine$integer.max)) lengths <- as.integer(lengths)
   Rle(values = values, lengths = lengths)
 }
 
-#Materialize only queried sa positions. Atomic-vector indexing accepts unusual
-#indices (e.g. out-of-range/NA positions) that Rle indexing may reject, so those
-#rare cases retain the original dense lookup semantics. sm/sx remain vectors.
+#Normalize indexing with base's compact integer sequence, then resolve only the
+#requested Rle runs. This handles negative, logical, missing, fractional and
+#out-of-range indices without expanding the tag's values. sm/sx remain vectors.
 subset_tag_positions <- function(tag, positions){
   if(!inherits(tag, "Rle")){return(tag[positions])}
-  if(is.numeric(positions) && !anyNA(positions) &&
-     all(is.finite(positions) & positions >= 1 & positions <= length(tag) & positions == trunc(positions))){
-    #Lookup run values directly: constructing a sliced Rle for each read is
-    #costly. Double endpoints also avoid integer cumulative-length overflow.
-    ends <- cumsum(as.double(runLength(tag)))
-    return(as.vector(runValue(tag))[findInterval(positions - 1, ends) + 1L])
-  }
-  as.vector(tag)[positions]
+  positions <- seq_len(length(tag))[positions]
+  ends <- cumsum(as.double(runLength(tag)))
+  as.vector(runValue(tag))[findInterval(positions - 1, ends) + 1L]
 }
 
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup

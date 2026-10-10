@@ -23,7 +23,8 @@ read_helper <- function(path, name) {
 baseline_path <- file.path(root, "tests", "fixtures", "overlapsAny_bymcols_7e37ada.R")
 filter_path <- file.path(root, "bin", "filterCalls.R")
 shared_path <- file.path(root, "bin", "sharedFunctions.R")
-for (name in c("allele_key_names", "plain_allele_columns", "observed_allele_interaction")) {
+allele_key_names <- c("call_class", "call_type", "ref_plus_strand", "alt_plus_strand")
+for (name in "observed_allele_interaction") {
   eval(read_definition(shared_path, name), globalenv())
 }
 # The overlap function may differ only by its two calls to the tested encoder.
@@ -88,7 +89,7 @@ check <- function(label, before, after, require_success = TRUE) {
     file.path(output, paste0("mismatch-", length(rows), ".rds")))
 }
 for (name in names(cases)) {
-  f <- cases[[name]]; stopifnot(identical(plain_allele_columns(f$columns), f$fast))
+  f <- cases[[name]]
   before <- serialize(f$columns, NULL)
   check(paste0("factor:", name), base::interaction(f$columns, drop = TRUE),
         observed_allele_interaction(f$columns), require_success = f$fast)
@@ -104,8 +105,8 @@ make_gr <- function(columns, query = TRUE) {
   x$zm <- seq_along(x)
   names(x) <- paste0("row", seq_along(x)); x
 }
-# Full helper comparisons cover both fast sides, independently ordered factor
-# levels, reversed query/subject rows, and a fallback side with separator labels.
+# Full helper comparisons cover independently ordered factor levels, reversed
+# query/subject rows, missing values and separator labels.
 for (name in c("ordinary", "reversed_rows", "reversed_factor_levels", "all_character",
                "separator_value", "missing_value", "explicit_unused_NA_level", "explicit_used_NA_level")) {
   query <- make_gr(cases[[name]]$columns)

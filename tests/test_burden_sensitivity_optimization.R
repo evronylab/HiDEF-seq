@@ -8,6 +8,9 @@ suppressPackageStartupMessages({
 options(warn = 2)
 args <- commandArgs(trailingOnly = TRUE)
 repo <- if(length(args)) args[[1]] else "."
+reference <- new.env(parent = globalenv())
+sys.source(file.path(repo, "tests", "fixtures", "burden_native_reference_ea8d06f.R"), reference)
+gr_1bp_cov <- reference$gr_1bp_cov
 expressions <- parse(file.path(repo, "bin", "calculateBurdens.R"))
 assignment <- function(name) {
   hits <- vapply(expressions, function(x) is.call(x) && identical(x[[1]], as.name("<-")) &&
@@ -15,8 +18,8 @@ assignment <- function(name) {
   stopifnot(any(hits))
   expressions[[which(hits)[[1]]]]
 }
-for(name in c("validate_bam.gr.filtertrack", "calc_duplex_coverage", "gr_1bp_cov", "sum_RleList",
-              "make_sensitivity_coverage_queries", "duplex_plus_ranges", "sensitivity_site_counts",
+for(name in c("validate_bam.gr.filtertrack", "calc_duplex_coverage", "sum_RleList",
+              "make_sensitivity_coverage_queries", "duplex_coverage_ranges", "sensitivity_site_counts",
               "sum_filtertrack_sensitivity_coverage")) {
   eval(assignment(name))
 }

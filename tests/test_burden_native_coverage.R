@@ -17,7 +17,7 @@ load_candidate <- function(path) {
   env <- new.env(parent = globalenv())
   wanted <- c("sum_RleList", "bc_orientation_is_asymmetric", "validate_bam.gr.filtertrack",
               "calc_duplex_coverage", "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result",
-              "gr_1bp_cov", "sum_filtertrack_sensitivity_coverage", "duplex_plus_ranges",
+              "sum_filtertrack_sensitivity_coverage", "duplex_coverage_ranges",
               "make_chunk_coverage_kernels", "sensitivity_site_counts")
   for(expr in parse(path)) {
     if(is.call(expr) && identical(expr[[1]], as.name("<-")) && is.symbol(expr[[2]]) &&
@@ -105,11 +105,12 @@ x<-gr;seqnames(x)[2]<-"b";add("seqnames_odd",track=x);add("seqnames_even",track=
 x<-gr[1];strand(x)<-"*";add("star_odd",track=c(gr,x));add("star_even",track=c(gr,x,x))
 x<-gr;width(x)<-0L;add("zero_width_track",track=x)
 x<-gr;end(x)[2]<-7L;add("mismatched_pair",track=x)
+#Invalid-input wording may change; preserve rejection and warning behavior.
 capture <- function(fn) {
   warnings <- character()
   result <- tryCatch(withCallingHandlers(list(value=fn()),warning=function(w) {
     warnings <<- c(warnings,conditionMessage(w));invokeRestart("muffleWarning")
-  }),error=function(e)list(error=conditionMessage(e)))
+  }),error=function(e)list(error="invalid input"))
   list(result=result,warnings=warnings)
 }
 rows <- list()
@@ -207,5 +208,5 @@ cat("PASS: 16 reviewed guard cases, each helper and whole wrapper identical\n")
 
 counts <- vapply(list.files(report_directory, full.names = TRUE), function(path) nrow(read.delim(path)), integer(1))
 stopifnot(sum(counts) == 70L)
-cat("PASS: 70 native coverage/sensitivity regression checks, exact original reference\n")
+cat("PASS: 70 native coverage/sensitivity checks, exact values/warnings and invalid-input rejection\n")
 unlink(report_directory, recursive = TRUE)

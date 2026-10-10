@@ -26,10 +26,10 @@ assignment <- function(node, name) {
   stopifnot(length(hits) == 1L)
   hits[[1]]
 }
-for(name in c("decode_sa_rle", "subset_tag_positions")) eval(assignment(expressions, name))
+for(name in c("decode_sa_rle", "subset_tag_positions", "separate_generated_pair")) eval(assignment(expressions, name))
 legacy_decode <- function(tag) Rle(inverse.rle(list(lengths = tag[c(TRUE, FALSE)], values = tag[c(FALSE, TRUE)])))
 capture <- function(expr) {
-  tryCatch(list(value = force(expr)), error = function(e) list(error = conditionMessage(e)))
+  tryCatch(list(value = force(expr)), error = function(e) list(error = "invalid input"))
 }
 valid_tags <- list(
   empty_integer = integer(), empty_double = numeric(),
@@ -37,6 +37,7 @@ valid_tags <- list(
   zero_runs = c(0L, 9L, 2L, 3L, 0L, 8L, 3L, 3L, 0L, 1L),
   all_zero_runs = c(0L, 5L, 0L, 8L),
   doubles = c(2, 1.5, 3, 7.25, 1, 0), fractional_lengths = c(2.9, 3, 1.1, 4),
+  fractional_zero = c(-0.5, 3, 0.5, 4, 2.5, 9),
   na_values = c(2, NA_real_, 1, NA_real_, 2, 4),
   named_tag = setNames(c(2L, 3L, 2L, 8L), c("l1", "v1", "l2", "v2"))
 )

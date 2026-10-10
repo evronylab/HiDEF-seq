@@ -3176,45 +3176,67 @@ artifact_cache_run <- function(root, identity, products, command) {
 
 # Encode observed allele combinations with the same factor levels and codes as
 # interaction(drop = TRUE), without constructing unobserved Cartesian labels.
-allele_key_names <- c("call_class", "call_type", "ref_plus_strand", "alt_plus_strand")
-
-plain_allele_columns <- function(columns) {
-  if (!is.list(columns) || !identical(names(columns), allele_key_names)) return(FALSE)
-  n <- lengths(columns)
-  if (length(n) != 4L || !all(n == n[[1L]]) || n[[1L]] == 0L ||
-      n[[1L]] > .Machine$integer.max) return(FALSE)
-  all(vapply(columns, function(x) {
-    if (is.character(x) && is.null(attributes(x))) {
-      return(!anyNA(x) && !any(grepl(".", x, fixed = TRUE)))
-    }
-    if (!identical(class(x), "factor") || typeof(x) != "integer" ||
-        !setequal(names(attributes(x)), c("levels", "class"))) return(FALSE)
-    lev <- levels(x)
-    code <- as.integer(x)
-    is.character(lev) && !anyNA(lev) && !anyDuplicated(lev) &&
-      !anyNA(code) && all(code >= 1L & code <= length(lev)) &&
-      !any(grepl(".", lev, fixed = TRUE))
-  }, logical(1)))
-}
-
 observed_allele_interaction <- function(columns) {
-  if (!plain_allele_columns(columns)) return(base::interaction(columns, drop = TRUE))
-  # Match R 4.4.2's per-column factor preparation exactly. This can itself remain
-  # expensive; any benchmark must include it and the full-input guard scans.
+  if(!is.list(columns)) columns <- list(columns)
+  if(!length(columns)) stop("No factors specified")
   factors <- lapply(columns, function(x) as.factor(x)[, drop = TRUE])
-  # Avoid silently correcting old integer Cartesian-code overflow behavior.
-  # This conservative upper bound may reject inputs that could be optimized.
-  if (prod(vapply(factors, nlevels, integer(1))) > .Machine$integer.max) {
-    return(base::interaction(columns, drop = TRUE))
+  if(length(factors) == 1L) {
+    return(structure(as.integer(factors[[1L]]), levels = levels(factors[[1L]]), class = "factor"))
   }
-  codes <- lapply(factors, as.integer)
+  sizes <- lengths(factors)
+  size <- if(any(sizes == 0L)) 0L else max(sizes)
+  if(any(size %% sizes[sizes > 0L] != 0L)) {
+    warning("longer object length is not a multiple of shorter object length")
+  }
+  codes <- lapply(factors, function(x) rep_len(as.integer(x), size))
   ids <- vctrs::vec_group_id(as.data.frame(codes, check.names = FALSE))
   representatives <- match(seq_len(attr(ids, "n")), ids)
-  # Default interaction order: first column varies fastest. Sort only observed
-  # groups by the reverse tuple of original per-column factor codes.
-  ordered_groups <- do.call(order, rev(lapply(codes, function(x) x[representatives])))
-  first <- representatives[ordered_groups]
-  labels <- do.call(paste, c(lapply(factors, function(x) as.character(x[first])), sep = "."))
-  structure(as.integer(match(ids, ordered_groups)), levels = labels, class = "factor")
+  codes <- lapply(codes, `[`, representatives)
+  #Without ambiguous rendered labels, the reversed integer tuple gives the
+  #complete interaction order directly. This also handles NA rows, arbitrary
+  #factorable column types, empty inputs and large Cartesian cardinalities.
+  rendered <- lapply(factors, function(x) {
+    value <- levels(x)
+    ifelse(is.na(value), "NA", value)
+  })
+  ambiguous <- any(vapply(rendered, function(x) any(grepl(".", x, fixed = TRUE)) || anyDuplicated(x) > 0L, logical(1)))
+  if(!ambiguous) {
+    valid <- which(Reduce(`&`, lapply(codes, function(x) !is.na(x))))
+    ordered <- valid[do.call(order, rev(lapply(codes, `[`, valid)))]
+    labels <- do.call(paste, c(lapply(seq_along(codes), function(i) rendered[[i]][codes[[i]][ordered]]), sep = "."))
+    return(structure(as.integer(match(ids, ordered)), levels = labels, class = "factor"))
+  }
+  result <- codes[[length(codes)]]
+  labels <- levels(factors[[length(factors)]])
+  for(i in rev(seq_len(length(factors) - 1L))) {
+    left <- levels(factors[[i]])
+    left_text <- ifelse(is.na(left), "NA", left)
+    right_text <- ifelse(is.na(labels), "NA", labels)
+    valid <- !is.na(codes[[i]]) & !is.na(result)
+    pairs <- unique(data.frame(left = codes[[i]][valid], right = result[valid]))
+    pairs <- pairs[order(pairs$right, pairs$left), , drop = FALSE]
+    combined <- paste(left[pairs$left], labels[pairs$right], sep = ".")
+    # A literal separator can give an observed label an earlier Cartesian
+    #position through a different, unobserved split. Resolve only these labels,
+    #without ever constructing the Cartesian level vector.
+    if(any(grepl(".", c(left_text, right_text), fixed = TRUE)) ||
+       anyDuplicated(left_text) || anyDuplicated(right_text)) {
+      separators <- gregexpr(".", combined, fixed = TRUE)
+      row <- rep.int(seq_along(combined), lengths(separators))
+      position <- unlist(separators, use.names = FALSE)
+      lhs <- match(substring(combined[row], 1L, position - 1L), left_text)
+      rhs <- match(substring(combined[row], position + 1L), right_text)
+      possible <- which(!is.na(lhs) & !is.na(rhs))
+      first <- possible[order(row[possible], rhs[possible], lhs[possible])]
+      first <- first[!duplicated(row[first])]
+      pairs$left[row[first]] <- lhs[first]
+      pairs$right[row[first]] <- rhs[first]
+    }
+    next_labels <- unique(combined[order(pairs$right, pairs$left)])
+    next_result <- rep.int(NA_integer_, length(result))
+    next_result[valid] <- match(paste(left[codes[[i]][valid]], labels[result[valid]], sep = "."), next_labels)
+    result <- next_result
+    labels <- next_labels
+  }
+  structure(as.integer(result[ids]), levels = labels, class = "factor")
 }
-

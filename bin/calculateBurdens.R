@@ -228,24 +228,35 @@ validate_bam.gr.filtertrack <- function(gr){
 	invisible(TRUE)
 }
 
-calc_duplex_coverage <- function(gr){
-	cov <- gr %>% coverage
-	if((cov %% 2L != 0L) %>% any %>% any){
-		stop("Non-even strand coverage in bam.gr.filtertrack!")
-	}
-	cov %/% 2L
+#Represent each validated same-chromosome mate pair once. Remaining strands
+#contribute half a duplex each, including '*' and mates on different chromosomes.
+#All geometries use the same weighted representation and coverage kernel.
+duplex_coverage_ranges <- function(gr, validate = TRUE) {
+  if(validate) validate_bam.gr.filtertrack(gr)
+  plus <- which(strand(gr) == "+")
+  minus <- which(strand(gr) == "-")
+  paired <- which(seqnames(gr)[plus] == seqnames(gr)[minus])
+  weights <- rep.int(0.5, length(gr))
+  weights[plus[paired]] <- 1
+  weights[minus[paired]] <- 0
+  keep <- which(weights != 0)
+  weights <- weights[keep]
+  if(all(weights == 1)) weights <- 1L
+  list(ranges = gr[keep], weights = weights)
 }
 
-# Matching validated strand pairs, chromosome assignments and no extra strands
-# permit plus-strand coverage to replace full coverage divided by two. The caller
-# states whether pair validation is complete; unsupported geometry uses the
-# original coverage and even-depth checks.
-duplex_plus_ranges <- function(gr, validate=TRUE) {
-  if(validate) validate_bam.gr.filtertrack(gr)
-  plus <- gr[strand(gr)=="+"]; minus <- gr[strand(gr)=="-"]
-  if(length(gr)!=2*length(plus) || length(gr)>.Machine$integer.max ||
-     !identical(seqnames(plus),seqnames(minus))) return(NULL)
-  plus
+calc_duplex_coverage <- function(gr, validated = FALSE) {
+  input <- duplex_coverage_ranges(gr, !validated)
+  cov <- coverage(input$ranges, weight = input$weights)
+  if(!is.integer(input$weights)) {
+    cov <- endoapply(cov, function(x) {
+      values <- runValue(x)
+      if(any(values %% 1 != 0)) stop("Non-even strand coverage in bam.gr.filtertrack!")
+      runValue(x) <- as.integer(values)
+      x
+    })
+  }
+  cov
 }
 
 # Each accumulation call caches incoming categories and returned chromosome Rles.
@@ -270,8 +281,7 @@ make_chunk_coverage_kernels <- function(first_chunk) {
     for(i in seq_along(cov_cache$keys)) {
       if(same_coordinates(gr, cov_cache$keys[[i]])) return(cov_cache$values[[i]])
     }
-    plus <- duplex_plus_ranges(gr, FALSE)
-    value <- if(is.null(plus)) calc_duplex_coverage(gr) else coverage(plus)
+    value <- calc_duplex_coverage(gr, validated = TRUE)
     cov_cache$keys[[length(cov_cache$keys) + 1L]] <- gr
     cov_cache$values[[length(cov_cache$values) + 1L]] <- value
     value
@@ -419,7 +429,7 @@ accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_typ
 		}
 		state$metadata <- matched %>% select(-.previous_row, -.incoming_row)
 		incoming_rows <- matched$.incoming_row
-		#The legacy code checked every incoming category, even an unmatched one.
+		#Validate every incoming category, including unmatched categories.
 		for(j in setdiff(seq_len(nrow(incoming_metadata)), incoming_rows)){
 			invisible(calc_duplex_coverage(incoming$bam.gr.filtertrack[[j]]))
 		}
@@ -454,29 +464,6 @@ filtertrack_coverage_result <- function(state){
 			bam.gr.filtertrack.coverage = state$coverage,
 			bam.gr.filtertrack.by_bc_orientation_strand.coverage = state$orientation
 		)
-}
-
-#Function to extract coverage for a GRanges object with only 1 bp ranges from a SimpleRleList coverage object. Coverage = 0 for seqnames in the GRanges that are not in the coverage object.
-gr_1bp_cov <- function(gr, cov){
-	
-	stopifnot(all(width(gr) == 1))
-	
-	n <- length(gr)
-	result <- rep.int(0, n) #pre-fill zeros
-	chr <- gr %>% seqnames %>% as.character
-	pos <- gr %>% start
-	
-	# indices per chromosome (keeps order in 'gr')
-	idx_by_chr <- split(seq_len(n), chr)
-	
-	for (ch in names(idx_by_chr)) {
-		idx <- idx_by_chr[[ch]]
-		if (ch %in% names(cov)){
-			result[idx] <- cov[[ch]][pos[idx]]
-		}
-	}
-	
-	return(result)
 }
 
 #Select high-confidence variants once before reading chunks. Quantile filters
@@ -584,36 +571,77 @@ make_sensitivity_coverage_queries <- function(variants, reference_seqinfo){
 		select(call_type, query_start, query_end)
 }
 
-# Count sensitivity at the original query positions with the native overlap
-# kernel when duplex/query invariants allow it. Preserve whole-track validation
-# and the original coverage/indexing path for unsupported inputs. The start/end
-# vectors are summed independently; their minimum is taken only after all chunks.
-sensitivity_site_counts <- function(gr,query_start,query_end,validated=FALSE) {
-  plus <- duplex_plus_ranges(gr,!validated)
-  legacy <- function() {
-    cov <- calc_duplex_coverage(gr)
-    list(start=gr_1bp_cov(query_start,cov),end=gr_1bp_cov(query_end,cov))
+#Normalize weighted duplex ranges into linear chromosome intervals for sparse
+#queries. Circular ranges contribute whole turns plus at most two residual
+#intervals; linear ranges are clipped exactly to the coverage vector's extent.
+#Query Seqinfo and strand never alter coverage indexing semantics.
+sensitivity_site_counts <- function(gr, query_start, query_end, validated = FALSE) {
+  input <- duplex_coverage_ranges(gr, !validated)
+  by_chromosome <- split(ranges(input$ranges), seqnames(input$ranges))
+  weights <- split(rep_len(input$weights, length(input$ranges)), seqnames(input$ranges))
+  normalized <- lapply(names(by_chromosome), function(chromosome) {
+    ranges <- by_chromosome[[chromosome]]
+    weight <- weights[[chromosome]]
+    extent <- seqlengths(gr)[[chromosome]]
+    if(is.na(extent)) extent <- max(c(0L, end(ranges)))
+    whole <- 0
+    if(isTRUE(isCircular(gr)[[chromosome]]) && !is.na(seqlengths(gr)[[chromosome]])) {
+      if(extent <= 0L && length(ranges)) stop("Circular sequence length must be positive")
+      if(length(ranges)) {
+        whole <- sum((width(ranges) %/% extent) * weight)
+        remaining <- width(ranges) %% extent
+        left <- ((as.double(start(ranges)) - 1) %% extent) + 1
+        right <- left + remaining - 1
+        wraps <- which(right > extent & remaining > 0L)
+        weight <- c(weight, weight[wraps])
+        ranges <- IRanges(c(left, rep.int(1, length(wraps))),
+                          c(pmin(right, extent), right[wraps] - extent))
+      }
+    } else {
+      left <- pmax(1L, start(ranges))
+      right <- pmin(extent, end(ranges))
+      ranges <- IRanges(left, pmax(left - 1L, right))
+    }
+    present <- width(ranges) > 0L
+    ranges <- ranges[present]
+    weight <- weight[present]
+    halves <- ranges[weight == 0.5]
+    #Only fractional contributions need the whole-track parity check. It is
+    #independent of queried positions, including when sensitivity is disabled.
+    if(length(halves) || whole %% 1 != 0) {
+      parity <- coverage(halves, width = extent)
+      if(any((runValue(parity) / 2 + whole) %% 1 != 0)) {
+        stop("Non-even strand coverage in bam.gr.filtertrack!")
+      }
+    }
+    list(ranges = ranges[weight == 1], halves = halves, whole = whole, extent = extent)
+  })
+  names(normalized) <- names(by_chromosome)
+  stopifnot(all(width(query_start) == 1L), all(width(query_end) == 1L))
+  starts <- split(seq_along(query_start), as.character(seqnames(query_start)))
+  ends <- split(seq_along(query_end), as.character(seqnames(query_end)))
+  start_positions <- start(query_start)
+  end_positions <- start(query_end)
+  start_counts <- rep.int(0, length(query_start))
+  end_counts <- rep.int(0, length(query_end))
+  for(chromosome in intersect(union(names(starts), names(ends)), names(normalized))) {
+    start_idx <- starts[[chromosome]]
+    end_idx <- ends[[chromosome]]
+    subject <- normalized[[chromosome]]
+    if(any(c(start_positions[start_idx], end_positions[end_idx]) > subject$extent)) {
+      stop("subscript contains out-of-bounds indices")
+    }
+    #Normalize each query side separately: zero/negative subscripts affect the
+    #length and recycling of that side's replacement, as in Rle indexing.
+    selected_start <- seq_len(subject$extent)[start_positions[start_idx]]
+    selected_end <- seq_len(subject$extent)[end_positions[end_idx]]
+    points <- IRanges(c(selected_start, selected_end), width = 1L)
+    counts <- as.numeric(countOverlaps(points, subject$ranges, minoverlap = 1L)) + subject$whole
+    if(length(subject$halves)) counts <- counts + countOverlaps(points, subject$halves, minoverlap = 1L) / 2
+    start_counts[start_idx] <- counts[seq_along(selected_start)]
+    end_counts[end_idx] <- counts[length(selected_start) + seq_along(selected_end)]
   }
-  # Legacy indexing validates width and ignores query Seqinfo metadata. Preserve
-  # those semantics for query objects outside the production builder contract.
-  if(is.null(plus) || any(width(query_start)!=1L) || any(width(query_end)!=1L) ||
-     !identical(seqinfo(query_start),seqinfo(query_end))) return(legacy())
-  # Inspect the separate coordinate vectors before c(): constructing a GRanges
-  # with out-of-reference coordinates can itself emit a new warning.
-  chr <- c(as.character(seqnames(query_start)),as.character(seqnames(query_end)))
-  query_starts <- c(start(query_start),start(query_end))
-  query_ends <- c(end(query_start),end(query_end))
-  present <- chr %in% seqlevels(gr); lens <- seqlengths(gr)[chr]; circular <- isCircular(gr)[chr]
-  query_circular <- isCircular(query_start)[chr]
-  compatible <- tryCatch({merge(seqinfo(query_start),seqinfo(gr));TRUE},
-    error=function(e)FALSE,warning=function(w)FALSE)
-  if(!compatible || any(!present) || anyNA(lens[present]) ||
-     any(!is.na(circular)&circular) || any(!is.na(query_circular)&query_circular) ||
-     any(query_starts[present]<1L) ||
-     any(query_ends[present]>lens[present])) return(legacy())
-  query <- c(query_start,query_end,ignore.mcols=TRUE)
-  counts <- as.numeric(countOverlaps(query,plus,ignore.strand=TRUE,minoverlap=1L))
-  list(start=counts[seq_along(query_start)],end=counts[length(query_start)+seq_along(query_end)])
+  list(start = start_counts, end = end_counts)
 }
 sum_filtertrack_sensitivity_coverage <- function(bytype,queries,previous=NULL) {
   walk(bytype$bam.gr.filtertrack,validate_bam.gr.filtertrack)
@@ -621,7 +649,8 @@ sum_filtertrack_sensitivity_coverage <- function(bytype,queries,previous=NULL) {
   values <- map(seq_len(nrow(current)),function(i) {
     gr <- bytype$bam.gr.filtertrack[[i]]; q <- match(current$call_type[i],queries$call_type)
     if(is.na(q)) {
-      if(is.null(duplex_plus_ranges(gr,FALSE))) invisible(calc_duplex_coverage(gr))
+      empty <- gr[0]
+      invisible(sensitivity_site_counts(gr, empty, empty, validated = TRUE))
       list(start=numeric(),end=numeric())
     } else sensitivity_site_counts(gr,queries$query_start[[q]],queries$query_end[[q]],TRUE)
   })

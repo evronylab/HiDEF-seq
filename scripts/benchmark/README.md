@@ -540,14 +540,14 @@ fixtures on compute, without loading the real QS or running timed workers.
 ## Coverage annotation validation and replay
 
 `calculateBurdens.R` now calls the R coverage functions in `sharedFunctions.R`.
-The default `--coverage-annotation r` uses bounded reference windows and native
-`data.table::fwrite` buffers piped to bgzip. `--coverage-annotation legacy` selects
-the original annotation chain; compressed FASTA and references with ambiguous
-contig names also use that fallback. The original R BED writer and
+The single implementation uses bounded reference windows and native
+`data.table::fwrite` buffers piped to bgzip. Compressed references are expanded
+once per task before using the same reader; chromosome names remain literal.
+There is no production annotation-method selector or original shell chain. The original R BED writer and
 `chunk_runs=1e7` remain unchanged, as do the final QS and published BED schemas.
 
 Production annotation is custom R using existing compiled package internals,
-with shell invocations of existing `bgzip`/`tabix` and legacy CLI tools. Python
+with shell invocations of existing `bgzip`/`tabix`. Python
 provides fixtures and replay control; the historical C++ arm is separate.
 
 Run these small fixtures on an allocated compute node in the pinned container,
@@ -565,8 +565,9 @@ The Python fixture produces independent expected outputs using the original
 reference preprocessing and complete annotation chain. The R fixture extracts
 the actual production functions, CLI options and dispatch expression. It checks
 reference boundaries, context/count formatting, fractional and large depths,
-small windows, wrapped FASTA, fallback, empty/counts-only output and propagation
-of input, compression and indexing failures.
+small windows, wrapped and compressed FASTA, literal chromosome names, empty
+contigs, empty/counts-only output and propagation of input, compression and
+indexing failures, including temporary-reference cleanup.
 
 For historical C++ comparisons, obtain the removed helper from the revision that
 was actually benchmarked. Compilation is only for this reference arm; the

@@ -205,23 +205,6 @@ def shellQuote(value) {
   return "'" + value.toString().replace("'", "'\"'\"'") + "'"
 }
 
-def nearestExistingPath(path) {
-  def current = file(path).toAbsolutePath()
-  return java.nio.file.Files.exists(current) ? current : nearestExistingPath(current.parent)
-}
-
-def publicationMode(workDirectory, outputDirectory) {
-  try {
-    return java.nio.file.Files.getFileStore(nearestExistingPath(workDirectory)) ==
-      java.nio.file.Files.getFileStore(nearestExistingPath(outputDirectory)) ? 'link' : 'copy'
-  } catch (Exception ignored) {
-    return 'copy'
-  }
-}
-
-// Resolve once before process declarations: publishDir mode must be a String,
-// and strict process directive scope does not resolve script helper calls.
-params.publication_mode = publicationMode(workflow.workDir, params.analysis_output_dir)
 params.python_bin = params.containsKey('python_bin') && params.python_bin ? params.python_bin : 'python3'
 
 def cachedBuild(entry, products, command) {
@@ -381,9 +364,6 @@ workflow {
   referenceSummaryEntry = makeCacheEntry.call('reference-summary', 'prepareReferenceSummary',
     [reference: referenceEntry.key], [:],
     ['prepareReferenceSummary.R', 'sharedFunctions.R'], ['referenceSummary.qs2'])
-  trinucleotideEntry = makeCacheEntry.call('trinucleotides', 'extractGenomeTrinucleotides',
-    [seqkit: params.seqkit_bin, bgzip: params.bgzip_bin, tabix: params.tabix_bin],
-    [fasta: params.genome_fasta], [], ["${file(params.genome_fasta).name}.bed.gz".toString(), "${file(params.genome_fasta).name}.bed.gz.tbi".toString()])
   vcfEntries = [:]
   bamEntries = [:]
   params.individuals.each { individual ->
@@ -417,14 +397,14 @@ workflow {
       def entry = makeCacheEntry.call('germline-coverage-filter', 'prepareGermlineCoverageFilters',
         [individual: individual.individual_id, threshold: threshold, rawCoverage: bamEntries[bamName].key,
          wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
-        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R'], [product])
+        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R', 'sharedFunctions.R'], [product])
       coverageEntries[product] = entry
       coverageConfigurations << [individual_id: individual.individual_id, threshold: threshold,
         bigwig_name: "${bamName}.bw".toString(), product: product, file: "${entry.directory}/${product}".toString()]
     }
   }
   params.germline_coverage_filters = coverageConfigurations
-  params.prepared_cache = [reference: referenceEntry, reference_summary: referenceSummaryEntry, trinucleotides: trinucleotideEntry, vcfs: vcfEntries, bams: bamEntries, regions: regionEntries, coverage: coverageEntries]
+  params.prepared_cache = [reference: referenceEntry, reference_summary: referenceSummaryEntry, vcfs: vcfEntries, bams: bamEntries, regions: regionEntries, coverage: coverageEntries]
   params.reference_cache_dir = "${referenceEntry.directory}/library".toString()
   params.reference_summary_file = "${referenceSummaryEntry.directory}/referenceSummary.qs2".toString()
   params.cache_artifacts = cacheArtifacts
@@ -877,11 +857,6 @@ workflow {
   prepareReferenceSummary(BSgenome_name_ch)
 
   //******************
-  // extractGenomeTrinucleotides
-  //******************
-  extractGenomeTrinucleotides()
-
-  //******************
   // processGermlineVCFs
   //******************
 
@@ -951,7 +926,6 @@ workflow {
   prepareFilters_done = BSgenome_name_ch
     .mix(
       prepareReferenceSummary.out,
-      extractGenomeTrinucleotides.out,
       processGermlineVCFs.out,
       processGermlineBAMs.out,
       prepareGermlineCoverageFilters.out,
@@ -1401,7 +1375,7 @@ process mergeAlignedSampleBAMs {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'link',
       saveAs: { filename -> "${dirProcessReads(individual_id, sample_id)}/${filename}" }
 
     afterScript {
@@ -1504,7 +1478,7 @@ process splitBAM {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'link',
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirSplitBAMs(individual_id, sample_id)}/${filename}" }
 
@@ -1603,46 +1577,6 @@ process prepareReferenceSummary {
     prepareReferenceSummary.R -c ${shellQuote(params.paramsFileName)} -o referenceSummary.qs2
     """
     cachedBuild(params.prepared_cache.reference_summary, ['referenceSummary.qs2'], buildCommand)
-}
-
-/*
-  extractGenomeTrinucleotides: Extracts trinucleotides for every base in the genome
-*/
-process extractGenomeTrinucleotides {
-    cpus 2
-    memory '8 GB'
-    time '6h'
-    tag { "extractGenomeTrinucleotides" }
-    container "${params.hidefseq_container}"
-    cache false // Validate bundle integrity even when external cache files changed.
-
-
-    afterScript {
-      generateAfterScript(
-        sharedLogsDir(),
-        "${task.process}.command.log"
-      )
-    }
-
-    output:
-      path("${file(params.genome_fasta).name}.bed.gz")
-      path("${file(params.genome_fasta).name}.bed.gz.tbi")
-
-    script:
-    def buildCommand = """
-    #Convert to upper case, replace unsupported bases with N's, extract sequences for all bases
-    #(except contig edges), convert to BED format (column 2 is start position of trinucleotide position),
-    #and bgzip + tabix index
-    ${params.seqkit_bin} seq -u ${params.genome_fasta} | \
-      ${params.seqkit_bin} replace -s -p '[^ACGTN]' -r N | \
-      ${params.seqkit_bin} sliding -S '' -s1 -W3 | \
-      ${params.seqkit_bin} fx2tab -Q | \
-      awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
-      ${params.bgzip_bin} -c > ${file(params.genome_fasta).name}.bed.gz
-
-    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${file(params.genome_fasta).name}.bed.gz
-    """
-    cachedBuild(params.prepared_cache.trinucleotides, ["${file(params.genome_fasta).name}.bed.gz", "${file(params.genome_fasta).name}.bed.gz.tbi"], buildCommand)
 }
 
 /*
@@ -1840,7 +1774,7 @@ process extractCallsChunk {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'link',
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirExtractCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1881,7 +1815,7 @@ process filterCallsChunkChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'link',
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirFilterCalls(individual_id, sample_id)}/${filename}" }
 
@@ -1922,13 +1856,13 @@ process calculateBurdensChromgroupFiltergroup {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'link',
       pattern: "*.calculateBurdens.qs2",
       enabled: params.output_intermediate_files,
       saveAs: { filename -> "${dirCalculateBurdens(individual_id, sample_id)}/${filename}" }
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'move',
       pattern: "*.bed.gz*",
       saveAs: { filename -> "${dirCoverage_Reftnc(individual_id, sample_id)}/${chromgroup}/${filename}" }
 
@@ -1970,7 +1904,7 @@ process outputResultsSample {
     container "${params.hidefseq_container}"
 
     publishDir path: "${params.analysis_output_dir}",
-      mode: params.publication_mode,
+      mode: 'move',
       saveAs: { filename -> "${sampleBaseDir(individual_id, sample_id)}/${filename}" }
 
     afterScript {

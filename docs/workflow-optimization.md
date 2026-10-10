@@ -47,7 +47,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 |---|---|---|
 | Prepared reference summaries and germline coverage caches | R preparers; Nextflow and shell integration | Nextflow/shell orchestration and existing reference/coverage tools; no new compiled helper |
 | Artifact-cache protocol | R, including shared functions | Existing `flock`, `stat`, `sync` and `cp`; Nextflow/shell invokes the R entry point |
-| Output publication with hard links or copies | Nextflow/Groovy | **Yes: custom non-R orchestration** using existing JVM/Nextflow filesystem APIs; no new scientific kernel |
+| Output publication, original per-process policy | Nextflow | Existing Nextflow hard-link, move and copy modes; no custom filesystem selector |
 | Deterministic final-output assembly (output-stage reproducibility passed) | Nextflow/Groovy | **Yes: custom non-R orchestration**; orders the small input-file list without sorting scientific records |
 | BAM dispatch | Python using `pysam`; Nextflow/shell integration | **Yes: custom Python**; existing BAM indexing tools and pysam's compiled library |
 | Extraction quality lookup and generated-field parsing | R | Existing R packages; no new custom non-R implementation |
@@ -55,7 +55,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Observed allele-key construction, selected after context and two-chunk comparisons | R | Existing compiled vctrs/Bioconductor operations; no custom non-R code or new CLI |
 | Coalesced VCF lookup | R constructs the query commands | Changes shell command construction using existing Bash/`bcftools`; no new standalone executable |
 | Coverage accumulation and sensitivity calculations | R | Existing R/Bioconductor packages; no new custom non-R implementation |
-| Coverage annotation and lower compression level | R | Changes shell `bgzip` arguments using existing `bgzip`/`tabix`; legacy annotation also uses existing `bedtools`; no new standalone executable |
+| Coverage annotation and lower compression level | R | Existing `bgzip`/`tabix` for compression and indexing; no custom non-R annotation kernel |
 | Final table formatting, VCF writer buffer and earlier object release | R | Existing R/Bioconductor packages; no new custom non-R implementation |
 | Coordinate-sort reuse, rejected | Nextflow/shell command changes | Existing `pbmerge`/`samtools`; would involve non-R orchestration |
 | Shared-session filtering, rejected | R worker plus workflow changes | Would involve Nextflow/shell orchestration |
@@ -123,8 +123,8 @@ are different measurements.
 
 ## Prepared caches and publication
 
-Prepared reference libraries, reference trinucleotide BEDs, per-individual VCF
-annotations, germline BAM coverage/calls, and thresholded region tracks now use
+Prepared reference libraries and summaries, per-individual VCF annotations,
+germline BAM coverage/calls, and thresholded region tracks use
 separate directories under `cache_dir/prepared/v1/<kind>/<identity>/`.
 Each identity includes the relevant settings, process code, helper code, and
 container/tool identity. Reference preparation does not depend on individual
@@ -138,8 +138,8 @@ the same whole-genome wiggletools comparison, fill-in, BigWig conversion and
 import as the former per-chunk path, then stores the intervals as QS2. The
 consumer performs its original reference Seqinfo assignment after loading.
 Thresholds shared by multiple filtergroups reuse one preparation; genome-wide
-filtered-base statistics are preserved. Legacy YAML without this mapping still
-uses the original inline calculation.
+filtered-base statistics are preserved. Standalone YAML without this mapping
+uses the same shared builder as the preparation task.
 The existing empty-stream failure is preserved: when a threshold comparison
 produces no intervals, `wigToBigWig` rejects the empty input in both paths.
 
@@ -149,7 +149,8 @@ intervals with their Seqinfo and integer trinucleotide counts for each chromosom
 Filtering retains the original whole-genome N-base statistic; burden tables sum
 the requested chromosomes and keep the existing channel/fraction transformations.
 Circular chromosomes retain the original linear counting boundaries. Standalone
-YAML without `reference_summary_file` retains the original reference scans.
+YAML without `reference_summary_file` uses the same shared builders, requesting
+only the components the consumer needs.
 `tests/test_reference_summary.R` checks empty/N-free/all-N references, chromosome
 order, repeated selections, types, and equivalence of the earlier chromosome
 restriction in call loading.
@@ -222,7 +223,7 @@ and `germline_coverage_filters`. Run snapshots and effective YAML contain ordina
 scalars/collections, excluding injected runtime objects and unrelated defaults.
 The source parameters file is read only. The shared resolver maps the original
 product basenames to those paths. Standalone R invocation without these added
-fields retains the legacy cache layout. Conflicting prepared product basenames
+fields resolves inputs directly in its configured `cache_dir`. Conflicting prepared product basenames
 fail early instead of sharing an ambiguous cached file. Scientific product
 schemas and basenames are unchanged; absolute cache paths are metadata.
 Because the immutable effective configuration path is included in R task scripts,
@@ -231,10 +232,22 @@ The existing configuration signatures therefore do not yet provide fully scoped
 downstream resume. This conservative behavior preserves concurrent-run safety;
 separating execution parameters from full provenance is a future design change.
 
-Output publication retains files in Nextflow work directories. It uses hard
-links when work/output directories are on the same filesystem and copies
-otherwise. This replaces final-output `move` publication, which removed files
-required by resume. The existing global preparation barrier remains in place.
+Output publication follows the original pipeline's per-process policy:
+
+- Merged BAMs and optional split BAM/extraction/filter/burden intermediates use
+  `link` (hard links).
+- Coverage BED.gz files and their indexes, and final per-sample results, use
+  `move`.
+- Logs, barcode FASTA files, and VerifyBamID outputs use `copy`.
+
+The automatic filesystem-based publication override has been removed. A hard
+link gives the work and results paths the same stored file; editing its contents
+through either path affects both names. Removing one name leaves the other
+usable. Moved outputs follow the original resume behavior and no longer remain
+at their work paths. These publication rules are distinct from Nextflow input
+staging and from preparation-cache restoration. No input-staging link mode has
+been overridden. The existing preparation barrier remains, with the unused
+whole-genome trinucleotide BED producer removed.
 
 ## BAM dispatch
 
@@ -467,16 +480,22 @@ directly to bgzip, avoiding per-base R text construction and temporary expanded
 BEDs. Reference windows and input buffers bound annotation's additional memory;
 they do not partition calls, add chromosome jobs or divide the final QS2.
 
-The original annotation path remains available through `--coverage-annotation
-legacy`; compressed FASTA and reference contig names that the legacy parser
-treats ambiguously also use it. Ordinary workflow and standalone calls default
-to R annotation. Annotation, compression and indexing failures stop the task
-before results can be saved. Fixtures cover exact context arithmetic across
-buffer boundaries, output formatting and ordering, empty output, reference
-edges and failure propagation. The full nuclear component comparison and the
-full follow-up workflow comparison have passed. The earlier 51.14%
-nuclear CPU reduction in the validation ledger applies to the removed C++
-implementation, not the R port.
+Coverage annotation has one R implementation and no method selector. The
+annotation reader accepts ordinary indexed FASTA, gzip/BGZF, bzip2 and xz files.
+Compressed references are expanded once per task into a temporary FASTA in the
+task working directory using a 1 MiB buffer, then use the same window reader;
+the temporary file is removed on success or failure. Other reference setup
+steps retain their own format requirements. Empty contigs are permitted, and
+chromosome names are read literally from the FAI. This fixes the old shell
+parser's truncation of names containing colons or hyphens. Invalid indexes and
+annotation, compression or indexing failures stop the task.
+
+The obsolete whole-genome trinucleotide BED preparation and its cache entry
+have been removed. Existing cache files are left untouched. Fixtures cover
+ordinary and compressed references, literal names, empty contigs, exact context
+arithmetic, formatting, ordering, reference edges and failure cleanup. Earlier
+full-workflow and C++ comparisons below retain their original revision scopes;
+they do not constitute validation of subsequent consolidation changes.
 
 The paired chr22 replay passed all eight exact BED/context-count comparisons
 and both implementations' own-file index checks (job `19299543`). C++ used
@@ -574,7 +593,7 @@ Region aggregation uses `dtplyr::lazy_dt(immutable = TRUE)`, computes the origin
 
 The output change saves the same single final QS object earlier and releases raw calls and coverage before VCF/export construction. Per-file traversal and formatted data remain unchanged. Failed tasks must still prevent publication, because the intermediate QS file now appears earlier. The output pilot used four completed historical candidate-optimization burdens inputs and their effective configuration. Its comparison allowed only VCF `fileDate` and PDF `CreationDate`/`ModDate` differences; it used no numeric tolerance or ignored QS metadata. Passing 311 scientific files does not imply identical compressed or PDF bytes.
 
-Level-1 compression applies only to BED output from the R `annotate_coverage_row()` path. Explicit `--coverage-annotation legacy` and automatic fallback retain their existing `bgzip -c` behavior. The tested R-annotation BED grew from 8,038,272,657 to 10,198,489,389 compressed bytes (+26.87%). The full-row timer includes packet loading, the original writer, annotation, compression and indexing. It is not a complete burdens-stage measurement. Compressor-only timings are attribution within that total and must not be added to it.
+Level-1 compression applies to BED output from the single R `annotate_coverage_row()` implementation. The tested R-annotation BED grew from 8,038,272,657 to 10,198,489,389 compressed bytes (+26.87%). The full-row timer includes packet loading, the original writer, annotation, compression and indexing. It is not a complete burdens-stage measurement. Compressor-only timings are attribution within that total and must not be added to it.
 
 In the completed full workflow, the 36 published coverage BEDs grew from
 151.27 to 192.15 GB (+27.0%). These are summed compressed file lengths in decimal

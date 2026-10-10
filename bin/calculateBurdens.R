@@ -46,8 +46,6 @@ option_list = list(
 	            help="filtergroup to analyze"),
 	make_option(c("-f", "--files"), type = "character", default=NULL,
 							help="comma-separated filterCalls qs2 files"),
-	make_option(c("--coverage-annotation"), type = "character", default="r", dest="coverage_annotation",
-							help="coverage annotation method: r (default) or legacy"),
 	make_option(c("-o", "--output"), type = "character", default=NULL,
 							help="output qs2 file")
 )
@@ -902,7 +900,9 @@ coverage_annotation_rows %>%
 		}
 	)
 
-if(use_r_coverage_annotation(yaml.config$genome_fasta, yaml.config$genome_fai, opt$coverage_annotation)){
+# Prepare compressed references once, then annotate every coverage row through
+# the same bounded-window reader. Only aggregate rows emit indexed BED files.
+with_coverage_annotation_reference(yaml.config$genome_fasta, yaml.config$genome_fai, function(reference){
 	coverage_annotation_rows %>% pwalk(function(...){
 		x <- list(...)
 		output <- if(x$bc_orientation == "all_bc_orientations"){
@@ -912,95 +912,9 @@ if(use_r_coverage_annotation(yaml.config$genome_fasta, yaml.config$genome_fai, o
 			str_c(x$annotation_row_id, ".bed"), yaml.config$genome_fasta,
 			yaml.config$genome_fai, x$annotation_row_id,
 			str_c(x$annotation_row_id, ".reftnc_plus_strand.tsv"),
-			output, yaml.config$bgzip_bin, yaml.config$tabix_bin)
+			output, yaml.config$bgzip_bin, yaml.config$tabix_bin, reference = reference)
 	})
-}else{
-	#Extract unique merged coverage runs
-	paste(
-		"sort -m -k1,1n -k3,3n -k4,4n",
-		paste(
-			"<(awk -v OFS='\t' 'FNR==NR{ord[$1]=NR-1;next}{print ord[$1],$1,$2,$3}'",
-			yaml.config$genome_fai,str_c(coverage_annotation_rows$annotation_row_id,".bed"),
-			")",
-			collapse=" "
-		),
-		"| cut -f2- |",
-		yaml.config$bedtools_bin,"merge -i stdin > all.bed"
-	) %>%
-		system2(command="/bin/bash", args="-s", input=.) %>%
-		invisible
-
-	#Expand to per-base coverage runs and annotate with genome trinucleotide sequences
-	genome_trinuc_file <- cache_file(str_c(yaml.config$cache_dir,"/",basename(yaml.config$genome_fasta), ".bed.gz"), yaml.config)
-
-	paste(
-		yaml.config$bedtools_bin, "makewindows -w 1 -b all.bed |",
-		yaml.config$bedtools_bin, "intersect -sorted -loj -wa -wb -a stdin -b",genome_trinuc_file, "-g", yaml.config$genome_fai,
-		"| cut -f 1-3,7 > all.trinuc.bed"
-	) %>%
-		system2(command="/bin/bash", args="-s", input=.) %>%
-		invisible
-
-	file.remove("all.bed") %>% invisible
-
-	#Intersect individual coverage run BED files with per-base trinucleotide-annotated genome, and output final per-base BEDs (bgzipped, tabix indexed) for all-barcode-orientation total rows: seqnames, start, end, coverage, reftnc_plus_strand. Strand rows remain internal and only write trinucleotide counts.
-	coverage_annotation_rows %>%
-		pwalk(
-			function(...){
-				x <- list(...)
-
-				if(x$bc_orientation == "all_bc_orientations"){
-					cov_output_file <- get_coverage_reftnc_output_file(
-						call_class = x$call_class,
-						call_type = x$call_type,
-						SBSindel_call_type = x$SBSindel_call_type
-					)
-
-					paste(
-						yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
-						"-a", str_c(x$annotation_row_id,".bed"), "-b all.trinuc.bed",
-						"-g", yaml.config$genome_fai, "|",
-						"awk -v OFS='\t'", str_c("-v row_id=",x$annotation_row_id),
-						"'{print $5,$6,$7,$4,$8; sum[$8]+=$4}
-							END{
-								if(length(sum)==0){
-									print row_id, \"NA\", 0 > (row_id \".reftnc_plus_strand.tsv\")
-								}else{
-									for(k in sum){print row_id, k, sum[k] > (row_id \".reftnc_plus_strand.tsv\")}
-								}
-							}' |",
-						yaml.config$bgzip_bin, "-c >",
-						cov_output_file,
-						"&&",
-						yaml.config$tabix_bin, "-@2 -s1 -b2 -e3", cov_output_file
-					) %>%
-						system2(command="/bin/bash", args="-s", input=.) %>%
-						invisible
-				}else{
-					paste(
-						yaml.config$bedtools_bin, "intersect -sorted -wa -wb",
-						"-a", str_c(x$annotation_row_id,".bed"), "-b all.trinuc.bed",
-						"-g", yaml.config$genome_fai, "|",
-						"awk -v OFS='\t'", str_c("-v row_id=",x$annotation_row_id),
-						"'{sum[$8]+=$4}
-							END{
-								if(length(sum)==0){
-									print row_id, \"NA\", 0 > (row_id \".reftnc_plus_strand.tsv\")
-								}else{
-									for(k in sum){print row_id, k, sum[k] > (row_id \".reftnc_plus_strand.tsv\")}
-								}
-							}'"
-					) %>%
-						system2(command="/bin/bash", args="-s", input=.) %>%
-						invisible
-				}
-
-				file.remove(str_c(x$annotation_row_id,".bed")) %>% invisible
-			}
-		)
-
-	file.remove("all.trinuc.bed") %>% invisible
-}
+})
 
 #Remove coverage_reftnc.bed.gz and coverage_reftnc.bed.gz.tbi files for SBS/mismatch-ss if it is not in call_types_toanalyze, since the data is only being retained for calculation of SBS mutation error probability.
 if(

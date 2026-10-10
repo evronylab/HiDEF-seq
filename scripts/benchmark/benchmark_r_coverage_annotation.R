@@ -124,7 +124,7 @@ output <- normalizePath(args[[6]], mustWork=TRUE)
 if(arm == "r") {
   for(node in as.list(parse(helper))) {
     if(is.call(node) && identical(node[[1]], as.name("<-")) &&
-       as.character(node[[2]]) %in% c("coverage_annotation_index", "use_r_coverage_annotation", "annotate_coverage_row")) eval(node)
+       as.character(node[[2]]) %in% c("coverage_annotation_index", "with_coverage_annotation_reference", "annotate_coverage_row")) eval(node)
   }
 }
 setwd(output)

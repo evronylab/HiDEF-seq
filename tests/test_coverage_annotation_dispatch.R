@@ -18,26 +18,22 @@ assignment <- function(name){
 shared_nodes <- as.list(parse(shared))
 for(node in shared_nodes){
   if(is.call(node) && identical(node[[1]], as.name("<-")) &&
-     as.character(node[[2]]) %in% c("coverage_annotation_index", "use_r_coverage_annotation", "annotate_coverage_row")) eval(node)
+     as.character(node[[2]]) %in% c("coverage_annotation_index", "with_coverage_annotation_reference", "annotate_coverage_row")) eval(node)
 }
 eval(assignment("option_list"))
-parsed <- parse_args(OptionParser(option_list=option_list), args=c("--coverage-annotation", "legacy"))
-stopifnot(identical(parsed$coverage_annotation, "legacy"))
-stopifnot(identical(parse_args(OptionParser(option_list=option_list), args=character())$coverage_annotation, "r"))
-dispatch <- Filter(function(n) is.call(n) && identical(n[[1]], as.name("if")) &&
-  is.call(n[[2]]) && identical(n[[2]][[1]], as.name("use_r_coverage_annotation")), nodes)
+stopifnot(!"coverage_annotation" %in% names(parse_args(OptionParser(option_list=option_list), args=character())))
+dispatch <- Filter(function(n) is.call(n) &&
+  identical(n[[1]], as.name("with_coverage_annotation_reference")), nodes)
 stopifnot(length(dispatch) == 1L)
 dispatch <- dispatch[[1]]
 fasta <- file.path(fixture, "reference.fa")
 fai <- paste0(fasta, ".fai")
-stopifnot(use_r_coverage_annotation(fasta, fai), !use_r_coverage_annotation(fasta, fai, "legacy"))
 expect_error <- function(expression){
   err <- tryCatch({force(expression); NULL}, error=identity)
   stopifnot(inherits(err, "error"))
   conditionMessage(err)
 }
-expect_error(use_r_coverage_annotation(file.path(output,"missing"), fai))
-expect_error(use_r_coverage_annotation(fasta, fai, "unknown"))
+expect_error(coverage_annotation_index(file.path(output,"missing"), fai))
 read_counts <- function(path){
   x <- read.delim(path, header=FALSE, col.names=c("row", "context", "count"),
     colClasses=c("character", "character", "numeric"), na.strings=character())
@@ -64,45 +60,19 @@ for(row in 1:4){
 # A valid FAI may omit its final newline; options(warn=2) must not reject it.
 no_lf <- file.path(output,"reference-no-final-lf.fai")
 writeBin(charToRaw(paste(readLines(fai),collapse="\n")),no_lf)
-stopifnot(use_r_coverage_annotation(fasta,no_lf))
+stopifnot(identical(coverage_annotation_index(fasta,no_lf),coverage_annotation_index(fasta,fai)))
 no_lf_bed <- file.path(output,"no-final-lf.bed")
 stopifnot(file.copy(file.path(fixture,"1.bed"),no_lf_bed))
 no_lf_counts <- file.path(output,"no-final-lf.counts.tsv")
 annotate_coverage_row(no_lf_bed,fasta,no_lf,1L,no_lf_counts)
 stopifnot(identical(read_counts(no_lf_counts),read_counts(file.path(fixture,"1.legacy.counts.tsv"))))
-# Exercise the actual conditional and untouched legacy block, including an
-# unsafe UNCOVERED contig; its length 1 yields no legacy trinucleotide rows.
-fallback <- file.path(output,"fallback"); dir.create(fallback)
-oldwd <- setwd(fallback)
-writeLines(c(">chr1","ACGTACGT",">chr-uncovered","A"), "reference.fa")
-stopifnot(system2("samtools", c("faidx", "reference.fa")) == 0L)
-writeLines(c("chr1\t1\t2\tACG","chr1\t2\t3\tCGT","chr1\t3\t4\tGTA",
-  "chr1\t4\t5\tTAC","chr1\t5\t6\tACG","chr1\t6\t7\tCGT"), "reference.trinuc.bed")
-stopifnot(system2("bgzip",c("-c","reference.trinuc.bed"),stdout="reference.trinuc.bed.gz") == 0L)
-yaml.config <- list(genome_fasta="reference.fa",genome_fai="reference.fa.fai",
-  bedtools_bin="bedtools",bgzip_bin="bgzip",tabix_bin="tabix",cache_dir=".")
-cache_file <- function(...) "reference.trinuc.bed.gz"
+# Production entry point is now a single annotator, independent of a reference
+# trinucleotide BED or method selector, for aggregate and orientation rows.
+oldwd <- getwd()
 coverage_annotation_rows <- tibble(annotation_row_id=1L,bc_orientation="all_bc_orientations",
   call_class="SBS",call_type="SBS",SBSindel_call_type="mutation")
 get_coverage_reftnc_output_file <- function(...) "result.bed.gz"
-writeLines(c("#!/bin/bash", "touch invoked-unexpectedly", "exit 19"),"forbidden-helper")
-Sys.chmod("forbidden-helper", "0755")
-opt <- list(coverage_annotation="r")
-stopifnot(!use_r_coverage_annotation(yaml.config$genome_fasta,yaml.config$genome_fai,opt$coverage_annotation))
-writeLines("chr1\t0\t8\t2","1.bed")
-eval(dispatch)
-stopifnot(!file.exists("invoked-unexpectedly"),file.exists("result.bed.gz.tbi"))
-expected <- c("chr1\t0\t1\t2\t.",paste0("chr1\t",1:6,"\t",2:7,"\t2\t",c("ACG","CGT","GTA","TAC","ACG","CGT")),"chr1\t7\t8\t2\t.")
-stopifnot(identical(read_bed("result.bed.gz"),expected))
-fallback_counts <- read_counts("1.reftnc_plus_strand.tsv")
-opt$coverage_annotation <- "legacy"
-file.remove("result.bed.gz","result.bed.gz.tbi","1.reftnc_plus_strand.tsv")
-writeLines("chr1\t0\t8\t2","1.bed")
-eval(dispatch)
-stopifnot(identical(read_bed("result.bed.gz"),expected),identical(read_counts("1.reftnc_plus_strand.tsv"),fallback_counts))
-setwd(oldwd)
-
-# Actual production conditional must propagate late helper, compressor and
+# Actual production entry point must propagate late annotation, compressor and
 # indexer failures before a downstream save sentinel. Source BED is retained.
 for(kind in c("late-aggregate","late-orientation","compressor","indexer")){
   directory <- file.path(output,kind);dir.create(directory);setwd(directory)
@@ -115,7 +85,6 @@ for(kind in c("late-aggregate","late-orientation","compressor","indexer")){
     yaml.config[[if(kind == "compressor") "bgzip_bin" else "tabix_bin"]] <- "./fail-tool"
   }
   coverage_annotation_rows$bc_orientation <- if(kind == "late-orientation") "bc1" else "all_bc_orientations"
-  opt <- list(coverage_annotation="r")
   error <- expect_error({eval(dispatch); writeLines("invalid success","saved-qs-sentinel")})
   stopifnot(grepl("Coverage",error,fixed=TRUE),
     file.exists("1.bed"),!file.exists("saved-qs-sentinel"),!file.exists("result.bed.gz.tbi"))
@@ -175,13 +144,100 @@ for(window in c(7L, 2000L, 1000000L)){
   stopifnot(nrow(actual)==1L,actual$context=="AAA",actual$count==expected_sum)
 }
 
-# Compressed FASTA deliberately chooses the existing reference BED fallback.
-compressed <- file.path(output,"reference.fa.gz")
-con <- gzfile(compressed,"wb");writeBin(readBin(fasta,"raw",file.info(fasta)$size),con);close(con)
-stopifnot(!use_r_coverage_annotation(compressed,fai))
-empty_contig_index <- file.path(output,"reference-empty-contig.fai")
-writeLines(c(readLines(fai), "chrEmpty\t0\t0\t0\t0"),empty_contig_index)
-stopifnot(!use_r_coverage_annotation(fasta,empty_contig_index))
+# gzip and BGZF references (with or without a .gzi sidecar) use exactly the
+# same ordinary indexed reader after one bounded-memory expansion per pass.
+for(format in c("gzip", "bgzf", "bgzf-indexed", "bzip2", "xz")){
+  compressed <- file.path(output,paste0("reference-",format,".fa.gz"))
+  if(format %in% c("gzip", "bzip2", "xz")){
+    writer <- switch(format,gzip=gzfile,bzip2=bzfile,xz=xzfile)
+    con <- writer(compressed,"wb");writeBin(readBin(fasta,"raw",file.info(fasta)$size),con);close(con)
+  }else{
+    stopifnot(system2("bgzip",c("-c",shQuote(fasta)),stdout=compressed) == 0L)
+    if(format == "bgzf-indexed") stopifnot(system2("bgzip",c("-r",shQuote(compressed))) == 0L)
+  }
+  directory <- file.path(output,format);dir.create(directory);setwd(directory)
+  yaml.config <- list(genome_fasta=compressed,genome_fai=fai,bgzip_bin="bgzip",tabix_bin="tabix")
+  coverage_annotation_rows <- tibble(annotation_row_id=1:4,
+    bc_orientation=c("all_bc_orientations","bc1","bc1","bc1"),
+    call_class="SBS",call_type="SBS",SBSindel_call_type="mutation")
+  for(row in 1:4) stopifnot(file.copy(file.path(fixture,paste0(row,".bed")),paste0(row,".bed")))
+  before <- list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)
+  eval(dispatch)
+  stopifnot(identical(before,list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)),
+    identical(read_bed("result.bed.gz"),read_bed(file.path(fixture,"1.legacy.bed.gz"))))
+  for(row in 1:4) stopifnot(identical(read_counts(paste0(row,".reftnc_plus_strand.tsv")),
+    read_counts(file.path(fixture,paste0(row,".legacy.counts.tsv")))))
+  setwd(oldwd)
+  # Cleanup also applies when a later row fails.
+  bad <- file.path(directory,"invalid.bed");writeLines("unknown\t0\t1\t2",bad)
+  expect_error(annotate_coverage_row(bad,compressed,fai,1L,paste0(bad,".counts")))
+  stopifnot(file.exists(bad),identical(before,list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)))
+}
 
-writeLines("PASS R coverage annotation, actual production dispatch, legacy fallback and failure propagation",file.path(output,"PASS.txt"))
+# Correct the historical seqkit/awk delimiter bug: contig names are literal
+# FAI/BED fields, never split at colon, hyphen or space. Include an uncovered
+# empty contig, wrapped lines, ambiguity/lowercase, and a multi-block BGZF.
+named <- file.path(output,"literal-contigs");dir.create(named)
+sequences <- setNames(c("", "aCGTRYacgtN", "n", "aR", paste(rep("AcGTN",15000L),collapse="")),
+                     c("chrEmpty", "chr-1", "chr:2", "chr space", "chr-long:3"))
+ref <- file.path(named,"reference.fa")
+con <- file(ref,"wb");index_lines <- character();expected <- character();input_lines <- character()
+for(chromosome in names(sequences)){
+  value <- sequences[[chromosome]];len <- nchar(value)
+  writeBin(charToRaw(paste0(">",chromosome,"\n")),con)
+  offset <- seek(con)
+  if(len){
+    chunks <- substring(value,seq.int(1L,len,17L),pmin(seq.int(1L,len,17L)+16L,len))
+    writeBin(charToRaw(paste0(paste(chunks,collapse="\n"),"\n")),con)
+    normalized <- gsub("[^ACGT]","N",toupper(value))
+    contexts <- rep(".",len)
+    if(len > 2L) contexts[2:(len-1L)] <- substring(normalized,1:(len-2L),3:len)
+    expected <- c(expected,paste(chromosome,0:(len-1L),1:len,"02",contexts,sep="\t"))
+    input_lines <- c(input_lines,paste(chromosome,0,len,"02",sep="\t"))
+  }
+  index_lines <- c(index_lines,paste(chromosome,len,offset,min(len,17L),if(len) min(len,17L)+1L else 0L,sep="\t"))
+}
+close(con);writeLines(index_lines,paste0(ref,".fai"))
+for(format in c("plain","gzip","bgzf")){
+  reference <- if(format == "plain") ref else paste0(ref,".",format)
+  if(format == "gzip"){
+    con <- gzfile(reference,"wb");writeBin(readBin(ref,"raw",file.info(ref)$size),con);close(con)
+  }else if(format == "bgzf") stopifnot(system2("bgzip",c("-c",shQuote(ref)),stdout=reference) == 0L)
+  bed <- file.path(named,paste0(format,".bed"));writeLines(input_lines,bed)
+  annotated <- paste0(bed,".gz")
+  annotate_coverage_row(bed,reference,paste0(ref,".fai"),1L,paste0(bed,".counts"),
+    annotated,"bgzip","tabix",window_bases=30001L,input_rows=2L)
+  stopifnot(identical(read_bed(annotated),expected))
+  con <- textConnection(expected);expected_table <- read.delim(con,header=FALSE,colClasses="character");close(con)
+  expected_counts <- aggregate(as.numeric(expected_table$V4),list(context=expected_table$V5),sum)
+  actual <- read_counts(paste0(bed,".counts"))
+  stopifnot(identical(actual$context,expected_counts$context),identical(actual$count,expected_counts$x))
+  indexed_contigs <- system2("tabix",c("-l",shQuote(annotated)),stdout=TRUE)
+  stopifnot(identical(indexed_contigs,names(sequences)[-1L]))
+}
+# Only zero-length records and empty coverage are valid, including gzip.
+empty_ref <- file.path(named,"empty.fa");writeLines(">empty",empty_ref)
+empty_fai <- paste0(empty_ref,".fai");writeLines("empty\t0\t7\t0\t0",empty_fai)
+empty_bed <- file.path(named,"empty.bed");file.create(empty_bed)
+annotate_coverage_row(empty_bed,empty_ref,empty_fai,1L,paste0(empty_bed,".counts"),
+  paste0(empty_bed,".gz"),"bgzip","tabix")
+stopifnot(identical(readLines(paste0(empty_bed,".counts")),"1\tNA\t0"),
+  identical(read_bed(paste0(empty_bed,".gz")),character()))
+
+# Reject invalid indices and input intervals explicitly, without an alternate
+# annotation path. Fractional/nonfinite offsets must not reach file seeking.
+for(line in c("chr1\t8\t0.5\t8\t9","chr1\tInf\t0\t8\t9",
+              "chr1\t8\t0\t0\t9","chr1\t8\t0\t8\t7",
+              "chr1\t8\t0\t8\tNA","chr1\t-1\t0\t8\t9")){
+  invalid <- file.path(named,"invalid.fai");writeLines(line,invalid)
+  stopifnot(grepl("Invalid FASTA index",expect_error(coverage_annotation_index(ref,invalid)),fixed=TRUE))
+}
+for(line in c("chrEmpty\t0\t1\t1", "chr-1\t0\t99\t2", "chr-1\t-1\t1\t2",
+              "chr-1\t0\t1\tInf", "chr-1\t0\t1\t0", "chr-1\t0\t1\t2\textra",
+              "chr:2\t0\t1\t2\nchr-1\t0\t1\t2")){
+  invalid <- file.path(named,"invalid.bed");writeLines(line,invalid)
+  expect_error(annotate_coverage_row(invalid,ref,paste0(ref,".fai"),1L,paste0(invalid,".counts")))
+  stopifnot(file.exists(invalid),!file.exists(paste0(invalid,".counts")))
+}
+writeLines("PASS single R coverage annotation: legacy oracle, production call, compression, literal contigs, empty contigs and failures",file.path(output,"PASS.txt"))
 cat(readLines(file.path(output,"PASS.txt")),"\n")

@@ -46,36 +46,69 @@ coverage_annotation_index <- function(fasta, fai){
   if(!length(fields) || any(lengths(fields) < 5L)) stop("Invalid FASTA index")
   index <- as.data.frame(do.call(rbind, lapply(fields, `[`, 1:5)), stringsAsFactors = FALSE)
   names(index) <- c("chromosome", "length", "offset", "line_bases", "line_bytes")
-  for(column in names(index)[-1L]) index[[column]] <- as.numeric(index[[column]])
-  if(anyNA(index) || anyDuplicated(index$chromosome) ||
-     any(index$length < 0 | index$offset < 0 | index$line_bases < 0 |
-         (index$length > 0 & index$line_bases == 0) |
+  for(column in names(index)[-1L])
+    index[[column]] <- suppressWarnings(as.numeric(index[[column]]))
+  numbers <- as.matrix(index[-1L])
+  if(anyNA(index) || any(!is.finite(numbers) | numbers != floor(numbers) |
+                         numbers < 0 | numbers > 2^53 - 1) ||
+     any(!nzchar(index$chromosome)) || anyDuplicated(index$chromosome) ||
+     any(grepl("[\\t\\r\\n]", index$chromosome, perl = TRUE)) ||
+     any((index$length > 0 & index$line_bases == 0) |
          index$line_bytes < index$line_bases)) stop("Invalid FASTA index")
   index
 }
 
-use_r_coverage_annotation <- function(fasta, fai, method = "r"){
-  if(!method %in% c("r", "legacy")) stop("Coverage annotation method must be r or legacy")
-  if(method == "legacy") return(FALSE)
+with_coverage_annotation_reference <- function(fasta, fai, annotate){
   index <- coverage_annotation_index(fasta, fai)
-  # Preserve the original reference BED parser's delimiter behavior. Compressed
-  # FASTA uses the legacy path because FAI offsets address uncompressed bytes.
-  handle <- file(fasta, "rb"); on.exit(close(handle))
-  compressed <- identical(readBin(handle, "raw", 2L), as.raw(c(31L, 139L)))
-  !compressed && !any(index$length == 0) &&
-    !any(grepl("[:\\-\\t\\r\\n ]", index$chromosome, perl = TRUE))
+  reference <- file(fasta, "rb")
+  on.exit(close(reference), add = TRUE)
+  magic <- readBin(reference, "raw", 6L)
+  compressed <- identical(head(magic, 2L), as.raw(c(31L, 139L))) ||
+    identical(head(magic, 3L), charToRaw("BZh")) ||
+    identical(magic, as.raw(c(253L, 55L, 122L, 88L, 90L, 0L)))
+  if(compressed){
+    # FAI offsets address uncompressed bytes. Expand gzip/BGZF, bzip2 or xz once for the
+    # entire annotation pass, without loading a chromosome or requiring .gzi.
+    # All reference formats then use the same indexed, bounded-window reader.
+    temporary <- tempfile("coverage-reference-", fileext = ".fa")
+    on.exit(unlink(temporary), add = TRUE)
+    expand <- function(){
+      source <- gzfile(fasta, "rb"); on.exit(close(source), add = TRUE)
+      target <- file(temporary, "wb"); on.exit(close(target), add = TRUE)
+      repeat {
+        block <- readBin(source, "raw", 1048576L)
+        if(!length(block)) break
+        writeBin(block, target)
+      }
+    }
+    expand()
+    close(reference)
+    reference <- file(temporary, "rb")
+  }
+  # Check bounds even for uncovered contigs, but permit zero-length records.
+  nonempty <- index$length > 0
+  end <- with(index[nonempty, ], offset +
+    floor((length - 1) / line_bases) * line_bytes + (length - 1) %% line_bases + 1)
+  seek(reference, 0, origin = "end")
+  if(any(end > seek(reference)))
+    stop("Reference sequence length does not match its index")
+  annotate(list(index = index, connection = reference))
 }
 
 annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
                                   output = NULL, bgzip = NULL, tabix = NULL,
-                                  window_bases = 1000000L, input_rows = 65536L){
-  stopifnot(length(window_bases) == 1L, window_bases >= 1,
-            length(input_rows) == 1L, input_rows >= 1)
+                                  window_bases = 1000000L, input_rows = 65536L, reference = NULL){
+  stopifnot(length(window_bases) == 1L, is.finite(window_bases),
+            window_bases >= 1, window_bases == floor(window_bases),
+            length(input_rows) == 1L, is.finite(input_rows),
+            input_rows >= 1, input_rows == floor(input_rows))
   if(length(row_id) != 1L || is.na(row_id) || grepl("[\t\r\n]", row_id))
     stop("Coverage row ID must not contain delimiters")
-  if(!use_r_coverage_annotation(fasta, fai)) stop("legacy-fallback-required for this reference")
-  index <- coverage_annotation_index(fasta, fai)
-  reference <- file(fasta, "rb"); on.exit(close(reference), add = TRUE)
+  if(is.null(reference)) return(with_coverage_annotation_reference(fasta, fai,
+    function(reference) annotate_coverage_row(input, fasta, fai, row_id, counts,
+      output, bgzip, tabix, window_bases, input_rows, reference)))
+  index <- reference$index
+  reference <- reference$connection
   bed <- file(input, "r"); on.exit(close(bed), add = TRUE)
   destination <- NULL
   if(!is.null(output)){
@@ -151,7 +184,7 @@ annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
         widths <- pmin(ends[selected], hi) - begin
         position <- rep.int(begin, widths) + sequence(widths) - 1L
         run <- rep.int(selected, widths)
-        # Fetch this window plus flanks directly from an ordinary indexed FASTA.
+        # Fetch this window plus flanks from the prepared indexed FASTA.
         from <- max(0, lo - 1); to <- min(length, hi + 1)
         line_bases <- index$line_bases[[chromosome_rank]]
         line_bytes <- index$line_bytes[[chromosome_rank]]

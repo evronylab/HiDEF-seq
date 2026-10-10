@@ -233,16 +233,18 @@ validate_bam.gr.filtertrack <- function(gr){
 #All geometries use the same weighted representation and coverage kernel.
 duplex_coverage_ranges <- function(gr, validate = TRUE) {
   if(validate) validate_bam.gr.filtertrack(gr)
-  plus <- which(strand(gr) == "+")
-  minus <- which(strand(gr) == "-")
-  paired <- which(seqnames(gr)[plus] == seqnames(gr)[minus])
+  plus_mask <- strand(gr) == "+"
+  minus_mask <- strand(gr) == "-"
+  plus <- which(plus_mask)
+  minus <- which(minus_mask)
+  paired <- which(seqnames(gr)[plus_mask] == seqnames(gr)[minus_mask])
   weights <- rep.int(0.5, length(gr))
   weights[plus[paired]] <- 1
   weights[minus[paired]] <- 0
-  keep <- which(weights != 0)
+  keep <- weights != 0
   weights <- weights[keep]
   if(all(weights == 1)) weights <- 1L
-  list(ranges = gr[keep], weights = weights)
+  list(ranges = gr[Rle(keep)], weights = weights)
 }
 
 calc_duplex_coverage <- function(gr, validated = FALSE) {
@@ -577,46 +579,59 @@ make_sensitivity_coverage_queries <- function(variants, reference_seqinfo){
 #Query Seqinfo and strand never alter coverage indexing semantics.
 sensitivity_site_counts <- function(gr, query_start, query_end, validated = FALSE) {
   input <- duplex_coverage_ranges(gr, !validated)
-  by_chromosome <- split(ranges(input$ranges), seqnames(input$ranges))
-  weights <- split(rep_len(input$weights, length(input$ranges)), seqnames(input$ranges))
-  normalized <- lapply(names(by_chromosome), function(chromosome) {
-    ranges <- by_chromosome[[chromosome]]
-    weight <- weights[[chromosome]]
-    extent <- seqlengths(gr)[[chromosome]]
-    if(is.na(extent)) extent <- max(c(0L, end(ranges)))
-    whole <- 0
-    if(isTRUE(isCircular(gr)[[chromosome]]) && !is.na(seqlengths(gr)[[chromosome]])) {
-      if(extent <= 0L && length(ranges)) stop("Circular sequence length must be positive")
-      if(length(ranges)) {
-        whole <- sum((width(ranges) %/% extent) * weight)
-        remaining <- width(ranges) %% extent
-        left <- ((as.double(start(ranges)) - 1) %% extent) + 1
-        right <- left + remaining - 1
-        wraps <- which(right > extent & remaining > 0L)
-        weight <- c(weight, weight[wraps])
-        ranges <- IRanges(c(left, rep.int(1, length(wraps))),
-                          c(pmin(right, extent), right[wraps] - extent))
-      }
-    } else {
-      left <- pmax(1L, start(ranges))
-      right <- pmin(extent, end(ranges))
-      ranges <- IRanges(left, pmax(left - 1L, right))
-    }
-    present <- width(ranges) > 0L
-    ranges <- ranges[present]
-    weight <- weight[present]
-    halves <- ranges[weight == 0.5]
-    #Only fractional contributions need the whole-track parity check. It is
-    #independent of queried positions, including when sensitivity is disabled.
-    if(length(halves) || whole %% 1 != 0) {
-      parity <- coverage(halves, width = extent)
-      if(any((runValue(parity) / 2 + whole) %% 1 != 0)) {
+  if(!length(query_start) && !length(query_end) && is.integer(input$weights)) {
+    return(list(start = numeric(), end = numeric()))
+  }
+  chromosome <- as.integer(seqnames(input$ranges))
+  left <- as.double(start(input$ranges))
+  right <- as.double(end(input$ranges))
+  weight <- rep_len(input$weights, length(left))
+  extent <- seqlengths(gr)
+  unknown <- which(is.na(extent))
+  if(length(unknown)) {
+    observed <- split(right, factor(chromosome, levels = seq_along(extent)))
+    extent[unknown] <- vapply(observed[unknown], function(x) max(c(0, x)), numeric(1))
+  }
+  whole <- setNames(numeric(length(extent)), names(extent))
+  circular <- which((isCircular(gr)[chromosome] %in% TRUE) & !is.na(seqlengths(gr)[chromosome]))
+  if(length(circular)) {
+    circle_length <- extent[chromosome[circular]]
+    if(any(circle_length <= 0L)) stop("Circular sequence length must be positive")
+    turns <- (width(input$ranges)[circular] %/% circle_length) * weight[circular]
+    totals <- rowsum(turns, chromosome[circular], reorder = FALSE)
+    whole[as.integer(rownames(totals))] <- totals[, 1L]
+    remaining <- width(input$ranges)[circular] %% circle_length
+    left[circular] <- ((left[circular] - 1) %% circle_length) + 1
+    right[circular] <- left[circular] + remaining - 1
+    wraps <- circular[right[circular] > circle_length & remaining > 0L]
+    left <- c(left, rep.int(1, length(wraps)))
+    right <- c(right, right[wraps] - extent[chromosome[wraps]])
+    chromosome <- c(chromosome, chromosome[wraps])
+    weight <- c(weight, weight[wraps])
+  }
+  left <- pmax(1, left)
+  right <- pmin(extent[chromosome], right)
+  present <- right >= left
+  linear <- Seqinfo(names(extent), seqlengths = extent, isCircular = rep.int(FALSE, length(extent)))
+  normalized <- GRanges(
+    Rle(structure(chromosome[present], levels = names(extent), class = "factor")),
+    IRanges(left[present], right[present]), seqinfo = linear
+  )
+  weight <- weight[present]
+  units <- normalized
+  halves <- normalized[0]
+  if(!is.integer(input$weights)) {
+    units <- normalized[weight == 1]
+    halves <- normalized[weight == 0.5]
+    #Fractional contributions alone require whole-track parity validation.
+    #This check is independent of query positions, including disabled queries.
+    parity <- coverage(halves)
+    for(chromosome_name in names(parity)) {
+      if(any((runValue(parity[[chromosome_name]]) / 2 + whole[[chromosome_name]]) %% 1 != 0)) {
         stop("Non-even strand coverage in bam.gr.filtertrack!")
       }
     }
-    list(ranges = ranges[weight == 1], halves = halves, whole = whole, extent = extent)
-  })
-  names(normalized) <- names(by_chromosome)
+  }
   stopifnot(all(width(query_start) == 1L), all(width(query_end) == 1L))
   starts <- split(seq_along(query_start), as.character(seqnames(query_start)))
   ends <- split(seq_along(query_end), as.character(seqnames(query_end)))
@@ -624,22 +639,39 @@ sensitivity_site_counts <- function(gr, query_start, query_end, validated = FALS
   end_positions <- start(query_end)
   start_counts <- rep.int(0, length(query_start))
   end_counts <- rep.int(0, length(query_end))
-  for(chromosome in intersect(union(names(starts), names(ends)), names(normalized))) {
+  chromosomes <- intersect(union(names(starts), names(ends)), names(extent))
+  if(!length(chromosomes)) return(list(start = start_counts, end = end_counts))
+  selections <- lapply(chromosomes, function(chromosome) {
     start_idx <- starts[[chromosome]]
     end_idx <- ends[[chromosome]]
-    subject <- normalized[[chromosome]]
-    if(any(c(start_positions[start_idx], end_positions[end_idx]) > subject$extent)) {
+    chromosome_extent <- extent[[chromosome]]
+    if(any(c(start_positions[start_idx], end_positions[end_idx]) > chromosome_extent)) {
       stop("subscript contains out-of-bounds indices")
     }
     #Normalize each query side separately: zero/negative subscripts affect the
     #length and recycling of that side's replacement, as in Rle indexing.
-    selected_start <- seq_len(subject$extent)[start_positions[start_idx]]
-    selected_end <- seq_len(subject$extent)[end_positions[end_idx]]
-    points <- IRanges(c(selected_start, selected_end), width = 1L)
-    counts <- as.numeric(countOverlaps(points, subject$ranges, minoverlap = 1L)) + subject$whole
-    if(length(subject$halves)) counts <- counts + countOverlaps(points, subject$halves, minoverlap = 1L) / 2
-    start_counts[start_idx] <- counts[seq_along(selected_start)]
-    end_counts[end_idx] <- counts[length(selected_start) + seq_along(selected_end)]
+    selected_start <- seq_len(chromosome_extent)[start_positions[start_idx]]
+    selected_end <- seq_len(chromosome_extent)[end_positions[end_idx]]
+    list(start_idx = start_idx, end_idx = end_idx, start_size = length(selected_start),
+         positions = c(selected_start, selected_end), whole = whole[[chromosome]])
+  })
+  sizes <- vapply(selections, function(x) length(x$positions), integer(1))
+  #One native overlap dispatch covers every chromosome. Shared linear Seqinfo
+  #keeps already-normalized circles linear and ignores unrelated query metadata.
+  points <- GRanges(Rle(chromosomes, sizes),
+                    IRanges(unlist(lapply(selections, `[[`, "positions"), use.names = FALSE), width = 1L),
+                    seqinfo = linear)
+  counts <- as.numeric(countOverlaps(points, units, ignore.strand = TRUE, minoverlap = 1L))
+  if(length(halves)) {
+    counts <- counts + countOverlaps(points, halves, ignore.strand = TRUE, minoverlap = 1L) / 2
+  }
+  offset <- 0L
+  for(i in seq_along(selections)) {
+    selection <- selections[[i]]
+    value <- counts[offset + seq_len(sizes[[i]])] + selection$whole
+    start_counts[selection$start_idx] <- value[seq_len(selection$start_size)]
+    end_counts[selection$end_idx] <- value[selection$start_size + seq_len(sizes[[i]] - selection$start_size)]
+    offset <- offset + sizes[[i]]
   }
   list(start = start_counts, end = end_counts)
 }

@@ -6,8 +6,39 @@ PDF and indexed coverage BED outputs are retained. The
 [validation ledger](optimization-validation.md) records completed component
 benchmarks, complete-workload measurements and acceptance of all 711 required
 scientific output paths under the agreed comparison rules for `7e37ada`.
-Historical results for `3911047` and `ea8d06f` remain separately scoped. The later
-allele-key helper has its own component and integration evidence.
+Historical results for `3911047` and `ea8d06f` remain separately scoped. Later
+helper generalization and production cleanup have component evidence; their
+fresh full-workflow validation is still pending.
+
+## Production cleanup in progress
+
+Production now uses one R coverage annotator, one shared reference-summary
+builder and one shared germline-coverage-filter builder. Standalone consumers
+use those same builders when no prepared product is supplied. Sparse coverage,
+allele grouping, generated-field parsing and compressed-tag lookup are being
+generalized so supported inputs do not dispatch to an older scientific
+implementation. Historical implementations remain only as test or benchmark
+oracles. These changes add no custom non-R scientific code.
+
+Nextflow publication again follows the original per-process rules: hard links
+for BAMs and optional intermediate QS files, moves for coverage and final sample
+outputs, and copies for logs, barcode FASTA and VerifyBAMID results. No global
+publication-mode override remains, and default input staging is unchanged.
+Prepared-cache restoration is a separate operation: it hard-links a verified
+cache product into the consuming task on the same filesystem and copies it only
+when the filesystem rejects that link with `EXDEV`. This does not change a
+process's Nextflow publication policy.
+
+The unused whole-genome reference trinucleotide BED producer is removed. Its
+two private cache products disappear; all published coverage BEDs and their
+indexes remain required. The next full run must compare all 711 publications
+and the remaining 20 prepared products, with strict QS/TSV ordering and the
+existing BAM coordinate-tie exception. Earlier accepted measurements below
+describe their frozen revisions, not this unfinished validation.
+
+Arrow and DuckDB feasibility work has also reopened in isolated experiments.
+Their earlier metadata/startup failures did not establish backend limitations;
+no disk-backed call representation has been adopted in production.
 
 ## Current full-workflow status
 
@@ -377,8 +408,9 @@ whole workflow. The user explicitly accepted the Python implementation.
 `extractCalls.R` decodes the run-length encoded `sa` tag directly into an Rle and
 reverses its runs when strand orientation requires it. It no longer expands all
 read-level `sa` tags into dense arrays for quality lookup. Queried positions are
-mapped to run values using cumulative endpoints; unusual indices use the original
-dense-vector semantics. The published extraction object still contains its
+mapped to run values using cumulative endpoints. Compact index normalization
+preserves ordinary R subscript semantics without expanding the tag values into
+a dense vector. The published extraction object still contains its
 original `sa` Rle representation, and `sm` and `sx` retain their original vectors.
 
 For indel quality lookup, read names are matched to tag-list positions once for
@@ -426,9 +458,10 @@ not have that timing problem. The changes are retained on the strength of those 
 
 The subsequently selected allele-key helper constructs labels only for observed
 combinations of the four allele columns, avoiding unobserved Cartesian labels.
-It retains the original factor preparation and ordering. Unsupported names,
-types, attributes, missing values, separator-containing labels and excessive
-Cartesian cardinality use the original `interaction` path. This is custom R
+It retains factor preparation and ordering, with a common encoder for missing
+values, separator-containing labels, factor levels and recycled inputs. It no
+longer delegates unusual inputs to `interaction` or allocates all unobserved
+Cartesian combinations. This is custom R
 using existing compiled vctrs/Bioconductor operations; it adds no custom non-R
 production code, dependency, CLI or Nextflow/shell change.
 
@@ -440,8 +473,8 @@ filtering. Ordered scientific comparisons passed in all four nuclear contexts,
 four candidate-only mitochondrial contexts and the two-chunk comparison.
 These scoped results do not establish whole-pipeline speed or a memory bound
 for larger inputs. The [allele-key report](benchmarks/torch-2026-10-09-allele-interaction.json)
-retains observations, source identities and limits. The exact tested helper is
-installed; integration job `19471735` passed its relocated 60-case regression
+retains observations, source identities and limits. The earlier helper was
+installed after integration job `19471735` passed its relocated 60-case regression
 and source/container guards. This check adds no performance measurement.
 The full-workflow measurements above remain attributed to `7e37ada`, which
 predates this helper. Its completed acceptance does not extend the helper's
@@ -794,13 +827,16 @@ against retry, cleanup and maintenance costs. The recommendation is to retain
 the current native default and single QS2. No production adoption or larger-input
 memory guarantee follows from these experiments.
 
-The requested transparent disk-backed call-table route stopped at feasibility:
-actual Arrow specimens preserved list cells, but ordinary filtering failed while
-applying table metadata. Preserving per-row vector names through projections,
-distinct, grouping and joins would require operation-aware compatibility code.
-This is a limit of the tested route, not proof that every backend is unsuitable;
-DuckDB did not pass startup configuration and its table correctness was not tested.
-The [completed evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
+The first disk-backed call-table feasibility attempt stopped after Arrow failed
+while applying table metadata and DuckDB failed startup configuration. That
+did not establish that either backend was unsuitable. The evaluation has
+reopened: removing DuckDB's invalid configuration option permits startup, and
+representing three row-associated name attributes as native columns permits
+ordinary Arrow filtering. Small actual-table specimens now pass exact
+reconstruction, filtering, list operations and grouped counts in both backends.
+Full-table operations, scaling and complete burden integration remain pending;
+the small tests do not establish a production performance benefit.
+The [first evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
 and [compact evidence](benchmarks/torch-2026-10-09-storage-evaluation.json) retain
 the 5/15/60-input results, phase measurements, exactness proofs and limitations.
 

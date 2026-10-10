@@ -1,5 +1,21 @@
 # Optimization validation ledger
 
+## Current production cleanup: full validation pending
+
+The source now consolidates coverage annotation and standalone/prepared
+reference builders, generalizes the optimized R helpers, removes unused
+reference-BED preparation, and restores the original Nextflow publication
+rules. Component checks are in progress before a fresh two-sample workflow.
+The accepted `7e37ada` measurements below do not validate these later changes.
+The new comparison requires exact QS/TSV layout, all 711 published paths and
+the remaining 20 prepared products. Historical ordering exceptions apply only
+to the already accepted original-versus-`7e37ada` comparison.
+
+Arrow/DuckDB evaluation has reopened after identifying fixable startup and
+metadata issues. The previous storage report remains unchanged evidence for
+its tested scope; it is not a completed evaluation of disk-backed calls and
+coverage together.
+
 ## Current accepted follow-on: `7e37ada`
 
 Revision `7e37ada` completed all 650 tasks on the two-sample Torch workload on
@@ -155,9 +171,11 @@ essentially matching the native output replays. Validation costs are separate.
 The recommendation is to **retain the native production implementation**. The
 coverage prototype adds 455 lines of storage/reduction logic and retained 1,760
 private files; input loading, calls and final assembly still grow with data.
-The tested transparent Arrow call-table route failed ordinary-operation
-feasibility, so a disk-backed final user object was not developed. This does not
-reject all possible backends or treat DuckDB's startup error as a data failure.
+The initial Arrow call-table attempt stopped on metadata application and DuckDB
+stopped on an invalid startup option, so a disk-backed final user object was not
+developed. Those failures did not establish backend infeasibility. Follow-up
+evaluation is now active; no production storage decision follows from the
+initial startup failures.
 The [compact evidence report](benchmarks/torch-2026-10-09-storage-evaluation.json)
 records actual measurements and proof hashes. Scientific prototype code is R
 using existing compiled packages and CLI tools; Python/shell are benchmark
@@ -835,8 +853,9 @@ retained in workspace `runs/extract-paired/`.
 
 ## Completed: real sa query lookup and interval extraction validation
 
-Implementation: custom R lookup and fallback code using existing R/Bioconductor
-operations; no new custom non-R scientific helper.
+Historical implementation: custom R lookup and fallback code using existing
+R/Bioconductor operations; no new custom non-R scientific helper. Production
+generalization described above subsequently removes the dense lookup fallback.
 
 Job `19195014` replayed **182,949 real read/category query groups**, containing
 **1,533,808 own-strand positions**, from the original LIB1 chunk-1 extraction.
@@ -858,7 +877,7 @@ indices and fallback errors, including cumulative run endpoints beyond `INT_MAX`
 Results, source/function snapshots, SHA256 hashes and the prior `fad3028`
 extraction-source hash are in workspace `runs/sa-lookup/`.
 
-The validated lookup now finds run values from cumulative run endpoints while
+That validated lookup found run values from cumulative run endpoints while
 retaining direct Rle decoding and the original unusual-index dense fallback.
 Job `19195412` passed both fixture suites against the **actual production helper**
 and completed two alternating original-versus-interval full extraction pairs
@@ -1171,10 +1190,12 @@ limitation. This is one observed full-operation pair, not a projection to all
 groups or total pipeline CPU. At that stage, complete pipeline scientific and
 high-memory-stage validation were still required; resource requests were unchanged.
 
-The accepted helper is integrated through an optional `--coverage-annotator`
+The then-accepted helper was integrated through an optional `--coverage-annotator`
 argument, preserving the saved YAML schema. Without that argument, or for a
 reference containing any legacy-ambiguous contig name, R uses the original
-annotation path. The helper's only source difference from the benchmarked C++
+annotation path. That C++ helper and dispatch have since been removed from
+production; this paragraph records the historical measurement. The helper's
+only source difference from the benchmarked C++
 is its first-line description comment; `runtime/coverage-annotation-promotion.json`
 records both source hashes. The portable dispatch fixture was copied
 byte-for-byte from the passed runtime source. The promoted R script differs

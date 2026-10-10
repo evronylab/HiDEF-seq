@@ -161,17 +161,18 @@ for(format in c("gzip", "bgzf", "bgzf-indexed", "bzip2", "xz")){
     bc_orientation=c("all_bc_orientations","bc1","bc1","bc1"),
     call_class="SBS",call_type="SBS",SBSindel_call_type="mutation")
   for(row in 1:4) stopifnot(file.copy(file.path(fixture,paste0(row,".bed")),paste0(row,".bed")))
-  before <- list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)
+  before <- list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)
   eval(dispatch)
-  stopifnot(identical(before,list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)),
+  stopifnot(identical(before,list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)),
     identical(read_bed("result.bed.gz"),read_bed(file.path(fixture,"1.legacy.bed.gz"))))
   for(row in 1:4) stopifnot(identical(read_counts(paste0(row,".reftnc_plus_strand.tsv")),
     read_counts(file.path(fixture,paste0(row,".legacy.counts.tsv")))))
   setwd(oldwd)
   # Cleanup also applies when a later row fails.
+  before <- list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)
   bad <- file.path(directory,"invalid.bed");writeLines("unknown\t0\t1\t2",bad)
   expect_error(annotate_coverage_row(bad,compressed,fai,1L,paste0(bad,".counts")))
-  stopifnot(file.exists(bad),identical(before,list.files(tempdir(),pattern="^coverage-reference-",full.names=TRUE)))
+  stopifnot(file.exists(bad),identical(before,list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)))
 }
 
 # Correct the historical seqkit/awk delimiter bug: contig names are literal

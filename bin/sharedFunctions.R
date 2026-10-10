@@ -70,7 +70,7 @@ with_coverage_annotation_reference <- function(fasta, fai, annotate){
     # FAI offsets address uncompressed bytes. Expand gzip/BGZF, bzip2 or xz once for the
     # entire annotation pass, without loading a chromosome or requiring .gzi.
     # All reference formats then use the same indexed, bounded-window reader.
-    temporary <- tempfile("coverage-reference-", fileext = ".fa")
+    temporary <- tempfile("coverage-reference-", tmpdir = getwd(), fileext = ".fa")
     on.exit(unlink(temporary), add = TRUE)
     expand <- function(){
       source <- gzfile(fasta, "rb"); on.exit(close(source), add = TRUE)

@@ -96,6 +96,48 @@ output helper installed later in `3dabe21`, disk-storage experiments and any
 subsequent source revision. The finalization report records scientific
 acceptance separately from these performance observations.
 
+### Additional filtering object-lifetime cleanup
+
+The subsequent `filterCalls.R` cleanup releases consumed BAM columns, filter
+intervals, the complete BAM table and call intervals after their final use.
+It reuses existing garbage-collection points and adds collections after retiring
+the BAM table and call intervals. This is **R only**, with no new dependency or
+scientific algorithm. The tested candidate SHA-256 is
+`fc7027150f8d36de497c6a47d4410b8897a5891111b6dcefea4722c245792477`;
+its baseline is `37587aa`. These are additional complete-task measurements,
+separate from the `358e4bf` whole-workflow results above.
+
+Two large LIB2 tasks, one strict and one lenient, each ran a baseline/candidate
+pair followed by a candidate/baseline pair in the same allocation:
+
+| Filtering task | Mean peak RSS, baseline / candidate GiB | Peak reduction | Mean actual CPU, baseline / candidate seconds |
+|---|---:|---:|---:|
+| Lenient, chunk 7 | 16.725 / 13.290 | 20.54% | 1,324.486 / 1,254.294 |
+| Strict, chunk 36 | 16.498 / 13.946 | 15.47% | 959.675 / 951.810 |
+
+Lenient mean CPU fell **5.30%**. Strict CPU was roughly unchanged: the observed
+mean fell 0.82%, but the reversed candidate used 0.62% more CPU. All four full
+QS comparisons were exact in values, types, attributes, schema and order,
+without metadata exemptions. CPU includes waited descendants; validation is
+excluded. Peak RSS is the largest process high-water mark, not concurrent
+workflow memory, Slurm allocation memory or a minimum safe resource request.
+These task results do not establish a further whole-pipeline CPU reduction.
+
+Complete edge replays also passed for no passing reads, no calls and
+mitochondrial filtering. The original, optimized baseline and candidate all
+produced exact results with an omitted germline-VCF key, typed-empty variant
+intervals, disabled optional padding and no applicable genome filters, while
+retaining the applicable read filters. Separately, configurations with no
+applicable read filters or an explicit empty VCF list exposed failures already
+present in the original pipeline; these were not classified as regressions.
+The tested extraction cleanup was rejected: mean peak RSS fell only 0.023%
+while CPU increased 3.46%. It is excluded from the production change.
+
+The [filter cleanup benchmark](benchmarks/torch-filter-gc-lifetime.json) records
+raw pairs, exact comparisons, source/environment identities, edge-case scope
+and evidence paths. Full logs and unsuccessful test-harness attempts remain
+outside production under workspace `runtime/gc-lifetime-20261011/`.
+
 ### Separate storage and output-task decisions
 
 The reopened Arrow/DuckDB evaluation is complete. Exact representation and

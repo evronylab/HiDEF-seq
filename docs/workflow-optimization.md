@@ -10,7 +10,9 @@ Historical results for `3911047`, `ea8d06f` and `7e37ada` remain separately scop
 Helper generalization and production cleanup at `358e4bf` have completed fresh
 full-workflow execution, accounting and scientific acceptance. The output-only
 R handoff installed later in `3dabe21` has separate both-sample and lifecycle
-proofs; the full-workflow measurements remain those of `358e4bf`.
+proofs. Subsequent R-only filtering object-lifetime cleanup has separate paired
+task and edge-case proofs; the full-workflow measurements remain those of
+`358e4bf`.
 
 ## Production implementation and validation status
 
@@ -22,6 +24,17 @@ the general input cases without dispatching to an older scientific
 implementation. No selectable legacy scientific algorithm or experimental
 storage path remains in production. Historical implementations remain only as
 test or benchmark oracles. These changes add no custom non-R scientific code.
+
+Filtering also releases large temporary objects after their final
+use, collecting at existing cleanup points where possible. Two complete paired
+replays per filtering mode, with execution order reversed, preserved the full
+QS result exactly. Mean process
+peak RSS fell **20.54% for lenient filtering** and **15.47% for strict filtering**;
+mean CPU fell 5.30% for lenient filtering and was roughly unchanged for strict.
+This uses R only and no new package. The
+[separate cleanup evidence](optimization-validation.md#additional-filtering-object-lifetime-cleanup)
+records the tested inputs, optional-setting/empty-input checks and limitations.
+These results are not extrapolated to a new whole-workflow total.
 
 The frozen `358e4bf` source passed nine focused kernel suites, annotation and
 preparation checks, cache protocol checks and a Nextflow configuration preview.

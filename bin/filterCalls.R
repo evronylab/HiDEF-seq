@@ -974,6 +974,7 @@ molecule_stats <- molecule_stats %>%
 		)
 	)
 
+bam$qual <- NULL
 rm(min_qual.fail.gr)
 invisible(gc())
 
@@ -1339,7 +1340,7 @@ calls[["max_germlineBAM_VAF.passfilter"]] <- ! overlapsAny_bymcols(
 	ignore.strand = TRUE
 )
 
-rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter)
+rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter, germline_bam_bcftools_mpileup_BAMVariantReads_filter, germline_bam_bcftools_mpileup_BAMVAF_filter)
 invisible(gc())
 
 cat("DONE\n")
@@ -1549,6 +1550,9 @@ calls <- calls %>%
 	) %>%
 	select(-c(frac_subreads_match,frac_subreads_match.opposite_strand))
 	
+bam$sa <- NULL
+bam$sm <- NULL
+bam$sx <- NULL
 rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
 invisible(gc())
 
@@ -1762,7 +1766,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(list = intersect(
-	c("germline_vcf_ins_region_filter", "germline_vcf_del_region_filter", "germline_vcf_indel_region_filter"),
+	c("germline_vcf_variants", "germline_vcf_ins_region_filter", "germline_vcf_del_region_filter", "germline_vcf_indel_region_filter"),
 	ls()
 ))
 invisible(gc())
@@ -1955,6 +1959,9 @@ calls <- calls %>%
 		,by = join_by(run_id,zm)
 	)
 
+rm(bam)
+invisible(gc())
+
 cat("DONE\n")
 
 ######################
@@ -2049,6 +2056,9 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	rm(region_genome_filter)
 	invisible(gc())
 }
+
+rm(calls.gr)
+invisible(gc())
 
 #Record number of molecule reference space bases remaining after all genome region filters
 molecule_stats <- molecule_stats %>%

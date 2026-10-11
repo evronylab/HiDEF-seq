@@ -25,14 +25,21 @@ the original unchanged BED writer, enforced by AST identity and `chunk_runs =
 three shared coverage definitions from the frozen candidate. All reference
 inputs and original coverage values are shared. No OS-cache reset is performed.
 
+This is the preserved historical replay protocol: its packet must still resolve
+the old trinucleotide BED, and the R arm opens the reference separately for each
+annotation row. It does not benchmark production's once-per-task decompression
+or the complete current burden task.
+
 The R annotator reads at most 65,536 coverage runs at a time and expands at most
 one million genomic bases per window. `data.table::fwrite` formats output into an
 R sink connected to bgzip. No whole-chromosome sequence, per-base R string table,
 or uncompressed annotation BED is retained. Sequential double accumulation is
 preserved by seeding each `rowsum` with the previous context totals. Contig-edge
 contexts, ambiguous-base normalization and original depth tokens are preserved.
-References with legacy-delimiter contig names, empty indexed contigs or gzip
-compression select the existing legacy reference-BED path.
+In current production, the same R implementation handles literal chromosome
+names and empty indexed contigs. Gzip/BGZF, bzip2 and xz references are expanded once per task into a
+temporary FASTA before windowed annotation. The temporary reference is removed
+on success or failure; there is no production legacy reference-BED path.
 
 Results report complete-worker user plus system CPU (including waited-for
 children), wall time, maximum individual-process RSS, sampled summed process
@@ -51,8 +58,8 @@ For standalone correctness tests, add `/hidef/bin` to `PATH` inside the pinned
 container so seqkit is available. `tests/test_annotate_coverage.py --output-dir
 NEW_DIRECTORY` creates independent legacy goldens without a compiled helper.
 Run `tests/test_coverage_annotation_dispatch.R CANDIDATE.R SHARED.R GOLDENS
-NEW_RESULT_DIRECTORY` to exercise the actual production dispatch, fallback,
-bounded windows, precision and failures. An optional `--helper` still tests a
+NEW_RESULT_DIRECTORY` to exercise the actual production call, compressed-reference
+cleanup, literal and empty contigs, bounded windows, precision and failures. An optional `--helper` still tests a
 preserved historical C++ binary.
 
 `tests/test_coverage_annotation_consumer.R CANDIDATE.R SHARED.R CPP_DIRECTORY

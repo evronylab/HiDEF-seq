@@ -1,0 +1,733 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "created_utc": "2026-10-11T02:01:03.849702+00:00",
+  "revisions": {
+    "original": "6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a",
+    "accepted_followon": "7e37ada2664f07e9534e9dbd695b68a0fbcc22f3",
+    "finalization": "358e4bfcc89e409456c6ec97d8fdd142475c07f6"
+  },
+  "workflow_completion": {
+    "trace_sha256": "9bef22788985a30dec836b1c9af47e686554884cf189e8c753f495059f9a1d2d",
+    "log_sha256": "a4a8e4199eded018b2f53105a36d4326b28cfb5510e3382cb51d5edad6701a2a",
+    "tasks": 649
+  },
+  "controller_job_id": "19511073",
+  "scientific_validation": {
+    "publications": {
+      "status": "pass",
+      "required_publications": 711,
+      "required_by_kind": {
+        "qs2": 2,
+        "config": 2,
+        "text": 441,
+        "tabix": 92,
+        "pdf": 168,
+        "bam": 2,
+        "bam_index": 4
+      },
+      "proof_mode": "bam-ties-only",
+      "bam_discharged_failures": [
+        "PacBio_8-27-26_SM-MPX-2.70007.1.70007.1-CordBlood-LIB1/processedReads/PacBio_8-27-26_SM-MPX-2.70007.1.70007.1-CordBlood-LIB1.ccs.filtered.aligned.sorted.bam",
+        "PacBio_8-27-26_SM-MPX-2.70007.1.70007.1-CordBlood-LIB2/processedReads/PacBio_8-27-26_SM-MPX-2.70007.1.70007.1-CordBlood-LIB2.ccs.filtered.aligned.sorted.bam"
+      ],
+      "layout_exceptions": false,
+      "qs_tsv_numerics_classes_types_attributes_order": "exact"
+    },
+    "prepared_cache": {
+      "status": "pass",
+      "products": 20,
+      "bundles": 18,
+      "mapped_files": 19,
+      "result_counts": {
+        "pass": 22
+      },
+      "superseded_attempt": {
+        "job_id": "19511437",
+        "retained_results": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/cache-results",
+        "allocation_state": "CANCELLED",
+        "batch_state": "OUT_OF_MEMORY",
+        "actual_cpu_seconds": 680.014818,
+        "cost_scope": "Failed validation overhead only; excluded from production performance",
+        "reason": "Incomplete BigWig comparison after OOM; unchanged full comparator rerun with larger allocation"
+      }
+    },
+    "historical_bridge": {
+      "status": "pass",
+      "scope": "two-separate-publication-legs",
+      "required_publications_accepted": 711,
+      "historical_original_to_followon": {
+        "proof": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007/validation/composed-v2/publications.json",
+        "sha256": "c710612df1cc0ea463ef207c3762af719e9a50f9b40d3c0a6978a2bb3ef496b3",
+        "comparison_mode": "original_to_new_migration",
+        "scope": "composed-original-to-new-publications"
+      },
+      "strict_followon_to_finalization": {
+        "proof": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/publications.json",
+        "sha256": "3fb79950d8496473843ce5e0ff1f9bd44d7d47672cbbe65a221555bf1af85d8c",
+        "scope": "strict-new-to-new-publications",
+        "layout_exceptions": false
+      },
+      "intermediate_run": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007",
+      "intermediate_revision": "7e37ada2664f07e9534e9dbd695b68a0fbcc22f3",
+      "historical_gate_revalidated": true,
+      "historical_layout_permissions_applied_to_new_leg": false,
+      "original_reports_modified": false,
+      "global_workflow_acceptance": false,
+      "note": "Publication proofs only. Cache, producer completion, configuration and accounting retain their separate evidence."
+    },
+    "source_checks": {
+      "status": "pass",
+      "revision": "358e4bfcc89e409456c6ec97d8fdd142475c07f6",
+      "kernel_suites": 9
+    }
+  },
+  "performance": {
+    "original": {
+      "run": "/projects/work/evrong01/HiDEF-seq/codex/runs/baseline-6b6598b",
+      "revision": "6b6598b236d1f4a96e9e34597f7c7fa3c2cb2a3a",
+      "preparation_scope": "historical warm/cached; original cold construction unmeasured",
+      "common_downstream": {
+        "tasks": 749,
+        "user_plus_system_cpu_hours": 447.19417000000004,
+        "allocation_total_cpu_hours": 447.1931761111111,
+        "maximum_task_slurm_rss_gib": 287.9920349121094,
+        "user_cpu_seconds": 1524130.582,
+        "system_cpu_seconds": 85768.43,
+        "allocated_cpu_hours": 519.0397222222222,
+        "sum_task_elapsed_seconds": 1441659.0,
+        "max_task_elapsed_seconds": 80527
+      },
+      "preparation": {
+        "tasks": 1,
+        "user_plus_system_cpu_hours": 0.0027294444444444445,
+        "allocation_total_cpu_hours": 0.0027297222222222224,
+        "maximum_task_slurm_rss_gib": 1.0515708923339844,
+        "user_cpu_seconds": 7.891,
+        "system_cpu_seconds": 1.935,
+        "allocated_cpu_hours": 0.003611111111111111,
+        "sum_task_elapsed_seconds": 13.0,
+        "max_task_elapsed_seconds": 13
+      },
+      "unsuccessful_attempts": {
+        "tasks": 0,
+        "user_plus_system_cpu_hours": 0.0,
+        "allocation_total_cpu_hours": 0.0,
+        "maximum_task_slurm_rss_gib": null,
+        "user_cpu_seconds": 0.0,
+        "system_cpu_seconds": 0.0,
+        "allocated_cpu_hours": 0.0,
+        "sum_task_elapsed_seconds": 0.0,
+        "max_task_elapsed_seconds": null
+      },
+      "all_attempt_workers": {
+        "tasks": 750,
+        "user_plus_system_cpu_hours": 447.19689944444445,
+        "allocation_total_cpu_hours": 447.1959058333333,
+        "maximum_task_slurm_rss_gib": 287.9920349121094,
+        "user_cpu_seconds": 1524138.473,
+        "system_cpu_seconds": 85770.365,
+        "allocated_cpu_hours": 519.0433333333333,
+        "sum_task_elapsed_seconds": 1441672.0,
+        "max_task_elapsed_seconds": 80527
+      },
+      "controller": {
+        "tasks": 1,
+        "user_plus_system_cpu_hours": 0.04835472222222222,
+        "allocation_total_cpu_hours": 0.04835472222222222,
+        "maximum_task_slurm_rss_gib": 0.9844093322753906,
+        "user_cpu_seconds": 117.00399999999999,
+        "system_cpu_seconds": 57.073,
+        "allocated_cpu_hours": 30.201666666666668,
+        "sum_task_elapsed_seconds": 108726.0,
+        "max_task_elapsed_seconds": 108726
+      },
+      "stages": {
+        "bam_dispatch": {
+          "tasks": 122,
+          "user_plus_system_cpu_hours": 66.38351055555556,
+          "allocation_total_cpu_hours": 66.38352611111111,
+          "maximum_task_slurm_rss_gib": 7.995628356933594,
+          "user_cpu_seconds": 226186.736,
+          "system_cpu_seconds": 12793.902,
+          "allocated_cpu_hours": 71.29416666666667,
+          "sum_task_elapsed_seconds": 128347.0,
+          "max_task_elapsed_seconds": 1424
+        },
+        "burdens": {
+          "tasks": 8,
+          "user_plus_system_cpu_hours": 68.94070222222221,
+          "allocation_total_cpu_hours": 68.94098111111111,
+          "maximum_task_slurm_rss_gib": 287.9920349121094,
+          "user_cpu_seconds": 224088.857,
+          "system_cpu_seconds": 24097.671,
+          "allocated_cpu_hours": 125.36166666666666,
+          "sum_task_elapsed_seconds": 225651.0,
+          "max_task_elapsed_seconds": 80527
+        },
+        "extraction": {
+          "tasks": 120,
+          "user_plus_system_cpu_hours": 29.313864722222224,
+          "allocation_total_cpu_hours": 29.313883333333333,
+          "maximum_task_slurm_rss_gib": 14.32431411743164,
+          "user_cpu_seconds": 102113.718,
+          "system_cpu_seconds": 3416.195,
+          "allocated_cpu_hours": 30.228055555555557,
+          "sum_task_elapsed_seconds": 108821.0,
+          "max_task_elapsed_seconds": 1295
+        },
+        "filtering": {
+          "tasks": 480,
+          "user_plus_system_cpu_hours": 257.64463083333334,
+          "allocation_total_cpu_hours": 257.6430119444444,
+          "maximum_task_slurm_rss_gib": 37.02970886230469,
+          "user_cpu_seconds": 884428.933,
+          "system_cpu_seconds": 43091.738,
+          "allocated_cpu_hours": 263.865,
+          "sum_task_elapsed_seconds": 949914.0,
+          "max_task_elapsed_seconds": 3972
+        },
+        "output": {
+          "tasks": 2,
+          "user_plus_system_cpu_hours": 1.624726111111111,
+          "allocation_total_cpu_hours": 1.624726111111111,
+          "maximum_task_slurm_rss_gib": 88.21767807006836,
+          "user_cpu_seconds": 5290.834,
+          "system_cpu_seconds": 558.18,
+          "allocated_cpu_hours": 1.6511111111111112,
+          "sum_task_elapsed_seconds": 5944.0,
+          "max_task_elapsed_seconds": 3174
+        },
+        "preparation": {
+          "tasks": 1,
+          "user_plus_system_cpu_hours": 0.0027294444444444445,
+          "allocation_total_cpu_hours": 0.0027297222222222224,
+          "maximum_task_slurm_rss_gib": 1.0515708923339844,
+          "user_cpu_seconds": 7.891,
+          "system_cpu_seconds": 1.935,
+          "allocated_cpu_hours": 0.003611111111111111,
+          "sum_task_elapsed_seconds": 13.0,
+          "max_task_elapsed_seconds": 13
+        },
+        "read_processing": {
+          "tasks": 17,
+          "user_plus_system_cpu_hours": 23.286735555555552,
+          "allocation_total_cpu_hours": 23.2870475,
+          "maximum_task_slurm_rss_gib": 31.99627685546875,
+          "user_cpu_seconds": 82021.504,
+          "system_cpu_seconds": 1810.744,
+          "allocated_cpu_hours": 26.639722222222222,
+          "sum_task_elapsed_seconds": 22982.0,
+          "max_task_elapsed_seconds": 3504
+        }
+      }
+    },
+    "accepted_followon": {
+      "run": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007",
+      "revision": "7e37ada2664f07e9534e9dbd695b68a0fbcc22f3",
+      "preparation_scope": "cold; 19 workers",
+      "common_downstream": {
+        "tasks": 631,
+        "user_plus_system_cpu_hours": 157.81977972222225,
+        "allocation_total_cpu_hours": 157.82001027777778,
+        "maximum_task_slurm_rss_gib": 135.26143646240234,
+        "user_cpu_seconds": 522958.151,
+        "system_cpu_seconds": 45193.056,
+        "allocated_cpu_hours": 197.51916666666668,
+        "sum_task_elapsed_seconds": 544379.0,
+        "max_task_elapsed_seconds": 29518
+      },
+      "preparation": {
+        "tasks": 19,
+        "user_plus_system_cpu_hours": 8.991356666666666,
+        "allocation_total_cpu_hours": 8.9913125,
+        "maximum_task_slurm_rss_gib": 15.995128631591797,
+        "user_cpu_seconds": 31043.973,
+        "system_cpu_seconds": 1324.911,
+        "allocated_cpu_hours": 15.759444444444444,
+        "sum_task_elapsed_seconds": 29013.0,
+        "max_task_elapsed_seconds": 23779
+      },
+      "unsuccessful_attempts": {
+        "tasks": 0,
+        "user_plus_system_cpu_hours": 0.0,
+        "allocation_total_cpu_hours": 0.0,
+        "maximum_task_slurm_rss_gib": null,
+        "user_cpu_seconds": 0.0,
+        "system_cpu_seconds": 0.0,
+        "allocated_cpu_hours": 0.0,
+        "sum_task_elapsed_seconds": 0.0,
+        "max_task_elapsed_seconds": null
+      },
+      "all_attempt_workers": {
+        "tasks": 650,
+        "user_plus_system_cpu_hours": 166.81113638888888,
+        "allocation_total_cpu_hours": 166.81132277777778,
+        "maximum_task_slurm_rss_gib": 135.26143646240234,
+        "user_cpu_seconds": 554002.124,
+        "system_cpu_seconds": 46517.967,
+        "allocated_cpu_hours": 213.2786111111111,
+        "sum_task_elapsed_seconds": 573392.0,
+        "max_task_elapsed_seconds": 29518
+      },
+      "controller": {
+        "tasks": 1,
+        "user_plus_system_cpu_hours": 0.041551111111111115,
+        "allocation_total_cpu_hours": 0.041551111111111115,
+        "maximum_task_slurm_rss_gib": 1.0623588562011719,
+        "user_cpu_seconds": 102.169,
+        "system_cpu_seconds": 47.415,
+        "allocated_cpu_hours": 22.186666666666667,
+        "sum_task_elapsed_seconds": 79872.0,
+        "max_task_elapsed_seconds": 79872
+      },
+      "stages": {
+        "bam_dispatch": {
+          "tasks": 4,
+          "user_plus_system_cpu_hours": 2.294089722222222,
+          "allocation_total_cpu_hours": 2.293994444444444,
+          "maximum_task_slurm_rss_gib": 7.995403289794922,
+          "user_cpu_seconds": 8047.204,
+          "system_cpu_seconds": 211.519,
+          "allocated_cpu_hours": 3.408888888888889,
+          "sum_task_elapsed_seconds": 6155.0,
+          "max_task_elapsed_seconds": 3161
+        },
+        "burdens": {
+          "tasks": 8,
+          "user_plus_system_cpu_hours": 24.59952861111111,
+          "allocation_total_cpu_hours": 24.5995075,
+          "maximum_task_slurm_rss_gib": 135.26143646240234,
+          "user_cpu_seconds": 81064.617,
+          "system_cpu_seconds": 7493.686000000001,
+          "allocated_cpu_hours": 48.455555555555556,
+          "sum_task_elapsed_seconds": 87220.0,
+          "max_task_elapsed_seconds": 29518
+        },
+        "extraction": {
+          "tasks": 120,
+          "user_plus_system_cpu_hours": 11.519254444444444,
+          "allocation_total_cpu_hours": 11.519272777777777,
+          "maximum_task_slurm_rss_gib": 11.284976959228516,
+          "user_cpu_seconds": 39421.356,
+          "system_cpu_seconds": 2047.96,
+          "allocated_cpu_hours": 19.93861111111111,
+          "sum_task_elapsed_seconds": 71779.0,
+          "max_task_elapsed_seconds": 715
+        },
+        "filtering": {
+          "tasks": 480,
+          "user_plus_system_cpu_hours": 94.54259722222221,
+          "allocation_total_cpu_hours": 94.5426638888889,
+          "maximum_task_slurm_rss_gib": 26.60736846923828,
+          "user_cpu_seconds": 307506.592,
+          "system_cpu_seconds": 32846.758,
+          "allocated_cpu_hours": 97.43333333333334,
+          "sum_task_elapsed_seconds": 350760.0,
+          "max_task_elapsed_seconds": 2364
+        },
+        "output": {
+          "tasks": 2,
+          "user_plus_system_cpu_hours": 1.1285858333333334,
+          "allocation_total_cpu_hours": 1.128586111111111,
+          "maximum_task_slurm_rss_gib": 51.73276901245117,
+          "user_cpu_seconds": 3692.518,
+          "system_cpu_seconds": 370.39099999999996,
+          "allocated_cpu_hours": 1.1544444444444444,
+          "sum_task_elapsed_seconds": 4156.0,
+          "max_task_elapsed_seconds": 2391
+        },
+        "preparation": {
+          "tasks": 19,
+          "user_plus_system_cpu_hours": 8.991356666666666,
+          "allocation_total_cpu_hours": 8.9913125,
+          "maximum_task_slurm_rss_gib": 15.995128631591797,
+          "user_cpu_seconds": 31043.973,
+          "system_cpu_seconds": 1324.911,
+          "allocated_cpu_hours": 15.759444444444444,
+          "sum_task_elapsed_seconds": 29013.0,
+          "max_task_elapsed_seconds": 23779
+        },
+        "read_processing": {
+          "tasks": 17,
+          "user_plus_system_cpu_hours": 23.735723888888888,
+          "allocation_total_cpu_hours": 23.735985555555555,
+          "maximum_task_slurm_rss_gib": 31.996444702148438,
+          "user_cpu_seconds": 83225.864,
+          "system_cpu_seconds": 2222.742,
+          "allocated_cpu_hours": 27.128333333333334,
+          "sum_task_elapsed_seconds": 24309.0,
+          "max_task_elapsed_seconds": 3461
+        }
+      }
+    },
+    "finalization": {
+      "run": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-finalization-20261009",
+      "revision": "358e4bfcc89e409456c6ec97d8fdd142475c07f6",
+      "preparation_scope": "cold; 18 workers",
+      "common_downstream": {
+        "tasks": 631,
+        "user_plus_system_cpu_hours": 151.54220472222224,
+        "allocation_total_cpu_hours": 151.54230694444445,
+        "maximum_task_slurm_rss_gib": 136.68661499023438,
+        "user_cpu_seconds": 502034.318,
+        "system_cpu_seconds": 43517.619,
+        "allocated_cpu_hours": 187.38972222222222,
+        "sum_task_elapsed_seconds": 501955.0,
+        "max_task_elapsed_seconds": 33479
+      },
+      "preparation": {
+        "tasks": 18,
+        "user_plus_system_cpu_hours": 7.03426361111111,
+        "allocation_total_cpu_hours": 7.0344425,
+        "maximum_task_slurm_rss_gib": 15.995155334472656,
+        "user_cpu_seconds": 24483.747,
+        "system_cpu_seconds": 839.602,
+        "allocated_cpu_hours": 13.019166666666667,
+        "sum_task_elapsed_seconds": 23821.0,
+        "max_task_elapsed_seconds": 22269
+      },
+      "unsuccessful_attempts": {
+        "tasks": 0,
+        "user_plus_system_cpu_hours": 0.0,
+        "allocation_total_cpu_hours": 0.0,
+        "maximum_task_slurm_rss_gib": null,
+        "user_cpu_seconds": 0.0,
+        "system_cpu_seconds": 0.0,
+        "allocated_cpu_hours": 0.0,
+        "sum_task_elapsed_seconds": 0.0,
+        "max_task_elapsed_seconds": null
+      },
+      "all_attempt_workers": {
+        "tasks": 649,
+        "user_plus_system_cpu_hours": 158.5764683333333,
+        "allocation_total_cpu_hours": 158.57674944444443,
+        "maximum_task_slurm_rss_gib": 136.68661499023438,
+        "user_cpu_seconds": 526518.065,
+        "system_cpu_seconds": 44357.221,
+        "allocated_cpu_hours": 200.4088888888889,
+        "sum_task_elapsed_seconds": 525776.0,
+        "max_task_elapsed_seconds": 33479
+      },
+      "controller": {
+        "tasks": 1,
+        "user_plus_system_cpu_hours": 0.032945833333333334,
+        "allocation_total_cpu_hours": 0.032945833333333334,
+        "maximum_task_slurm_rss_gib": 1.0442619323730469,
+        "user_cpu_seconds": 85.556,
+        "system_cpu_seconds": 33.049,
+        "allocated_cpu_hours": 18.392777777777777,
+        "sum_task_elapsed_seconds": 66214.0,
+        "max_task_elapsed_seconds": 66214
+      },
+      "stages": {
+        "bam_dispatch": {
+          "tasks": 4,
+          "user_plus_system_cpu_hours": 1.82266,
+          "allocation_total_cpu_hours": 1.8226602777777778,
+          "maximum_task_slurm_rss_gib": 7.995365142822266,
+          "user_cpu_seconds": 6355.877,
+          "system_cpu_seconds": 205.699,
+          "allocated_cpu_hours": 2.696944444444444,
+          "sum_task_elapsed_seconds": 4873.0,
+          "max_task_elapsed_seconds": 2589
+        },
+        "burdens": {
+          "tasks": 8,
+          "user_plus_system_cpu_hours": 27.780370277777777,
+          "allocation_total_cpu_hours": 27.780626944444442,
+          "maximum_task_slurm_rss_gib": 136.68661499023438,
+          "user_cpu_seconds": 91247.581,
+          "system_cpu_seconds": 8761.752,
+          "allocated_cpu_hours": 54.865,
+          "sum_task_elapsed_seconds": 98757.0,
+          "max_task_elapsed_seconds": 33479
+        },
+        "extraction": {
+          "tasks": 120,
+          "user_plus_system_cpu_hours": 11.391535,
+          "allocation_total_cpu_hours": 11.391551666666668,
+          "maximum_task_slurm_rss_gib": 11.426860809326172,
+          "user_cpu_seconds": 39127.055,
+          "system_cpu_seconds": 1882.471,
+          "allocated_cpu_hours": 12.541666666666666,
+          "sum_task_elapsed_seconds": 45150.0,
+          "max_task_elapsed_seconds": 651
+        },
+        "filtering": {
+          "tasks": 480,
+          "user_plus_system_cpu_hours": 87.95810888888889,
+          "allocation_total_cpu_hours": 87.95817611111111,
+          "maximum_task_slurm_rss_gib": 28.435161590576172,
+          "user_cpu_seconds": 286048.283,
+          "system_cpu_seconds": 30600.909,
+          "allocated_cpu_hours": 90.90305555555555,
+          "sum_task_elapsed_seconds": 327251.0,
+          "max_task_elapsed_seconds": 1816
+        },
+        "output": {
+          "tasks": 2,
+          "user_plus_system_cpu_hours": 0.8665147222222224,
+          "allocation_total_cpu_hours": 0.8665147222222223,
+          "maximum_task_slurm_rss_gib": 51.60014343261719,
+          "user_cpu_seconds": 2870.995,
+          "system_cpu_seconds": 248.45800000000003,
+          "allocated_cpu_hours": 0.8888888888888888,
+          "sum_task_elapsed_seconds": 3200.0,
+          "max_task_elapsed_seconds": 1706
+        },
+        "preparation": {
+          "tasks": 18,
+          "user_plus_system_cpu_hours": 7.03426361111111,
+          "allocation_total_cpu_hours": 7.0344425,
+          "maximum_task_slurm_rss_gib": 15.995155334472656,
+          "user_cpu_seconds": 24483.747,
+          "system_cpu_seconds": 839.602,
+          "allocated_cpu_hours": 13.019166666666667,
+          "sum_task_elapsed_seconds": 23821.0,
+          "max_task_elapsed_seconds": 22269
+        },
+        "read_processing": {
+          "tasks": 17,
+          "user_plus_system_cpu_hours": 21.723015833333335,
+          "allocation_total_cpu_hours": 21.722777222222224,
+          "maximum_task_slurm_rss_gib": 31.996360778808594,
+          "user_cpu_seconds": 76384.527,
+          "system_cpu_seconds": 1818.33,
+          "allocated_cpu_hours": 25.494166666666665,
+          "sum_task_elapsed_seconds": 22724.0,
+          "max_task_elapsed_seconds": 3238
+        }
+      }
+    },
+    "limits": [
+      "Allocation UserCPU+SystemCPU and historical allocation TotalCPU are labeled separately; small rounding differences are expected. Never add step CPU again.",
+      "Historical baseline 447.1931761111111 CPU-hours uses allocation TotalCPU; published 447.19417000000004 CPU-hours uses UserCPU+SystemCPU. Their approximately 3.578-second difference is display rounding, not a changed workload.",
+      "Allocated CPU-hours are reserved cores times elapsed time and are reported separately from actual CPU.",
+      "Cold preparation is already included once in all-attempt worker CPU; do not add it again. Validation and development jobs are excluded.",
+      "Expected 649 workers comprise 631 downstream plus 18 preparation. The only workflow task removed versus 7e37ada is the singleton extractGenomeTrinucleotides, with two cache products.",
+      "Elapsed sums and maxima describe tasks, not simultaneous workflow time. Controller elapsed is this invocation only.",
+      "Baseline has cached original work and warm preparation; candidate is cold. No matched cold or end-to-end wall-speedup claim.",
+      "Peak RSS is maximum task/step RSS, not simultaneous pipeline memory.",
+      "Failed/retry costs are separate categories. Missing/interrupted accounting prevents a final report.",
+      "Full scientific comparison is separate; accounting completion alone does not accept outputs."
+    ]
+  },
+  "separate_component_benchmarks": {
+    "scope": "Representative eight-chunk kernel replay; excludes input load, GC and serialization; not whole pipeline",
+    "source": "/projects/work/evrong01/HiDEF-seq/codex/runtime/cleanup-kernel-evidence/final-benchmarks-summary.json",
+    "method": "ABBA separate R workers, one allocated CPU; operation CPU excludes input loading, explicit GC and product serialization; VmHWM sampled after each operation is observed process high-water through operations: it includes loading and earlier allocations but omits any later serialization peak. Every saved scientific product compared with R identical(). This is a representative kernel replay, not complete pipeline CPU accounting.",
+    "operations": {
+      "allele": {
+        "means": {
+          "baseline": {
+            "cpu_seconds": 5.074499999999999,
+            "wall_seconds": 5.1075,
+            "observed_process_highwater_kib": 1083734
+          },
+          "candidate-final": {
+            "cpu_seconds": 3.952499999999998,
+            "wall_seconds": 3.977499999999999,
+            "observed_process_highwater_kib": 1105030
+          }
+        },
+        "cpu_reduction_percent": 22.110552763819115,
+        "observed_highwater_reduction_percent": -1.9650578462980794,
+        "exact_product_validation": "PASS: allele ABBA outputs exactly identical"
+      },
+      "extraction": {
+        "means": {
+          "baseline": {
+            "cpu_seconds": 4.942499999999999,
+            "wall_seconds": 4.973000000000004,
+            "observed_process_highwater_kib": 1159418
+          },
+          "candidate-final": {
+            "cpu_seconds": 3.965999999999999,
+            "wall_seconds": 3.9904999999999973,
+            "observed_process_highwater_kib": 1130212
+          }
+        },
+        "cpu_reduction_percent": 19.757207890743555,
+        "observed_highwater_reduction_percent": 2.519022475069388,
+        "exact_product_validation": "PASS: extraction ABBA outputs exactly identical"
+      },
+      "burden": {
+        "means": {
+          "baseline": {
+            "cpu_seconds": 205.0095,
+            "wall_seconds": 206.02450000000002,
+            "observed_process_highwater_kib": 9660946
+          },
+          "candidate-burden-final": {
+            "cpu_seconds": 238.03750000000002,
+            "wall_seconds": 239.2405,
+            "observed_process_highwater_kib": 10409810
+          }
+        },
+        "cpu_reduction_percent": -16.110472929303278,
+        "observed_highwater_reduction_percent": -7.7514562238522045,
+        "exact_product_validation": "PASS: burden ABBA outputs exactly identical"
+      }
+    },
+    "memory_scope": "Process VmHWM after operations, includes prior loading/allocations; not Slurm task/step RSS or simultaneous workflow memory"
+  },
+  "production_policy": {
+    "original_publication_modes": true,
+    "legacy_scientific_selectors": false,
+    "custom_production_cpp": false,
+    "custom_non_R": "bin/splitBamByZmw.py (Python/pysam); existing external bioinformatics commands retained. DuckDB/Arrow prototypes remain outside repo."
+  },
+  "validation_jobs": {
+    "controller": {
+      "job_id": "19511073",
+      "name": "hidef-python-r",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-finalization-20261009",
+      "submit_line": "sbatch --time=48:00:00 --partition=cs --account=torch_pr_285_general --no-requeue /projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-finalization-20261009/candidate.sbatch /projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-finalization-20261009",
+      "start_utc": "2026-10-10T01:55:03",
+      "end_utc": "2026-10-10T20:18:37"
+    },
+    "accounting": {
+      "job_id": "19511250",
+      "name": "hidef-python-r-accounting",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009",
+      "submit_line": "sbatch --time=00:15:00 --partition=cpu_short --account=torch_pr_285_general --dependency=afterok:19511073 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/accounting.sbatch 21fd30eaffcd52c731081bed7766e7846fa57cdc149fbfaba2631908df763237",
+      "start_utc": "2026-10-10T20:19:56",
+      "end_utc": "2026-10-10T20:20:15"
+    },
+    "products": {
+      "job_id": "19511359",
+      "name": "hidef-final-products",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009",
+      "submit_line": "sbatch --time=01:00:00 --partition=cpu_short --account=torch_pr_285_general --dependency=afterok:19511073 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/verify-products.sbatch 788dfb7e0f30bbdc9674a335926079fe7db76e17776248b7607f3c554c030c36",
+      "start_utc": "2026-10-10T20:19:56",
+      "end_utc": "2026-10-10T20:22:35"
+    },
+    "preparation": {
+      "job_id": "19511431",
+      "name": "hidef-final-manifests",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009",
+      "submit_line": "sbatch --time=00:30:00 --partition=cpu_short --account=torch_pr_285_general --dependency=afterok:19511359 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/prepare-comparisons.sbatch a3b8ddb50858d8a31bdb2819f6c3ba374745ad50f551f7eb251ad9ac8856c501",
+      "start_utc": "2026-10-10T20:23:07",
+      "end_utc": "2026-10-10T20:23:17"
+    },
+    "publications": {
+      "job_id": "19511438",
+      "name": "hidef-final-publications",
+      "state": "FAILED",
+      "exit_code": "1:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009",
+      "submit_line": "sbatch --time=36:00:00 --partition=cl --account=torch_pr_285_general --dependency=afterok:19511431 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/compare-publications.sbatch",
+      "start_utc": "2026-10-10T20:23:22",
+      "end_utc": "2026-10-11T00:39:37"
+    },
+    "cache": {
+      "job_id": "19543696",
+      "name": "hidef-final-cache96",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010",
+      "submit_line": "sbatch --parsable --chdir=/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/compare-cache.sbatch",
+      "start_utc": "2026-10-10T20:43:19",
+      "end_utc": "2026-10-10T22:04:56"
+    },
+    "coordinator": {
+      "job_id": "19511870",
+      "name": "hidef-final-bam-prepare",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009",
+      "submit_line": "sbatch --time=00:30:00 --partition=cpu_short --account=torch_pr_285_general --dependency=afterany:19511438 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/coordinator.sbatch b843a6a8de4caec355d30f947af16238e9901f1a60ea6e2454caef95db7a7222",
+      "start_utc": "2026-10-11T00:40:35",
+      "end_utc": "2026-10-11T00:40:52"
+    },
+    "publication_acceptance": {
+      "job_id": "19556057",
+      "name": "hidef-final-bam-accept",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009",
+      "submit_line": "sbatch --parsable --partition=cpu_short --dependency=afterok:19556052:19556055 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/acceptance.sbatch /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/plan.json b843a6a8de4caec355d30f947af16238e9901f1a60ea6e2454caef95db7a7222 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/diagnostics-submitted.json 6f8093322108154b2cf4aabbc2e6511182f2d24906689dd60264b59bb58c8b23",
+      "start_utc": "2026-10-11T01:59:44",
+      "end_utc": "2026-10-11T02:00:21"
+    },
+    "bam_diagnostic_0": {
+      "job_id": "19556052",
+      "name": "hidef-final-tie-0",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009",
+      "submit_line": "sbatch --parsable --partition=cpu_short --cpus-per-task=1 --mem=16G --time=04:00:00 --job-name=hidef-final-tie-0 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/coordinate-validation.sbatch /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/diagnostics/job-0.json 4e6a149b0f78028616fd08d8afc73d312517d3d8a7dc7e060e1a4f3004e12e37",
+      "start_utc": "2026-10-11T00:43:20",
+      "end_utc": "2026-10-11T01:50:21"
+    },
+    "bam_diagnostic_1": {
+      "job_id": "19556055",
+      "name": "hidef-final-tie-1",
+      "state": "COMPLETED",
+      "exit_code": "0:0",
+      "workdir": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009",
+      "submit_line": "sbatch --parsable --partition=cpu_short --cpus-per-task=1 --mem=16G --time=04:00:00 --job-name=hidef-final-tie-1 /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/coordinate-validation.sbatch /projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/diagnostics/job-1.json 1ce3122fbae77077ea2882f6c44905c35f1dda04a252b96a8fdb6cea394e0aea",
+      "start_utc": "2026-10-11T00:43:20",
+      "end_utc": "2026-10-11T01:58:38"
+    }
+  },
+  "evidence": {
+    "paths_sha256": {
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/coordinator-submission.json": "aaa4365cf012fd6f41c18882fe32cf4151d7011fd76f36091703fdeebfac23f2",
+      "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-finalization-20261009/completed-run.json": "2df8d0bbe01a7f9e97a06e2ccc56338b1ab1df0a79fe4738a1fed1508ba7821e",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/completed-producers.json": "a19fde4d030dd8e66e7814c8ba16aa9046319b4c8d9c066623f492a8053bc2dd",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/prepared.json": "e102685d8fc22834c647533989d6fde5562fa5e4725929cbd5bab980ee440a6d",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/diagnostics-submitted.json": "6f8093322108154b2cf4aabbc2e6511182f2d24906689dd60264b59bb58c8b23",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/acceptance-completed.json": "892d27d4c66f2ca1e150b49c49c0e48ddd03dd056ce998e7049aa03697ea1923",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/publications.json": "3fb79950d8496473843ce5e0ff1f9bd44d7d47672cbbe65a221555bf1af85d8c",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/historical-composition.json": "117b025c642e3e7363579dc1cc679354e17e531c097b7c39bdca4f2b60e7383f",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-bam-validation-20261009/acceptance-submitted.json": "6a94c5d9f49d934da99f1b78c5e01ff5fd79d98dffd37ce448eb2c9811c831a6",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/plan.ready.json": "37ca72b8564957d4181dd487195ffb79740206c264a8cafcaeb931bb69aca0df",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/submission-receipt.json": "8756fc6e77f8f76ba6b7892d142e95996f2fcaabe73bf3fc7a5f980413645742",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/manifest.json": "1e4bebd218d5d77b1fca2d93368ff92bedf939705c9ec6f3e46d68343e3654a8",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/summary.json": "b297c77e8b2c95a09a0fd02f44a6ea75f6c0ed1999a500815b7200eb5e2f8f50",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/results.json": "16591c3f1685967fdbe6db9b31fb8547587a7744def1da2216710cc81b26285c",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/policy.json": "64c5643f74cfdb722d8cc96f4a493ea8c3778a20d49ea31dcf4567de5a2d1207",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/source-sha256.json": "5ea804f11d5aba719d5f592f64084c9a35c6711972aec3eba153ce0aab0e4f49",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-cache-memory-retry-20261010/cache-results/checked-execution.json": "197d78589a3dfd0f52f3c8d1358994f744677918034a045cab53091043cb7440",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-validation-20261009/product-verification-v1/prepared.json": "8d4ddcd64f49904b4c7c83937cd95123c95eecbf1d80e3f1944e4b5d1cd8ec9c",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-monitor-20261009/cache-19511437-terminal-v1/receipt.json": "63a24738cdb998ca0590d9d575b3516e7fa9bfb1bd9e8eb6c66bdfbefbbd63eb",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-monitor-20261009/cache-19511437-terminal-v1/sacct.json": "2ed673371f7552e753ca6f813058a540ae125998f7c3ac6271aaf40d592d0676",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/submission.json": "95168f4737ca3b10a6156d6b8a6aa3f787143399c9815c44b50d895f941e057e",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/plan.json": "21fd30eaffcd52c731081bed7766e7846fa57cdc149fbfaba2631908df763237",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/workers.json": "c4ee1a4a1a03450ad4bb087dc2f93eb6c395e2e191b971ffeae480c4f45a7924",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/submission-reconciliation.json": "01e87d30dfd161d34ff66c951049b30bb46f210832c94f9bb9af1911c892d907",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/controller.json": "e54dec92a29ec7beda4234ea76113fbcc11ba9a49c5d11608353eb57148ac208",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/completed-worker-summary.json": "5d7a5253626a60806238e5c1ded8e5a2a2e4ad4d02156d800d3dcc8e512efc41",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/controller-summary.json": "5ba4d435e5c7c970a45cd0e8be5cb4dee95acf729da508bbdda76003c18da292",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/baseline-proof.json": "9d703c0e18579668cfbb0c134d41c821b63c803bd49e46970e20596263b887c4",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-accounting-20261009/final/comparison.json": "6c06c399ecd372973921580a819dc9e8dd8a559c6deb854565e290e91cc939c7",
+      "/projects/work/evrong01/HiDEF-seq/codex/repo/docs/benchmarks/torch-python-r-followon.json": "8ffe30b4ca373c1bcf88bd29956e656f8de12ec710bcdc80c7683bbbebf51c61",
+      "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007/accounting/workers.json": "c9304026c925fea6d5639ba8d942b83931a0b5cb5df08e955a02e2e1bdcc0d3a",
+      "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007/accounting/controller.json": "b86fc91d1ee7aa6800141de8b4a99beb1ed16a87b08b6c387a39ec26424d3a3e",
+      "/projects/work/evrong01/HiDEF-seq/codex/runs/candidate-python-r-followon-20261007/accounting/completed-worker-summary.json": "21a70d243ff2102567f2218aa9fea920d7f4b74cd3a8a03addd4c8ac471ca422",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-source-checks-20261009/accepted-result.json": "6df0642a62bcf8898514343242778d41641917e639f27d0218a937870e253ccd",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/legacy-cleanup-20261009/production-source-audit.json": "c1bcc2a4f06a8c7666e65ec062b0d2a88704b06317392465aa9e75fae15f13cf",
+      "/projects/work/evrong01/HiDEF-seq/codex/runtime/cleanup-kernel-evidence/final-benchmarks-summary.json": "928d24449cf6ceeae9408b5ef3b75289183e9b09782b9f0bede7ca01c71d322b"
+    },
+    "report_plan": {
+      "path": "/projects/work/evrong01/HiDEF-seq/codex/runtime/finalization-report-preparation-v2-20261010/plan.ready.json",
+      "sha256": "5349585ca9d0c67be96afefa8f214020c4ab0f463ee32a4fb06ff70a53a6b60e"
+    }
+  },
+  "limits": [
+    "Validation and development jobs are excluded from production accounting.",
+    "Original/accepted/finalization metrics retain their own run and revision; no matched cold or end-to-end wall-speedup claim.",
+    "BAM equal-coordinate permutations alone are permitted on the new leg; historical layout permissions apply only to the original-to-followon bridge.",
+    "Experimental Arrow/DuckDB results are excluded; no storage prototype adoption is implied."
+  ]
+}

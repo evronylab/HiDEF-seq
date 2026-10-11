@@ -1,22 +1,253 @@
 # Optimization validation ledger
 
-## Current production cleanup: full validation pending
+## Current accepted workflow: `358e4bf`
 
 The source now consolidates coverage annotation and standalone/prepared
 reference builders, generalizes the optimized R helpers, removes unused
 reference-BED preparation, and restores the original Nextflow publication
-rules. Component checks are in progress before a fresh two-sample workflow.
-The accepted `7e37ada` measurements below do not validate these later changes.
-The new comparison requires exact QS/TSV layout, all 711 published paths and
-the remaining 20 prepared products. Historical ordering exceptions apply only
-to the already accepted original-versus-`7e37ada` comparison.
+rules. Revision `358e4bf` passed nine focused kernel suites and its Nextflow
+preview, with separate annotation, preparation and cache checks. Its fresh
+two-sample workflow completed all **649 tasks with zero failures, retries or
+cached tasks**, and the controller completed with exit zero. The 649 allocation
+IDs reconcile exactly with the trace; accounting has no unresolved workers.
+The completed [finalization report](benchmarks/torch-python-r-finalization.json)
+records acceptance of all **711 required publications**: 705 direct strict
+passes, two BAM coordinate-tie proofs and four owner-linked index proofs.
+QS/TSV values, classes, types, attributes and order are exact; the historical
+layout allowance is not applied to this new comparison. The two BAMs preserve
+logical records, multiplicities, coordinates and coordinate ordering; only
+relative order within equal-coordinate groups differs. Strict job `19511438`
+retains its two ordered-BAM failures. Supplemental jobs `19556052`/`19556055`
+and acceptance `19556057` completed successfully under the existing BAM rule.
 
-Arrow/DuckDB evaluation has reopened after identifying fixable startup and
-metadata issues. The previous storage report remains unchanged evidence for
-its tested scope; it is not a completed evaluation of disk-backed calls and
-coverage together.
+All **20 prepared products and two startup checks** passed the unchanged
+comparator in replacement job `19543696` with a 96 GiB allocation. Original
+attempt `19511437` remains recorded as allocation `CANCELLED` and batch
+`OUT_OF_MEMORY`, after an incomplete BigWig comparison in its 16 GiB allocation;
+it was not a scientific pass. Both validation attempts are excluded from
+production performance.
 
-## Current accepted follow-on: `7e37ada`
+The original-to-`7e37ada` publication proof and strict `7e37ada`-to-`358e4bf`
+proof form two separately recorded legs; historical layout permissions apply
+only to the first leg. Cache, producer completion, configuration and accounting
+have their own evidence. The reviewed runtime report is
+`runtime/finalization-report-preparation-v2-20261010/report.json`, SHA-256
+`51cfbee8db6f6bdfd66b35bb67fadf99af28eae3f4412645b053ba1ecadddb1d`;
+its repository copy is byte-identical. The independent terminal review in the
+same directory, `independent-terminal-review-20261011.json`, has SHA-256
+`2a164e0c2c5cb85408260ba1c839ec258dceb39a3fea88382e6784959001a2b4`.
+
+### Completed `358e4bf` accounting and memory observations
+
+Common downstream work used **151.542205 actual CPU-hours across 631 tasks**,
+versus **447.194170 hours across 749 original tasks**, a **66.112661% reduction**.
+The 18 cold-preparation tasks used **7.034264 CPU-hours**. Including preparation
+once and the controller, all workers plus controller used **158.609414
+CPU-hours**. Validation and exploratory jobs are excluded. The original run has
+no matching cold-preparation measurement; these totals do not establish a
+matched end-to-end wall-time speedup.
+
+| Common stage | Original CPU-hours | `358e4bf` CPU-hours | Original / `358e4bf` maximum task Slurm RSS, GiB |
+|---|---:|---:|---:|
+| BAM dispatch and indexing | 66.384 | 1.823 | 7.996 / 7.995 |
+| Extraction | 29.314 | 11.392 | 14.324 / 11.427 |
+| Filtering | 257.645 | 87.958 | 37.030 / 28.435 |
+| Burdens | 68.941 | 27.780 | 287.992 / 136.687 |
+| Final outputs | 1.625 | 0.867 | 88.218 / 51.600 |
+| Other read processing | 23.287 | 21.723 | 31.996 / 31.996 |
+
+Actual CPU sums each normal allocation's reported UserCPU + SystemCPU once,
+using retained display precision; step CPU is not added again. The rounded
+allocation TotalCPU field is a separate cross-check, not the source of the
+headline hours. Reserved core-hours (allocated cores times elapsed time) were
+**218.801667** for all workers plus controller, separate from **158.609414
+actual CPU-hours**. Slurm RSS above is a maximum task/step measurement and is
+not process RSS, R heap or simultaneous workflow memory. Different nodes and
+times preclude a randomized causal comparison. No page-cache estimate was
+subtracted, and resource requests remain unchanged.
+
+The independently reviewed [process-memory supplement](benchmarks/torch-finalization-process-memory.json)
+uses raw Nextflow counters from eight burden and two final-output tasks:
+
+| Stage / sampled process-tree measure | Original GiB | Accepted `7e37ada` GiB | `358e4bf` GiB |
+|---|---:|---:|---:|
+| Burdens: sum of resident RSS | 230.348 | 43.654 | 44.944 |
+| Burdens: sum of per-process high-water marks | 235.352 | 43.696 | 44.970 |
+| Final outputs: sum of resident RSS | 76.446 | 47.267 | 47.249 |
+| Final outputs: sum of per-process high-water marks | 76.446 | 47.500 | 47.492 |
+
+Each entry is the largest task measurement for that stage. `rss` is the maximum
+sampled sum of visible-process VmRSS; `peak_rss` is the maximum sampled sum of
+those processes' VmHWM. Individual high-water marks need not be simultaneous.
+Sampling can miss short-lived children, shared pages can be counted more than
+once, and unmapped filesystem cache is outside these process counters. The
+30 current and historical monitor blocks are byte-identical. These observations
+are not a continuous concurrent-memory bound, R-heap size, minimum allocation
+or explanation of the difference from Slurm RSS.
+
+Accounting evidence remains in workspace
+`runtime/finalization-accounting-20261009/final/comparison.json`, reviewed in
+`runtime/finalization-monitor-20261009/accounting-terminal-review-v1.json` and
+`accounting-root-review-v1.json`. The independent memory receipt is
+`runtime/finalization-memory-attribution-20261010/current-process-memory-independent-review-v1.json`,
+SHA-256 `c5b7cfa0e93f271f1a1427f3c3272e2fa93c719e49ed50f0e22dc41e8186c224`.
+This completed `358e4bf` execution/accounting scope excludes the single-QS
+output helper installed later in `3dabe21`, disk-storage experiments and any
+subsequent source revision. The finalization report records scientific
+acceptance separately from these performance observations.
+
+### Separate storage and output-task decisions
+
+The reopened Arrow/DuckDB evaluation is complete. Exact representation and
+export proofs passed, but the current SQL coverage integration is rejected for
+production: complete five- and fifteen-input worker CPU increased 44.5% and
+176.2% without improving process peak memory. The 60-input SQL-backed successor
+remains disabled. This decision concerns the measured implementation, not
+backend feasibility. Its new non-R scientific logic is SQL through existing
+DuckDB/DBI packages, with no custom C++/Rcpp. The previous storage report remains
+unchanged evidence for its earlier scope.
+
+The source audit found no remaining selectable legacy scientific algorithms,
+custom C++ sources or production storage experiments. Standalone consumers
+invoke the same shared preparation functions as workflow consumers. Compressed
+references use the same R annotator after task-local decompression. The cache's
+hard-link-to-copy handling for cross-filesystem `EXDEV` is ordinary transport
+between a verified cache bundle and a task directory; it does not alter
+Nextflow publication. Historical oracle implementations remain confined to
+tests and benchmark evidence.
+
+The cleanup's representative ABBA kernel replay passed exact R comparisons.
+Mean operation CPU fell 22.11% for allele encoding and 19.76% for extraction;
+the eight-input burden replay increased 16.11%, with observed process
+high-water memory increasing 7.75%. Operation CPU excludes loading, explicit
+GC and serialization, and the high-water measurement includes earlier
+allocations but was sampled before any later serialization peak. These are
+scoped component results, not whole-task or pipeline
+measurements. Source-bound evidence is in workspace
+`runtime/cleanup-kernel-evidence/final-benchmarks-summary.json` and
+`runtime/finalization-source-checks-20261009/accepted-result.json`.
+
+Both reopened Arrow and DuckDB adapters now reconstruct both complete actual
+call tables exactly, including list columns and attributes. Their 84 operation
+outputs on retained call tables grouped by the selected 5/15/60 analysis chunks
+also compare exactly. These were retained-table queries, not fresh burden
+calculations.
+Arrow joins in this test use scalar row IDs followed by R collection and
+reattachment of list columns; native list-payload joins remain unsupported in
+the installed Arrow version. DuckDB supports the tested native list joins.
+DuckDB's complete
+one-input burden and both downstream representations pass the 20 burden
+components, eight BED/index/query proofs and 18 final components exactly; all
+140 exports pass under the existing date/encoding exceptions.
+Both complete paths reached about 20.32 GiB process peak; this test establishes
+compatibility, not a memory saving or a larger-input memory bound. The five-input
+burden and ordinary assembly also pass all 20 components; complete worker CPU
+rose 44.5%, with essentially unchanged process peak memory.
+
+The four-source consumer comparison is complete. All 18 final components match
+through both the backed reader and reconstructed ordinary QS2, and all 310
+exports pass under the existing metadata/encoding exceptions. The paired
+ordinary/backed consumers used 1,444.75/1,938.51 CPU seconds and peaked at
+43.02/6.59 GiB. Optional final-QS assembly adds 692.08 CPU seconds and peaks at
+40.37 GiB, bringing that complete output path to 2,630.58 CPU seconds. These
+inputs were migrated from accepted ordinary results; their separate first-use
+migration costs total 2,180.19 CPU seconds. This is not four upstream backed
+burden calculations or a whole-pipeline speed comparison. Source-bound evidence
+is in workspace `runtime/reopened-storage-evaluation-20261009/checkpoint-accepted-four-source-worker-v3.json`.
+The fifteen-input burden pair and ordinary burden-QS assembly have also
+completed, with all 20 components exact through both representations. Ordinary
+and DuckDB workers used 5,879.13 and 16,238.18 CPU seconds (+176.2%); both peaked
+at about 20.32 GiB process RSS. Ordinary assembly adds 111.02 CPU seconds and
+7.55 GiB process peak. These are burden-only measurements from one native-first,
+one-CPU pair on the same node, with uncontrolled cache; external BED/index
+comparison and a final consumer were not run at this size. Reviewed evidence
+is in workspace `runtime/reopened-storage-evaluation-20261009/checkpoint-full15-v1.json`.
+The separate 8 GiB-pool probes completed with exact five-input and fifteen-input
+coverage results. The fifteen-input proof covers **673,395,946 ordered rows**
+from 707,349,842 events. Its isolated query used 4,413.557 CPU seconds and
+4,714.940 wall seconds; the complete fresh process used 4,415.574 CPU seconds
+and peaked at 14.93 GiB RSS. Sampled temporary-file occupancy reached 46.735 GB;
+cumulative cgroup peak was 60.446 GB. These are separate memory/storage measures,
+not a whole-job 8 GiB bound. Comparing this isolated query with the earlier
+broader reduction phase does not establish causal tuning gains or a complete
+8 GiB-worker result. Validation costs remain separate.
+
+The completed decision leaves the full60 SQL-backed worker and its downstream
+chain unexecuted and disabled. Five/fifteen-input external BED contents were not
+compared; complete burden BED/index proof is limited to the one-input replay.
+The observed 20.32 GiB worker process peaks are not a proven floor or an
+attribution to input loading. All prototypes remain outside production, using
+R and custom SQL through existing packages, with Python/shell experimental
+controls and no custom C++ scientific kernel. Source-bound final evidence is in
+the [completed storage evaluation](benchmarks/torch-storage-evaluation.json).
+The readable `storage-evaluation-final-v1.txt` companion and underlying
+`storage-evaluation-final-independent-review-v1.json` and
+`coverage-pool-probe-terminal-root-review-v2.json` reviews remain in workspace
+`runtime/reopened-storage-evaluation-20261009/`.
+
+R-native coverage plus native-column DuckDB calls remains feasible but
+unvalidated as a combined path. It would retain non-R SQL query/order logic,
+without custom C++, and still needs combined readers, manifests, track mapping,
+lifecycle handling, ordinary assembly and all-configuration proofs. It is
+deferred while finalization retains the clean R calculation and self-contained
+QS2. No further full Arrow burden rewrite, SQL full60 run or new hybrid
+allocation is proposed.
+
+The earlier R-only few-QS component variant passed 18 components through both
+its reader and ordinary-QS reconstruction, all 310 exports and 56 own-file
+index checks. Same-node ordinary/component construction used
+2,012.88/1,891.31 CPU seconds and 43.02/26.58 GiB process peak. Fresh ordinary
+reconstruction on a different node adds 188.96 CPU seconds and peaks at
+32.02 GiB. The summed +3.35% CPU and -25.57% largest process peak remain
+separate, descriptive measurements, not the completed task result below.
+This earlier variant uses R and existing packages for storage/science, with
+Python/shell benchmark controls. Its reviewed evidence remains in workspace
+`runtime/native-few-qs-output-replay-v1/postrun-review-v1/reviewed-result.json`.
+
+The distinct R-only single-public-QS completion experiment is now complete for
+LIB1. Candidate A/native, candidate B/matched native B, and B/A each passed all
+18 components with strict values, types, attributes and order, 310 exports under
+the existing date/encoding policy, and 56 own-index rebuild checks. All 42
+repository-relative lifecycle tests passed in an isolated checkout. Source,
+input, reference, SIF and product-identity guards also passed.
+
+The LIB1 matched candidate-first pair used 1,599.939114 candidate versus 1,488.797765
+native CPU seconds (**+7.465%**), with largest-process high-water memory of
+32.020 versus 43.022 GiB (**-25.572%**). The entire R parent, worker, fresh
+assembler, required I/O and cleanup are included; no assembly cost is omitted.
+This single pair has uncontrolled cache/order effects. Candidate concurrent
+sampling was incomplete, so these individual-process high-water measurements
+are not a complete concurrent-memory bound, minimum allocation or whole-workflow
+result. Separate role logs and synchronous execution establish that the worker
+exited before assembly. Allocation/control and validation costs remain separate.
+
+The LIB1 final ordinary public QS2 remains 2,573,030,417 bytes (2.573 GB), with
+about 3.436 GB of exports separate; private parts are absent after success.
+Full final assembly still materializes the ordinary object.
+
+LIB2 integration and repeatability now also pass. A against the actual
+`358e4bf` native published output and B against A each passed all 18 ordered
+components, 310 exports and 56 own-index rebuild checks, with all source,
+input, reference, SIF, native-producer and candidate-product guards intact.
+Both LIB2 candidate concurrent samplers were incomplete. No concurrent-memory
+bound or performance ratio against the separate native task is claimed;
+individual candidate process peaks and native Slurm batch RSS are different
+measurements and are not compared.
+
+The exact candidate and 42 lifecycle checks were installed in `3dabe21` after
+both-sample validation and acceptance of the `358e4bf` workflow. It uses R and
+existing packages/export CLIs, with no new package
+or custom non-R scientific logic. Python/shell are measurement and validation
+controls only. The [combined single-QS report](benchmarks/torch-single-qs-output-handoff.json)
+retains both sample proofs, costs and source hashes. Underlying reviews remain
+in workspace `runtime/native-single-qs-completion-v1/postrun-review-v1/` and
+`runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/`. The repository-relative
+42-check invocation is documented with the
+[output-task experiment](workflow-optimization.md#complete-r-only-single-public-qs-output-task-lib1-and-lib2).
+LIB1 used historical burden inputs and LIB2 used current `358e4bf` inputs;
+these output-stage proofs do not establish a full later-source workflow.
+
+## Historical accepted follow-on: `7e37ada`
 
 Revision `7e37ada` completed all 650 tasks on the two-sample Torch workload on
 2026-10-09, with no failed, cached or retried tasks. The common workload used
@@ -173,14 +404,16 @@ coverage prototype adds 455 lines of storage/reduction logic and retained 1,760
 private files; input loading, calls and final assembly still grow with data.
 The initial Arrow call-table attempt stopped on metadata application and DuckDB
 stopped on an invalid startup option, so a disk-backed final user object was not
-developed. Those failures did not establish backend infeasibility. Follow-up
-evaluation is now active; no production storage decision follows from the
-initial startup failures.
+developed in that initial attempt. Those failures did not establish backend
+infeasibility. The follow-up evaluation is now complete, as recorded above:
+exact storage/export feasibility passed, and the current SQL integration is
+rejected on measured complete-worker costs, not those startup failures.
 The [compact evidence report](benchmarks/torch-2026-10-09-storage-evaluation.json)
-records actual measurements and proof hashes. Scientific prototype code is R
-using existing compiled packages and CLI tools; Python/shell are benchmark
-controls. No new custom non-R scientific kernel or production storage change
-was introduced.
+records that earlier coverage-only prototype's measurements and proof hashes.
+Its scientific prototype code is R using existing compiled packages and CLI
+tools; Python/shell are benchmark controls. That R-coverage prototype added no
+custom non-R scientific kernel or production storage change. The later SQL
+storage prototype and its rejection are scoped separately above.
 
 ## Historical accepted comparison: `3911047`
 
@@ -1563,12 +1796,30 @@ requests are recorded at the start of this ledger.
 
 ## Observed allele-key construction
 
+This section records the earlier measured helper. Its conservative dispatch
+was subsequently replaced by the general R implementation in `358e4bf`; the
+allele helper no longer dispatches to `interaction()`. The historical resource
+numbers below retain their measured-source scope.
+
+The broader captured-interval evaluation also completed. Existence queries and
+prepared indices had mixed, modest local results; data.table interval engines
+regressed on the largest subject. In the latter ABBA comparison, mean
+`foverlaps` operation CPU was 10.381 versus 58.308 seconds and mean whole-process
+peak RSS was 3,527,664 versus 12,282,290 KiB. Non-equi joins used 10.287 versus
+17.516 operation CPU seconds on that subject. These candidates were not adopted.
+The reports retain 64 and 36 ordered exact result checks respectively, distinct
+from whole-filter validation. Both experiments used custom R and existing
+compiled packages; their Python/shell drivers are benchmark infrastructure.
+Evidence is in workspace
+`runtime/filter-interval-real-bench-postrun-review-v1/reviewed-result.json` and
+`runtime/filter-interval-c-real-postrun-review-v1/review.json`.
+
 The selected helper is **custom R** using existing compiled vctrs/Bioconductor
 operations. It adds no custom non-R production code, dependency, CLI or
 Nextflow/shell change. Python and shell provide benchmark and validation control.
 Only the two key-construction calls in `overlapsAny_bymcols` and three appended
-shared definitions change. The tested conservative guard and legacy fallback
-remain; the later scalar-bound extension is excluded.
+shared definitions changed in that measured version. It retained a conservative
+guard and legacy fallback, and excluded the later scalar-bound extension.
 
 The same frozen candidate passed 112 ordered QS component comparisons across
 four nuclear contexts and another 28 in four candidate-only mitochondrial
@@ -1603,8 +1854,8 @@ constant memory, a causal GC explanation or a whole-pipeline improvement.
 The [compact report](benchmarks/torch-2026-10-09-allele-interaction.json) binds
 the measured and installed source bytes, raw observations and reviewed evidence.
 Integration job `19471735` passed all 60 relocated cases, the two intended
-overlap-call substitutions and source/container guards. The installed helper
-remains byte-identical to the measured candidate. Independent review verified
+overlap-call substitutions and source/container guards. The helper installed in
+`00f6e33` was byte-identical to the measured candidate. Independent review verified
 27 source pins and 16 evidence files, with normal/batch/extern `COMPLETED 0:0`.
 The allocation used 12.693 CPU seconds, 16 seconds elapsed and a 0.921 GiB Slurm
 batch peak; these are validation costs, not another filtering benchmark.

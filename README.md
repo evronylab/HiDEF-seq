@@ -27,6 +27,12 @@ HiDEF-seq is orchestrated with [Nextflow](https://www.nextflow.io/), which can e
 
 Specifically, we configured this GitHub repository to be able to be directly run by Nextflow via the [main.nf](main.nf) script. This main pipeline script includes a set of workflows that cover each step of the analysis. Each workflow is comprised of processes that execute shell commands, [R](https://www.r-project.org/) scripts, or the Python BAM splitter within the HiDEF-seq container.
 
+Reusable R helpers live in [bin/sharedFunctions.R](bin/sharedFunctions.R). Workflow
+preparation and standalone R consumers use the same reference-summary and
+germline-coverage-filter builders. The scientific R code uses existing packages
+and command-line tools; custom non-R production code consists of Python BAM
+dispatch and Nextflow/Groovy orchestration, including shell commands.
+
 ### Create a Nextflow configuration file
 
 Create a [Nextflow configuration file](https://www.nextflow.io/docs/latest/config.html) tailored to your computing environment. For example, running on a SLURM-based cluster requires defining a [SLURM executor](https://www.nextflow.io/docs/latest/executor.html#slurm) in the configuration profile that sets options such as queue names, maximum memory, and CPU resources. When using Singularity, enable it explicitly with `singularity.enabled = true`.
@@ -221,7 +227,9 @@ nextflow -config "$NEXTFLOW_CONFIG" \
   -with-report
 ```
 
-`-r optimization -latest` fetches the current optimization branch for each test.
+`-r optimization -latest` fetches the current optimization branch for each run.
+To reproduce the latest accepted full-workflow revision, set
+`HIDEFSEQ_GITTAG=7e37ada2664f07e9534e9dbd695b68a0fbcc22f3` instead.
 Omit `-resume` for a new execution; keep the same launch directory and work
 directory when resuming. If several runs share a launch directory, use
 `-resume <session-UUID>` to select the intended run. `-with-report` is optional.
@@ -234,13 +242,48 @@ Each pipeline invocation executes the full analysis sequence end-to-end.
 
 Prepared artifacts have separate cache identities based on their relevant inputs, settings, and code, allowing unaffected reference and germline preparation to be reused. Downstream R tasks receive an immutable effective YAML whose filename hashes its full contents. A change to any retained configuration field can therefore rerun downstream R tasks under `-resume`, even when their individual configuration signatures are unchanged. Downstream invalidation is currently conservative; it is not limited to the scientifically affected tasks. See [prepared caches and resume behavior](docs/workflow-optimization.md) for details.
 
+Any change to the full `sharedFunctions.R` file changes prepared-cache identities
+and downstream R task signatures; existing bundles remain intact. The unused
+whole-genome reference trinucleotide BED preparation has been removed, while
+published coverage products remain required.
+
+The current branch includes later R helper generalization, preparation
+consolidation and publication cleanup frozen at `358e4bf`. Its fresh two-sample
+workflow completed all 649 tasks with no failures, retries or cached tasks.
+Reviewed common downstream actual CPU was **151.54 hours versus 447.19
+originally (66.11% less)**; all workers, cold preparation and the controller
+used **158.61 CPU-hours**. All **711 required publications**, 20 prepared products
+and two cache startup checks passed the agreed scientific comparisons, with
+exact QS/TSV layout and only the existing BAM coordinate-tie exception.
+The [finalization report](docs/benchmarks/torch-python-r-finalization.json)
+records this accepted `358e4bf` workflow. The separately tested R-only
+single-public-QS output helper and 42 lifecycle checks were installed in
+`3dabe21`; its both-sample output proofs do not constitute a full workflow at
+that later revision. The [current validation status](docs/optimization-validation.md#current-accepted-workflow-358e4bf)
+separates these measurements from the historical `7e37ada` results below.
+
 These optimizations preserve scientific output schemas, formats, and filenames, including one final QS2 per sample. They introduce no call batching or output sharding. The two-sample Torch follow-on at revision `7e37ada` completed all 650 tasks: common downstream actual CPU fell from **447.2 to 157.8 hours (64.7%)**, and the observed maximum burden-task Slurm memory fell from **288.0 to 135.3 GiB (53.0%)**. Cold preparation used a separate 9.0 CPU-hours. All **711 required scientific output paths are accepted** under the agreed comparison rules; prepared-cache comparisons and separate deterministic output-stage replays also passed. This run predates the allele-key helper in `00f6e33` and excludes experimental coverage storage. The [validation ledger](docs/optimization-validation.md) and [complete-workload report](docs/benchmarks/torch-python-r-followon.json) retain the original strict-order failures, supplemental proofs and memory caveats, separately from the earlier `3911047` and `ea8d06f` runs.
 
-Five additional R changes now have [component and combined-chain results](docs/workflow-optimization.md#follow-on-r-optimization-results): generated-field parsing, VCF target lookup, targeted dtplyr aggregation, output object lifetime and level-1 compression in R coverage annotation. On one real chunk from each library, extraction plus four separate filters passed 128 exact QS component comparisons and used 36.11% less summed actual CPU. Memory varied by operation. This chain did not exercise the output or compression changes and does not establish full-workflow acceptance. The [validation ledger](docs/optimization-validation.md#follow-on-component-and-chain-validation) and [compact benchmark](docs/benchmarks/torch-2026-10-07-followon.json) retain scope, regressions and evidence hashes.
+Five earlier R changes have [component and combined-chain results](docs/workflow-optimization.md#follow-on-r-optimization-results): generated-field parsing, VCF target lookup, targeted dtplyr aggregation, output object lifetime and level-1 compression in R coverage annotation. On one real chunk from each library, extraction plus four separate filters passed 128 exact QS component comparisons and used 36.11% less summed actual CPU. Memory varied by operation. This chain did not exercise the output or compression changes and does not establish full-workflow acceptance. The [validation ledger](docs/optimization-validation.md#follow-on-component-and-chain-validation) and [compact benchmark](docs/benchmarks/torch-2026-10-07-followon.json) retain scope, regressions and evidence hashes.
 
 The [implementation-language table](docs/workflow-optimization.md#implementation-languages) identifies custom R, Python and Nextflow/shell code for each optimization, separately from existing command-line tools and compiled package internals.
 
 ### Outputs
+
+The production pipeline retains one self-contained final QS2 per sample and
+the existing TSV, VCF, PDF and indexed coverage BED products. The R output helper
+uses private temporary QS handoff parts, then assembles one ordinary public QS2
+in a fresh process and removes the private parts after success. No public split
+format or new reader API is introduced. Experimental Arrow/DuckDB and persistent
+temporary-coverage storage are not production options.
+
+Publication uses hard links for BAMs and enabled intermediate QS files, moves
+for coverage and final sample outputs, and copies for logs and other designated
+products. Hard-linked work/results paths share file contents; moved products no
+longer remain at their work paths. Prepared-cache restoration is separate: it
+uses hard links, with a copy only for a cross-filesystem `EXDEV` error. See
+[publication and cache behavior](docs/workflow-optimization.md#prepared-caches-and-publication).
+
 A comprehensive description of every final product generated by the pipeline is available in the [outputs documentation](docs/outputs.md).
 
 ## Citation

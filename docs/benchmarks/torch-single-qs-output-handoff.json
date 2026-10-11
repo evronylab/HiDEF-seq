@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "status": "PASS measured LIB1 complete-task pair, exact LIB1 native/repeat proofs,42 lifecycle checks and current358 LIB2 native/repeat integration; exact tested output source and tests installed in 3dabe21 after finalization acceptance",
+  "updated_utc": "2026-10-10T19:47:43.995473+00:00",
+  "optimization": "Fresh-process final QS assembly in outputResults.R",
+  "implementation": {
+    "scientific_language": "R only, in the existing outputResults.R file.",
+    "custom_non_R_production_code": false,
+    "other_code": "Existing compiled R packages and export CLIs retained; Python/shell are benchmark controls only.",
+    "dependencies_or_Nextflow_changes": "None. sharedFunctions.R and main.nf unchanged; existing output-script hash wiring covers this source change.",
+    "behavior": "A light R launcher waits for the calculation/export child to exit, then assembles one ordinary standalone QS in a fresh R process. Private same-filesystem portions are cleaned only after successful final rename. Public CLI, ordered input handling and exports are retained."
+  },
+  "source": {
+    "baseline_revision": "358e4bfcc89e409456c6ec97d8fdd142475c07f6",
+    "candidate_installed_commit": "3dabe21d2ac7efbcd242df1c17721da22ba0b76c",
+    "candidate_outputResults_sha256": "543d4a5bef73f1da2355531b99a2e452339cd159bc27b1004aaee9926daa57f1",
+    "native_outputResults_sha256": "fd1ce2a53ffdbc578ee2cef40d4e72d6c9a9bf412e811918ce1222ba1f236a4e",
+    "unchanged_sharedFunctions_sha256": "67f24e698144a01b9dd9973699a181e14430db954ef1985431efd59ab6b8a4ae",
+    "sif_sha256": "ba870dd115e746165f97c31b49d90c2a59b918d47f985dc23dfcdc0b9570b332",
+    "installation_status": "Exact tested outputResults.R and42 lifecycle checks installed in 3dabe21d2ac7efbcd242df1c17721da22ba0b76c after root-reviewed 358e4bf finalization acceptance; full-workflow measurements remain at 358e4bf."
+  },
+  "LIB1": {
+    "scope": "Complete output task on four retained LIB1 burden inputs from ea8d06f; both native and candidate output scripts based on 358e4bf. This is not a later-source whole-workflow run.",
+    "input_producer_revision": "ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77",
+    "config_sha256": "389b017a80921d445fbba56731aa45d1bee6c5a68cabe153a3fcd7696d9f70e8",
+    "pair": {
+      "job_id": 19529001,
+      "order": [
+        "candidate",
+        "native"
+      ],
+      "allocation": {
+        "actual_cpu_seconds_exact": 3104.694868,
+        "wall_seconds": 3175,
+        "batch_max_rss_kib": 52888988,
+        "node": "cs604",
+        "resources": {
+          "account": "torch_pr_285_general",
+          "partition": "cpu_short",
+          "cpus": 1,
+          "mem": "64G",
+          "time": "04:00:00",
+          "requeue": false
+        }
+      },
+      "commands": {
+        "candidate": {
+          "actual_cpu_seconds": 1599.939114,
+          "wall_seconds": 1640.5775162179489,
+          "largest_process_peak_kib": 33575280,
+          "concurrent_sampling_status": "incomplete",
+          "max_sampled_concurrent_tree_rss_kib": null
+        },
+        "native": {
+          "actual_cpu_seconds": 1488.797765,
+          "wall_seconds": 1519.9435328519903,
+          "largest_process_peak_kib": 45111360,
+          "concurrent_sampling_status": "complete_sample_series",
+          "max_sampled_concurrent_tree_rss_kib": 45139192
+        }
+      },
+      "descriptive_candidate_change": {
+        "cpu_seconds": 111.14134899999999,
+        "cpu_percent": 7.4651743583185715,
+        "largest_process_peak_percent": -25.572450043625373
+      }
+    },
+    "exact_proofs": {
+      "status": "PASS",
+      "directions": [
+        "retained A/native A",
+        "B/native B",
+        "B/A"
+      ],
+      "jobs": [
+        19529000,
+        19529002
+      ],
+      "each": {
+        "strict_ordered_components": 18,
+        "exports": 310,
+        "own_index_rebuilds": 56
+      },
+      "validation_allocation_cpu_seconds": {
+        "retained-validation": 460.356959,
+        "repeat-validation": 801.42093
+      }
+    },
+    "final_public_qs_bytes": 2573030417,
+    "limitation": "One candidate-first pair, uncontrolled cache/order. Candidate concurrent-memory sampling is incomplete; largest-process HWM remains valid. Validation and allocation/control costs are separate."
+  },
+  "behavioral_tests": {
+    "status": "PASS",
+    "job_id": 19529455,
+    "retained_assertions": 42,
+    "scope": "Repository-relative lifecycle, CLI/arguments, ordering/types/attributes, sequential handoff, failure propagation and successful cleanup; no full legacy output script retained as a production test oracle.",
+    "allocation_cpu_seconds": 39.75153,
+    "allocation_batch_peak_kib": 2379584
+  },
+  "LIB2": {
+    "status": "PASS current358 output integration and deterministic candidate repeat",
+    "source_revision": "358e4bfcc89e409456c6ec97d8fdd142475c07f6",
+    "native_job_id": 19537163,
+    "candidate_jobs": {
+      "A": 19537233,
+      "B": 19537234
+    },
+    "scope": "Same four completed current 358 burden files and actual native invocation/config/reference. A/B independent fresh candidate tasks; later native publication and B/A comparisons.",
+    "config_sha256": "ace50518c6753152034e26b350e6bdefc0ed99ab898b6000c81dfb100d11dcb2",
+    "input_bytes": 2588588691,
+    "ordered_burden_jobs": [
+      19527084,
+      19527039,
+      19526728,
+      19526730
+    ],
+    "worker_metrics": {
+      "A": {
+        "job_id": 19537233,
+        "command_cpu_seconds": 1637.6634450000001,
+        "command_wall_seconds": 1683.9818539139815,
+        "largest_process_peak_kib": 36941096,
+        "allocation_cpu_seconds": 1648.346507,
+        "allocation_wall_seconds": 1693,
+        "allocation_batch_peak_kib": 46905848.0,
+        "requested_partition": "cpu_short",
+        "actual_partition": "all",
+        "actual_qos": "cpu48",
+        "final_qs_bytes": 2844583431,
+        "no_private_parts_on_success": true,
+        "largest_process_peak_gib": 35.229774475097656,
+        "concurrent_sampling_status": "incomplete",
+        "max_sampled_concurrent_tree_rss_kib": null,
+        "sequential_distinct_role_logs_pass": true,
+        "scientific_exports_bytes": 3791043816,
+        "waited_block_io": {
+          "input_blocks": 7214656,
+          "output_blocks": 42756240,
+          "scope": "Linux512-byte block-operation counters for waited measure/R and external sampler descendants; cached/logical IO differs"
+        },
+        "sampled_work_directory_disk": {
+          "maximum_bytes": 11981311151,
+          "samples": 112,
+          "max_interval_seconds": 15.712651165900752,
+          "scope": "15-second stat-series sampled lower bound including outputs/logs/metadata; not private-only peak or total I/O"
+        }
+      },
+      "B": {
+        "job_id": 19537234,
+        "command_cpu_seconds": 1634.734109,
+        "command_wall_seconds": 1686.0329020868521,
+        "largest_process_peak_kib": 36940788,
+        "allocation_cpu_seconds": 1645.326296,
+        "allocation_wall_seconds": 1695,
+        "allocation_batch_peak_kib": 50397244.0,
+        "requested_partition": "cpu_short",
+        "actual_partition": "all",
+        "actual_qos": "cpu48",
+        "final_qs_bytes": 2844583431,
+        "no_private_parts_on_success": true,
+        "largest_process_peak_gib": 35.2294807434082,
+        "concurrent_sampling_status": "incomplete",
+        "max_sampled_concurrent_tree_rss_kib": null,
+        "sequential_distinct_role_logs_pass": true,
+        "scientific_exports_bytes": 3791043787,
+        "waited_block_io": {
+          "input_blocks": 12608904,
+          "output_blocks": 42756216,
+          "scope": "Linux512-byte block-operation counters for waited measure/R and external sampler descendants; cached/logical IO differs"
+        },
+        "sampled_work_directory_disk": {
+          "maximum_bytes": 11956869432,
+          "samples": 112,
+          "max_interval_seconds": 15.549484665039927,
+          "scope": "15-second stat-series sampled lower bound including outputs/logs/metadata; not private-only peak or total I/O"
+        }
+      }
+    },
+    "native_observational_accounting": {
+      "job_id": 19537163,
+      "cpu_user_seconds": 1526.80325,
+      "cpu_system_seconds": 137.8843,
+      "cpu_total_seconds": 1664.68755,
+      "wall_seconds": 1706,
+      "batch_max_rss_kib": 54106672.0,
+      "node": "cs610",
+      "partition": "cpu_short",
+      "requested_memory_mib": 98304,
+      "scope": "Separate live main native task,96GiB request/cpu_short/cs610; candidate workers64GiB on cl011. Allocation CPU/Slurm batch memory are not isolated native R process metrics. No causal native/candidate timing or memory percentage reported."
+    },
+    "exact_proofs": {
+      "status": "PASS",
+      "job_id": 19539068,
+      "directions": [
+        "A/native published output",
+        "B/A"
+      ],
+      "each": {
+        "strict_ordered_components": 18,
+        "exports": 310,
+        "own_index_rebuilds": 56
+      },
+      "source_input_reference_sif_producer_product_guards": true
+    },
+    "validation_cost": {
+      "allocation": {
+        "cpu_seconds": 684.022896,
+        "wall_seconds": 721,
+        "batch_max_rss_kib": 89117124.0,
+        "partition": "cl",
+        "qos": "cpu48",
+        "node": "cl011"
+      },
+      "commands": {
+        "A-native-components": {
+          "cpu_seconds": 270.149355,
+          "wall_seconds": 272.53859384101816,
+          "largest_process_peak_kib": 73714100
+        },
+        "A-native-files": {
+          "cpu_seconds": 71.922562,
+          "wall_seconds": 86.94139726110734,
+          "largest_process_peak_kib": 50064
+        },
+        "B-A-components": {
+          "cpu_seconds": 266.104515,
+          "wall_seconds": 268.55800054897554,
+          "largest_process_peak_kib": 73713872
+        },
+        "B-A-files": {
+          "cpu_seconds": 69.965929,
+          "wall_seconds": 81.40252817492001,
+          "largest_process_peak_kib": 49256
+        }
+      },
+      "scope": "Separate exact-comparison allocation; excluded from construction measurements."
+    },
+    "limitation": "Independent concurrent A/B candidate workers on one node, plus a separately scheduled current-main native output task. No causal native/candidate timing comparison, averaging with LIB1, cache control or minimum-memory claim.",
+    "partition_note": "Both workers requested and initially showed cpu_short, then ran and completed in all/QOS cpu48. Root did not change them; cause unknown. CPU/memory/time/account/cwd/command/no-requeue remained unchanged. Initial external metadata assertion failure is retained separately. Validator remained cl."
+  },
+  "comparison_policy": "QS: identical 18 logical components, including order, classes, factors, attributes and list values, with no normalization/tolerance. Exports: unchanged exact text/PDF-content comparison, existing PDF date/VCF fileDate and encoding allowances, and both sides own-file index rebuilds.",
+  "measurement_scope": "Complete command CPU includes light parent and waited worker/assembly/export children. Peak is largest individual process HWM, not concurrent summed RSS. External sampler/control cost is outside that command and included in allocation accounting; cgroup/file-cache peaks are separate. No overhead subtraction.",
+  "limitations": [
+    "Current 358 full-workflow acceptance is a separate main/gate result and remains outside this candidate report.",
+    "No whole-workflow run or upstream bounded-memory claim for this output-only source.",
+    "No pooled timing average, cache-controlled claim or minimum safe allocation inferred.",
+    "Earlier ancillary sampler failures remain retained; incomplete concurrency metrics are null, not zero."
+  ],
+  "evidence": {
+    "LIB1_review": {
+      "path": "runtime/native-single-qs-completion-v1/postrun-review-v1/reviewed-result.json",
+      "sha256": "33c505867650b4a3182732905582e99191e4c1ce7fd191b81e63a580303a60ab"
+    },
+    "LIB1_root_review": {
+      "path": "runtime/native-single-qs-completion-v1/postrun-review-v1/root-terminal-review.json",
+      "sha256": "0cde3271e3e8bb77a19b5b5c3af52e91c822c5b26a7007c6c7785db70835c652"
+    },
+    "lifecycle42_review": {
+      "path": "runtime/native-single-qs-relocated-test-v1/postrun-review.json",
+      "sha256": "786c794992ae3046fd80d7f7fbb8b137306b3d97723b6c05d5694b2de1acc457"
+    },
+    "lifecycle42_root_review": {
+      "path": "runtime/native-single-qs-relocated-test-v1/root-review.json",
+      "sha256": "6891fd5229b48875f0d29fc380e9a0b8469147b7483d2460df4615f8d3e7bfd2"
+    },
+    "candidate_source": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/code/candidate/outputResults.R",
+      "sha256": "543d4a5bef73f1da2355531b99a2e452339cd159bc27b1004aaee9926daa57f1"
+    },
+    "LIB2_actual_worker_plan": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/worker.bound.ready.json",
+      "sha256": "8b7f7dcab6abb2cf49e8a5aa976e909abc19621eeba47626ae907f3f6b9e13f4"
+    },
+    "LIB2_binding_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/root-worker-binding-review-v1.json",
+      "sha256": "ff78924e56679992a1348e0fdc48c4df1a6179c8e237ab73c9960c98e2017ed5"
+    },
+    "LIB2_native_input_binding": {
+      "path": "runtime/finalization-monitor-20261009/lib2-native-output-binding-v1.json",
+      "sha256": "787f098e81555a36949d8a1f747cbcce15ab0c83767af214878eeb3df92cc0d4"
+    },
+    "LIB2_workers_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/workers-reviewed.json",
+      "sha256": "e604d72778f02b7f34a23cad457710954efc3f4c3c544523e27ec32d07144ef1"
+    },
+    "LIB2_validation_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/validation-reviewed.json",
+      "sha256": "a399a8efac65a7c57424344b3a7abfc9ef75f285d0bca6b1d47516cd4252468f"
+    },
+    "LIB2_validation_plan": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/validation.bound.ready.json",
+      "sha256": "c2aa4b33f3e49feb113657e3f5e1f670ae5f39f922aba32862eb4bff87e195a5"
+    },
+    "LIB2_validation_binding_root_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/root-validation-binding-review-v1.json",
+      "sha256": "3730030f3cdfa055dd89d7d29eeac2911eeae512929d40e431e56329765ca6b6"
+    },
+    "LIB2_native_terminal_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/native-completion-review.json",
+      "sha256": "f16a52b01fca8b6ca6eb89f581fb37dbb797e25db303ac1ef97c24b6e7b92f35"
+    },
+    "LIB2_validation_submission": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/validation-submission.json",
+      "sha256": "8c2a8bef460bb9034077dd4a86f00e4b022598e72b41953f97f72af5a98555a4"
+    },
+    "LIB2_worker_partition_record": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/partition-clarification.json",
+      "sha256": "57c384aef03d82a9e828dc1ca037a6f1035daf57e7913c945299d1b44bea0c8b"
+    },
+    "LIB2_review_program": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/review-validation.py",
+      "sha256": "f98d8353b76d597b8d37c93ab539d347ec963199e3c7e5e88021074723ac26d3"
+    },
+    "LIB2_root_terminal_review": {
+      "path": "runtime/native-single-qs-lib2-replay-v1/postrun-review-v1/root-terminal-review.json",
+      "sha256": "206a6667f0c907cbda68d43aa89eb804a5a30e50fa2fde0d08c7bcbf456949ea"
+    },
+    "LIB2_A_disk-samples.jsonl": {
+      "path": "runs/native-single-qs-lib2-replay-v1/A/candidate/disk-samples.jsonl",
+      "sha256": "d43dcec6ef973df31dcd718880b4571a89c7de8c5f1dca33a2cfa0c92dd54737"
+    },
+    "LIB2_A_metrics.json": {
+      "path": "runs/native-single-qs-lib2-replay-v1/A/candidate/metrics.json",
+      "sha256": "1057bd9398876834ba4b3b81df5377b1aec2217caaaa3195ab0caee63d7ed6a0"
+    },
+    "LIB2_B_disk-samples.jsonl": {
+      "path": "runs/native-single-qs-lib2-replay-v1/B/candidate/disk-samples.jsonl",
+      "sha256": "b2ef38937f24619132a59e25d115e8ff7b88225182f35135e8ee867828a78cd9"
+    },
+    "LIB2_B_metrics.json": {
+      "path": "runs/native-single-qs-lib2-replay-v1/B/candidate/metrics.json",
+      "sha256": "d3541b3e631b39038aa531ced3492fb2e519c1c95e3a082b44904e000363f025"
+    }
+  },
+  "recommendation": {
+    "decision": "Adopted: exact tested outputResults.R plus the42 behavioral tests installed in 3dabe21d2ac7efbcd242df1c17721da22ba0b76c after root final review; retain one ordinary public QS and keep later-source full-workflow performance unmeasured.",
+    "reason": "The matched LIB1 complete-task pair trades111.141349 additional CPU seconds for25.572450% lower largest-process peak while preserving one ordinary standalone QS and all exports. Both library integration/repeat proofs and lifecycle checks now pass.",
+    "remaining_limits": [
+      "Performance is one uncontrolled candidate-first LIB1 pair, not a general scaling law.",
+      "Largest-process peak is measured; candidate concurrent RSS series are incomplete and remain null.",
+      "General ordered input-count/duplicate/empty-table and failure-path behavior is covered by small fixtures, not exhaustive arbitrary future data.",
+      "Neither upstream burden memory nor a complete workflow at the candidate output-source revision was measured."
+    ]
+  }
+}

@@ -301,18 +301,47 @@ The readable `storage-evaluation-final-v1.txt` companion and underlying
 `coverage-pool-probe-terminal-root-review-v2.json` reviews remain in workspace
 `runtime/reopened-storage-evaluation-20261009/`.
 
-At the close of that SQL-coverage study, the alternative combining R-native
-coverage with DuckDB calls remained untested. A subsequent, independent hybrid
-experiment is now underway outside production. As of 2026-10-11, its complete
-15-input native/hybrid pair preserves all 20 burden components and eight
-ordered BED/index outputs; the 60-input pair is still running. The ordinary
-public QS2 is restored before the hybrid worker finishes, including that cost
-in its measurements. This prototype uses R and non-R SQL through DuckDB, with
-no custom C++. No changes from the separate GC screen have been added to this
-frozen prototype. Its eventual recommendation requires the complete larger
-comparison and a separate user decision; the
-production pipeline retains the R calculation and self-contained QS2.
-Workspace evidence is under `runtime/hybrid-r-coverage-duckdb-calls-20261010/`.
+A separate hybrid study now has complete 15- and 60-input burden results:
+coverage accumulation and annotation remain in R, while raw calls are staged
+privately in DuckDB. This is distinct from the rejected SQL-coverage integration
+above. Full15 used 6,949.075195/5,910.533931 actual CPU seconds for native/hybrid
+(-14.95%), with both process peaks about 20.85 GiB and dominated by setup. Full60
+used 26,678.520544/22,483.688875 CPU seconds (-15.72%); largest-process peak fell
+from 42.52 to 36.13 GiB (-15.04%). The complete worker cost includes restoring
+one ordinary public QS2, checkpoint/close, collection, save and successful
+private-storage cleanup. Scientific validation and container preflight costs
+are separate; no whole-pipeline saving or minimum safe allocation is inferred.
+
+Full15 preserves all 20 ordered burden components and eight BED/index outputs;
+its original comparator did not test the outer list attributes. Full60 additionally
+passes strict whole-object identity, including outer type/attributes, all 20
+components, eight ordered BED payloads totaling **12,156,923,034 rows**, 16
+own-file index rebuilds and 80 indexed-query comparisons. Both pairs ran
+sequentially on the same host, native first at 15 inputs and hybrid first at 60.
+The measurements remain observational: most full60 CPU difference is in mixed
+raw-call binding/coverage preparation, shared annotation timing also varies,
+and retained hybrid file cache caused late native reclamation at the shared
+192 GiB job limit without OOM or swap. Process peaks preceded that reclamation;
+job/cgroup peaks include cache and are not per-arm process memory.
+
+The prototype adds a 187-line R adapter plus integration edits and custom SQL
+through DBI/DuckDB, with no custom C++. Its schema/row-ID restrictions are
+implementation limits, not proof across all valid pipeline inputs. Memory is
+not bounded independently of input size: coverage and final QS assembly remain
+in R. Integrated hybrid mitochondrial/zero-call cases remain unproved. No
+changes from the separate GC screen have been added. The single ordinary R
+consumer (`19597712`) passed strict whole-object identity between native60 and
+its accepted `358e4bf` burden input before replacing only the nuclear-strict
+input. Final validation (`19598870`) passes the whole output object, all 18
+components, all 310 exports under the established VCF/PDF comparison rules and
+56 own-file index checks; private output parts were removed. Its 96 GiB/45-minute
+validation allocation followed a resource-only amendment after the original
+128 GiB request was rejected before job creation; proof commands were unchanged.
+The hybrid is a worthwhile moderate integration candidate if the user chooses
+its measured benefit over the additional maintenance. Adoption still requires
+that separate user decision and the remaining hybrid edge checks. Production
+retains its R calculation and self-contained QS2. Precise metrics, source
+bindings and limitations are in the [hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
 
 The earlier R-only few-QS component variant passed 18 components through both
 its reader and ordinary-QS reconstruction, all 310 exports and 56 own-file

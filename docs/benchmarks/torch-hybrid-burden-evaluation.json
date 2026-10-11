@@ -1,0 +1,618 @@
+{
+  "report_state": "Completed research evaluation: full15/full60 burden proofs and ordinary downstream consumer/input-provenance/final output proofs passed; hybrid not adopted.",
+  "recorded_date": "2026-10-11",
+  "scope": "One LIB1 nuclear strict burden workload using 15 and 60 ordered filtered inputs. Separate hybrid study retaining R coverage; not the rejected full SQL-coverage integration.",
+  "decision": {
+    "production_adopted": false,
+    "recommendation": "Worthwhile moderate candidate for integration if the user chooses the measured task-level savings over the additional adapter/dependency maintenance. A separate user decision is required before adoption; integrated hybrid mitochondrial zero-input/zero-call checks and compatibility limits remain adoption work.",
+    "production_science_change": "None from this hybrid study; native R calculation and one self-contained public QS2 remain.",
+    "earlier_sql_coverage_decision": "Still rejected and its full60 successor disabled; see torch-storage-evaluation.json.",
+    "separate_gc_screen_changes_added": false,
+    "new_broad_benchmarks_proposed": false,
+    "completed_research_scope": "Frozen full15/full60 burden comparisons and one ordinary R downstream consumer, including accepted-baseline identity and final scientific output validation."
+  },
+  "environment": {
+    "scientific_source_revision": "37587aac5c15df6dabe0abb76330485963800d2e",
+    "sif_sha256": "ba870dd115e746165f97c31b49d90c2a59b918d47f985dc23dfcdc0b9570b332",
+    "packages": {
+      "R": "4.4.2",
+      "duckdb": "1.3.1",
+      "DBI": "1.2.3",
+      "qs2": "0.1.5",
+      "dplyr": "1.1.4",
+      "vctrs": "0.6.5"
+    },
+    "matched_worker_allocated_cpus": 2,
+    "duckdb_threads": 1,
+    "blas_threads": 1,
+    "duckdb_memory_setting": "512MB; database setting only, not a total-worker bound",
+    "source_sha256": {
+      "calculateBurdens.hybrid.R": "2cdabbe9e41798c4dbcf33977494228e8b0030512650697f54f84a709201da7a",
+      "calculateBurdens.native.R": "8eaefc628ea8d7f1765d71a87c290cb153e64ba0b6635911600de3035f40c279",
+      "calculateBurdens.original.R": "a61034ec0dcfbb1b4c64ac2f30ac48a8d0736468d0c5c8af3ccea12d976a0091",
+      "call-store.R": "6d32106af8df557d9581029e3ad19f2303e5beddc717e739d0554bea5d5aea0d",
+      "phases.R": "51335461ac7dfedbdd8d2da4160cff3c7aad04812fe7f077087f82ac5eb6efc9",
+      "sharedFunctions.R": "67f24e698144a01b9dd9973699a181e14430db954ef1985431efd59ab6b8a4ae"
+    }
+  },
+  "methods": {
+    "M1_complete_worker_cpu": "Linux resource.getrusage(RUSAGE_CHILDREN) user+system CPU for waited descendants via the pinned measure.py; allocated cores times elapsed time is not used as actual CPU.",
+    "M2_complete_worker_wall": "Pinned measure.py elapsed wall seconds for each complete command.",
+    "M3_process_peak": "Largest-process high-water RSS in KiB for each complete worker; not simultaneous process-tree sum, R heap, cgroup cache-inclusive memory or minimum safe allocation.",
+    "M4_phase_intervals": "Differences between common R phase probes, including waited-child CPU. Mixed preparation includes changed raw-call binding/lifetimes and common coverage preparation/writing; not an isolated SQL timer.",
+    "M5_scientific_identity": "R identical on 20 ordered public components; full60 additionally identical on the whole ordinary object including outer type/attributes. All eight ordered decompressed BED payloads match, own indices are rebuilt, indexed queries match.",
+    "M6_allocation_and_disk_context": "Five-second cgroup samples and thirty-second disk occupancy samples; cgroup peak is cumulative across sequential arms and includes retained cache. Occupancy does not measure I/O traffic.",
+    "complete_worker_boundary": "Includes input loading, R coverage/annotation, call handling, ordinary raw-table restoration, checkpoint/disconnect, collection, ordinary QS2 save, and successful owned private-storage cleanup. Native ordinary save included. Container preflight and independent validation excluded.",
+    "percent_change": "100 * (hybrid / native - 1); negative means less resource use. These are observational percentages; causation and statistical significance are not established.",
+    "units": "KiB and GiB are binary; artifact byte counts are exact. Decimal GB disk summaries are distinct.",
+    "M7_consumer_proof": "Before the single ordinary R consumer, strict whole-object identity bridges native60 to the retained accepted358 nuclear-strict burden. Only input slot2 is replaced by hybrid60; the other three accepted burdens remain. Final whole-object/18-component identity and all310 exports/56 own-index proofs use unchanged comparators and existing VCF fileDate/scientific PDF exceptions."
+  },
+  "burden_pairs": [
+    {
+      "inputs": 15,
+      "worker_job": "19560418",
+      "validator_job": "19560444",
+      "host": "cl017.hpc.nyu.edu",
+      "order": [
+        "native",
+        "hybrid"
+      ],
+      "shared_allocation_gib": 96,
+      "both_completed_zero": true,
+      "workers": {
+        "native": {
+          "user_seconds": 6532.659211,
+          "system_seconds": 416.415984,
+          "actual_cpu_seconds": 6949.075195,
+          "wall_seconds": 6767.568393925205,
+          "max_rss_kib": 21859692
+        },
+        "hybrid": {
+          "user_seconds": 5544.330022,
+          "system_seconds": 366.203909,
+          "actual_cpu_seconds": 5910.533931,
+          "wall_seconds": 5704.500808723737,
+          "max_rss_kib": 21858236
+        }
+      },
+      "hybrid_percent_change": {
+        "actual_cpu_seconds": -14.945028436981822,
+        "wall_seconds": -15.708265115661234,
+        "max_rss_kib": -0.006660661092572351
+      },
+      "validation": {
+        "status": "PASS for recorded component/BED scope",
+        "ordered_components": 20,
+        "whole_outer_object_tested": false,
+        "ordered_bed_payloads": 8,
+        "summed_ordered_bed_rows": 4432603688,
+        "own_index_rebuilds": 16,
+        "indexed_queries": 80,
+        "successful_private_backing_cleanup": true
+      },
+      "interpretation": "Both peaks about 20.85GiB occurred during shared setup before input loading; no full15 peak benefit established."
+    },
+    {
+      "inputs": 60,
+      "worker_job": "19570428",
+      "validator_job": "19592727",
+      "host": "cl017.hpc.nyu.edu",
+      "order": [
+        "hybrid",
+        "native"
+      ],
+      "shared_allocation_gib": 192,
+      "both_completed_zero": true,
+      "workers": {
+        "native": {
+          "user_seconds": 24626.928238,
+          "system_seconds": 2051.592306,
+          "actual_cpu_seconds": 26678.520544,
+          "wall_seconds": 26229.156174253207,
+          "max_rss_kib": 44588704
+        },
+        "hybrid": {
+          "user_seconds": 20904.684909,
+          "system_seconds": 1579.003966,
+          "actual_cpu_seconds": 22483.688875,
+          "wall_seconds": 22038.829772595316,
+          "max_rss_kib": 37881108
+        }
+      },
+      "hybrid_percent_change": {
+        "actual_cpu_seconds": -15.72362928477088,
+        "wall_seconds": -15.975833815695362,
+        "max_rss_kib": -15.04326297530424
+      },
+      "absolute_savings": {
+        "actual_cpu_seconds": 4194.831668999999,
+        "process_peak_kib": 6707596
+      },
+      "validation": {
+        "status": "PASS",
+        "ordered_components": 20,
+        "whole_ordinary_object_identical": true,
+        "outer_type_and_attributes_identical": true,
+        "ordered_bed_payloads": 8,
+        "summed_ordered_bed_rows": 12156923034,
+        "own_index_rebuilds": 16,
+        "indexed_queries": 80,
+        "successful_private_backing_cleanup": true
+      },
+      "phase_intervals": {
+        "shared_setup": {
+          "native": {
+            "cpu_s": 588.618,
+            "elapsed_s": 552.384
+          },
+          "hybrid": {
+            "cpu_s": 613.868,
+            "elapsed_s": 581.266
+          },
+          "hybrid_minus_native": {
+            "cpu_s": 25.25,
+            "elapsed_s": 28.882
+          }
+        },
+        "input_loading": {
+          "native": {
+            "cpu_s": 9208.576,
+            "elapsed_s": 9251.112
+          },
+          "hybrid": {
+            "cpu_s": 8328.305,
+            "elapsed_s": 8372.219
+          },
+          "hybrid_minus_native": {
+            "cpu_s": -880.271,
+            "elapsed_s": -878.893
+          }
+        },
+        "mixed_raw_call_and_coverage_preparation": {
+          "native": {
+            "cpu_s": 3526.98,
+            "elapsed_s": 3565.722
+          },
+          "hybrid": {
+            "cpu_s": 520.87,
+            "elapsed_s": 544.733
+          },
+          "hybrid_minus_native": {
+            "cpu_s": -3006.11,
+            "elapsed_s": -3020.989
+          }
+        },
+        "shared_coverage_annotation": {
+          "native": {
+            "cpu_s": 11774.359,
+            "elapsed_s": 11265.399
+          },
+          "hybrid": {
+            "cpu_s": 11318.131,
+            "elapsed_s": 10783.191
+          },
+          "hybrid_minus_native": {
+            "cpu_s": -456.228,
+            "elapsed_s": -482.208
+          }
+        },
+        "pre_call_transition": {
+          "native": {
+            "cpu_s": 34.914,
+            "elapsed_s": 35.339
+          },
+          "hybrid": {
+            "cpu_s": 5.597,
+            "elapsed_s": 5.838
+          },
+          "hybrid_minus_native": {
+            "cpu_s": -29.317,
+            "elapsed_s": -29.501
+          }
+        },
+        "call_processing": {
+          "native": {
+            "cpu_s": 72.231,
+            "elapsed_s": 77.544
+          },
+          "hybrid": {
+            "cpu_s": 87.542,
+            "elapsed_s": 91.79
+          },
+          "hybrid_minus_native": {
+            "cpu_s": 15.311,
+            "elapsed_s": 14.246
+          }
+        },
+        "post_call_through_save_start": {
+          "native": {
+            "cpu_s": 1405.749,
+            "elapsed_s": 1413.976
+          },
+          "hybrid": {
+            "cpu_s": 1550.828,
+            "elapsed_s": 1600.795
+          },
+          "hybrid_minus_native": {
+            "cpu_s": 145.079,
+            "elapsed_s": 186.819
+          }
+        },
+        "ordinary_qs_save": {
+          "native": {
+            "cpu_s": 63.311,
+            "elapsed_s": 64.006
+          },
+          "hybrid": {
+            "cpu_s": 56.08,
+            "elapsed_s": 56.684
+          },
+          "hybrid_minus_native": {
+            "cpu_s": -7.231,
+            "elapsed_s": -7.322
+          }
+        }
+      }
+    }
+  ],
+  "full60_public_artifacts_per_arm": {
+    "ordinary_qs2_count": 1,
+    "ordinary_qs2_bytes": 1836319959,
+    "coverage_bed_count": 8,
+    "coverage_bed_bytes": 81967630874,
+    "coverage_index_count": 8,
+    "coverage_index_bytes": 21202609,
+    "private_database_required_by_consumer": false
+  },
+  "independent_validation_costs": {
+    "cost_boundary": "Validation costs are recorded separately and excluded from the worker comparison; no whole-research or whole-pipeline net saving is claimed.",
+    "full15": [
+      {
+        "label": "validation-0",
+        "actual_cpu_seconds": 29.932513,
+        "wall_seconds": 30.490910863038152,
+        "max_rss_kib": 13296788,
+        "exit_status": 0,
+        "wrapper_returncode": 0
+      },
+      {
+        "label": "validation-1",
+        "actual_cpu_seconds": 2016.8388559999999,
+        "wall_seconds": 2028.5718636116944,
+        "max_rss_kib": 42120,
+        "exit_status": 0,
+        "wrapper_returncode": 0
+      }
+    ],
+    "full60": {
+      "metrics-0": {
+        "actual_cpu_seconds": 91.311537,
+        "user_seconds": 70.499026,
+        "system_seconds": 20.812511,
+        "wall_seconds": 92.38050741981715,
+        "max_rss_kib": 42648888,
+        "exit_status": 0,
+        "wrapper_returncode": 0
+      },
+      "metrics-1": {
+        "actual_cpu_seconds": 5138.584975,
+        "user_seconds": 4982.425951,
+        "system_seconds": 156.159024,
+        "wall_seconds": 5162.296876089182,
+        "max_rss_kib": 42492,
+        "exit_status": 0,
+        "wrapper_returncode": 0
+      },
+      "metrics-whole-object": {
+        "actual_cpu_seconds": 87.846572,
+        "user_seconds": 65.494846,
+        "system_seconds": 22.351726,
+        "wall_seconds": 89.25880065793172,
+        "max_rss_kib": 42601808,
+        "exit_status": 0,
+        "wrapper_returncode": 0
+      }
+    },
+    "full60_total_actual_cpu_seconds": 5317.743084,
+    "full60_total_measured_wall_seconds": 5343.936184166931,
+    "consumer_input_provenance_bridge": {
+      "user_seconds": 68.163807,
+      "system_seconds": 18.991459,
+      "actual_cpu_seconds": 87.15526600000001,
+      "wall_seconds": 88.18817919585854,
+      "max_rss_kib": 42601564,
+      "allocated_cpus": 1,
+      "exit_status": 0,
+      "wrapper_returncode": 0,
+      "slurm_job_id": "19597712"
+    },
+    "final_consumer_validation": {
+      "whole18_and_object": {
+        "user_seconds": 189.994166,
+        "system_seconds": 39.090142,
+        "actual_cpu_seconds": 229.08430800000002,
+        "wall_seconds": 230.91582592204213,
+        "max_rss_kib": 67101344,
+        "allocated_cpus": 1,
+        "exit_status": 0,
+        "wrapper_returncode": 0,
+        "slurm_job_id": "19598870"
+      },
+      "exports_and_own_indices": {
+        "user_seconds": 72.103571,
+        "system_seconds": 1.420742,
+        "actual_cpu_seconds": 73.524313,
+        "wall_seconds": 85.30498241307214,
+        "max_rss_kib": 50492,
+        "allocated_cpus": 1,
+        "exit_status": 0,
+        "wrapper_returncode": 0,
+        "slurm_job_id": "19598870"
+      },
+      "total_actual_cpu_seconds": 302.608621,
+      "total_measured_wall_seconds": 316.22080833511427,
+      "largest_process_peak_kib": 67101344
+    }
+  },
+  "downstream_ordinary_consumer": {
+    "status": "COMPLETED; exact scientific compatibility passed",
+    "consumer_job": "19597712",
+    "validation_job": "19598870",
+    "scope": "One unchanged ordinary R output consumer using the original ordered four inputs, replacing only nuclear-strict slot2 with hybrid60 ordinary QS2. The other three accepted burdens, including both mitochondrial inputs, remain unchanged. No output timing pair or whole-pipeline saving is inferred.",
+    "input_provenance_bridge": {
+      "status": "PASS",
+      "native60_vs_accepted358_whole_object_identical": true,
+      "outer_type_and_attributes_identical": true,
+      "ordered_components": 20,
+      "metrics": {
+        "user_seconds": 68.163807,
+        "system_seconds": 18.991459,
+        "actual_cpu_seconds": 87.15526600000001,
+        "wall_seconds": 88.18817919585854,
+        "max_rss_kib": 42601564,
+        "allocated_cpus": 1,
+        "exit_status": 0,
+        "wrapper_returncode": 0,
+        "slurm_job_id": "19597712"
+      }
+    },
+    "complete_worker_metrics": {
+      "user_seconds": 1403.555648,
+      "system_seconds": 91.074082,
+      "actual_cpu_seconds": 1494.62973,
+      "wall_seconds": 1533.1777796242386,
+      "max_rss_kib": 33575108,
+      "allocated_cpus": 1,
+      "exit_status": 0,
+      "wrapper_returncode": 0,
+      "slurm_job_id": "19597712"
+    },
+    "complete_worker_boundary": "Input provenance proof, complete ordinary output worker, and final validation separately measured; complete worker includes parent, export/calculation child, ordinary QS assembly, cleanup, and all waited descendants. RSS is largest process, not concurrent allocation memory.",
+    "artifacts": {
+      "ordinary_qs2_count": 1,
+      "ordinary_qs2_bytes": 2572723124,
+      "scientific_export_count": 310,
+      "scientific_export_bytes": 3435702360,
+      "private_output_parts_removed": true,
+      "private_hybrid_database_required": false
+    },
+    "final_proofs": {
+      "status": "PASS",
+      "whole_output_object_identical": true,
+      "ordered_output_components": [
+        "yaml.config",
+        "run_metadata",
+        "individual_id",
+        "sample_id",
+        "molecule_stats.by_run_id",
+        "molecule_stats.by_analysis_id",
+        "region_genome_filter_stats",
+        "finalCalls",
+        "finalCalls.bytype",
+        "germlineVariantCalls",
+        "germlineVariantCalls_for_tsv",
+        "finalCalls.reftnc_spectra",
+        "bam.gr.filtertrack.bytype.coverage_tnc",
+        "genome.reftnc",
+        "genome_chromgroup.reftnc",
+        "sensitivity",
+        "finalCalls.burdens",
+        "estimatedSBSMutationErrorProbability"
+      ],
+      "scientific_exports": 310,
+      "own_index_rebuilds": 56,
+      "comparison_exemptions": "Unchanged existing VCF fileDate and scientific PDF metadata/encoding rules only; no object/TSV order, type or value normalization.",
+      "source_inputs_environment_unchanged": true
+    },
+    "validation_resource_amendment": {
+      "original_requested_memory_gib": 128,
+      "original_submission_created_job": false,
+      "reason": "The original cpu_short request was rejected before job creation; retained scheduler evidence records a120G QOS memory limit.",
+      "amended_requested_memory_gib": 96,
+      "time_limit": "00:45:00",
+      "allocated_cpus": 1,
+      "scientific_commands_and_comparators_changed": false,
+      "original_source_manifest_retained": true,
+      "final_completion_success": true,
+      "actual_resources": {
+        "account": "torch_pr_285_general",
+        "partition": "cpu_short",
+        "qos": "cpu48",
+        "cpus": 1,
+        "memory_gib": 96
+      }
+    },
+    "independent_root_final_review_passed": true,
+    "validation_job_state": "COMPLETED 0:0"
+  },
+  "maintenance_and_scaling": {
+    "scientific_languages": "R plus handwritten SQL through DBI/DuckDB; no custom C++/Rcpp.",
+    "control_languages": "Python/shell measurement, source/input guards and scientific validation; ordinary output consumer remains R.",
+    "adapter_physical_lines": 187,
+    "additional_integration_edits": true,
+    "contracts_to_maintain": [
+      "factor-level union and scalar promotion",
+      "vector names and integer list cells",
+      "NA grouping, empty tables, first-row choice and stable row ordering",
+      "SQL projection and sensitivity distinct/count queries",
+      "private database ownership, spill/checkpoint/disconnect and success/failure cleanup"
+    ],
+    "memory_scaling": "Memory is not bounded independently of input size. Coverage remains in R, dbGetQuery materializes projected/public call tables, and final ordinary QS2 assembly remains a memory floor.",
+    "prototype_row_ceiling": {
+      "rows_per_table": 2147483647,
+      "basis": "Integer row IDs/counters and INTEGER group count cast; implementation ceiling, not a validated workload range."
+    },
+    "prototype_schema_limits": "Accepts ordinary tibbles, base scalar types/unordered factors and unattributed integer-vector list cells with optional vector names. Rejects ordered or explicit-NA-level factors, non-base scalar classes, NaN/Inf, non-integer/attributed list cells, changed column sets/list-column types and reserved internal prefixes. These restrictions are distinct from the cases with passed scientific validation; no failure of a validated pipeline input is asserted.",
+    "integrated_mitochondrial_gap": "Hybrid complete-task proof is absent for zero mitochondrial reads, mitochondrial coverage without raw calls and mitochondrial raw calls filtered to zero. Existing native-R edge proofs and call-store fixtures do not substitute for hybrid integrated proof."
+  },
+  "limitations": [
+    "Single sequential pair at each of two sizes, not replicated full60 crossover trials. Full15 opposite order supports direction but does not establish statistical significance.",
+    "Mixed preparation accounts for about 71.7% of the 4194.831669s CPU difference; shared coverage annotation differs by 456.228s and loading by 880.271s. The full delta is not attributable to SQL.",
+    "Hybrid-first full60 left file cache in the shared allocation. Native late annotation hit the 192GiB cgroup limit with 172 max events, zero OOM and zero swap. Both worker process peaks were reached by input60 before these events.",
+    "No per-arm minimum safe allocation, I/O-byte saving, fully out-of-core bound, cross-configuration result or whole-pipeline saving is established.",
+    "The single ordinary consumer and its outputs pass exact scientific proof under existing comparison rules. This is compatibility evidence only, with no matched output performance pair; unchanged mitochondrial inputs do not prove hybrid mitochondrial burden behavior.",
+    "No GC changes were added after freezing. Results do not predict a subsequently modified hybrid."
+  ],
+  "receipt_bindings": [
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/harness/plan.json",
+      "sha256": "2bda0609116c7da37a82a5b11551ab28aca1ef8a1ab4a529c9cdb36f1161c335"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/science/manifest.json",
+      "sha256": "a542b48ed02bf8821168d84355f55bc06d091f063ee4235600db2be0c8d269b7"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/science/call-store.R",
+      "sha256": "6d32106af8df557d9581029e3ad19f2303e5beddc717e739d0554bea5d5aea0d"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/paired15-resource-review.json",
+      "sha256": "0e5d286d02084e18c0f5ca2774452346013ef7847f6fd773bbe365282b1dfb6f"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/paired15-terminal.json",
+      "sha256": "ea2d73524b0437fe4b1461c1922ca8d1ef79dab75f410397cdc42b2e0b89554d"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/paired60-resource-review.json",
+      "sha256": "4e89f0e22b83e826e536afc4bb51336916624737bdc23e1651a8184d4c0b3ca4"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/native60-terminal.json",
+      "sha256": "94e305465b810ee590bf6418ecfcac98e77445eb945bb92399692cd4cd700775"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/hybrid60-terminal.json",
+      "sha256": "1f5646de770eef0ba470b81f8a64f8edd6bd33f735f96e669e2505963ad2836f"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/native60-cache-pressure.json",
+      "sha256": "b22be444d531bb63843e91c12e4b2be0727c40a6da1efdeeda8e94253674013d"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/full60-validation-terminal.json",
+      "sha256": "fd0f2e57aadd47fd2b7966453bb9e292da826fafba8230abdfe9d6d8faf9f10d"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/results/validation-60-v1/completion.json",
+      "sha256": "637fa33ededf0db449bb3eef650a7d29df811f0cebd87651f9a696f2beced067"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/full60-evidence.json",
+      "sha256": "43842671ae0f7b35c2972e2b59159b36bab270b9cd31f73590f0eb20f42fd4bc"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/source-manifest.json",
+      "sha256": "3b4011c14f8f785813d17e0effae6c1d20b3e493508a2b66541b7587893691a4"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/consumer-submission.json",
+      "sha256": "c4c6a7373078a9cae2f053a742283ee944d2e3bce4d53c95676a80730f387b6c"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-hybrid-mitochondrial-gap.json",
+      "sha256": "72a6c89a854f1eb06a785f56adf9d8a009a9d5ac03ce5dc4e7b534c3a6496662"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/consumer/completion.json",
+      "sha256": "6c7face09c71cd11d294955987729852744c9bd192da8d6171d3e194f3b7e042"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/consumer/input-proof/whole-object.json",
+      "sha256": "f3094bcd629d045f6ff45ffc14334a1b58b5c5a05a38a54c57af85511a1cbc3a"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/consumer/input-proof/metrics.json",
+      "sha256": "27ed7facffd6b66909fc922ed0f361d55c4a54730bd8636e83c3cd1e39adbeac"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/consumer/complete-output-worker/metrics.json",
+      "sha256": "c1c2460211de35cf4a1da2a2fd827581cea550855c7324ee9397351db1a1cf41"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/consumer/ordered-inputs.json",
+      "sha256": "c2966eb0174a491c29acb8879528fa5b732ec33063606e9e0843a9c42b579b80"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/validation/completion.json",
+      "sha256": "f0932cef0942469ba046537b5ba61b004bf07bd7bab94b95c0f4de0509ea8a8f"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/validation/whole18-and-object/exact.json",
+      "sha256": "733719d4f5421ca22e6296c6549cfe4cb5b858d372673872f6e5eb2465a3192a"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/validation/whole18-and-object/metrics.json",
+      "sha256": "8ab0d431dcf3e58b12a73ec8f5d3edf1fbe62ed7dde58e203c3fb2d9e9ac065c"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/validation/exports-and-own-indices/checks/files.json",
+      "sha256": "8561b754aae87d0d9af14cb3fb1c238ef3e223b7d732751b5ee50896a9b7926b"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/results/validation/exports-and-own-indices/metrics.json",
+      "sha256": "b64730949b408658957b6a708061cd17ff69cb443d14d8876f944759ee99a33c"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/validation-submission-rejection.json",
+      "sha256": "32bfb513c8dd0a601c8fdd27a9b35e03ba71be1a33b6cc56b57b8a38f7c543f8"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/resource-amendment.json",
+      "sha256": "fdd8adc91ad1fadc69f746b1f194b7b251acf89b5b060989f763a7b4a33894bc"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/manifest.json",
+      "sha256": "b92943959cdfce2a48f85c148ce16eb5607a1e9f5ff3aede2efb5cf629f94b43"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/root-approval.json",
+      "sha256": "b5bbd4275beef6321b587490b9e55812521e0cb4c87d666f160275c3cdb4e40f"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/submission.json",
+      "sha256": "73cd338639798e1f62ce3eb9a352c7141ceff38b1a44835bc0906a5fe1e240dc"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/verification.json",
+      "sha256": "e0174cc196864dec589321112095c24096afffd307de131f4144c523fb2852be"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/compare.R",
+      "sha256": "6d8dbb4deb707ac8a4084d40452f97a7f0b6a2ac3045cefacd42400b475fd8c5"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/files.py",
+      "sha256": "b6595ff1c99d59fe43571762f03bc96c2db09d82a09252160010c162757f1549"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-final-validation.json",
+      "sha256": "029105af6d53d69aaa9b035c478d1e5600e0c6ea2378cefc2f464989c5de88bd"
+    },
+    {
+      "path": "runtime/hybrid-r-coverage-duckdb-calls-20261010/conditional-consumer-review/resource-amendment-v1/root-final-consumer-validation-review.json",
+      "sha256": "af24f4b07176e858e0192bb0c3f750114b631e99f2fe463c1634f7fd1f1f1938"
+    }
+  ]
+}

@@ -172,6 +172,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Native Rle addition and immediate sharing, selected after whole-worker proof | R | Uses existing Bioconductor compiled operations; no new custom Python/C++/Rcpp implementation |
 | Temporary-QS coverage storage, experimental and not adopted | R | Existing compiled qs2/Bioconductor packages and annotation/index CLIs; Python/shell benchmark controls only, no custom non-R scientific kernel |
 | DuckDB calls and coverage storage, current SQL integration rejected | R with embedded SQL | **Yes: SQL query/reduction logic** through the existing DuckDB package; no custom C++/Rcpp; Python/shell benchmark controls only |
+| R coverage with private DuckDB call staging, experimental; full60 burden and ordinary-consumer proofs complete; not adopted | R with embedded SQL | **Yes: custom SQL** through DBI/DuckDB; 187-line R adapter plus integration edits; no custom C++/Rcpp; ordinary public-QS consumer remains R; Python/shell research controls only |
 | Single-public-QS output task, both samples validated; installed in `3dabe21` | R | Existing packages and export CLIs; no new package or custom non-R scientific logic; Python/shell measurement and validation controls only |
 
 ## Torch launch and resource settings
@@ -1040,25 +1041,72 @@ adoption would also require complete handling of supported barcode configuration
 backing-file publication and restart rules, format versions and cleanup. Neither
 exact native-column storage nor a successful dataset replay removes that work.
 
-R-native coverage combined with native-column DuckDB calls remains technically
-feasible, but that combined path is unvalidated and deferred. It would retain
-custom SQL ordering/query logic for calls, without adding custom C++, and would
-need combined readers/manifests, track mapping, lifecycle handling, ordinary
-assembly and all-configuration validation. Earlier integer-only reduction
-proofs do not permit reassociating fractional or double sums. Neither this
-hybrid nor a few-QS handoff removes whole input and final-QS allocations. Current
-finalization retains clean R calculation and a self-contained QS2. The separate
-R-only single-public-QS output task has passed its LIB1 completion and LIB2
-integration/repeat proofs and was installed in `3dabe21` after acceptance of
-the `358e4bf` workflow. Its separate output-stage proofs do not establish a full
-workflow at the later source revision. The final storage decision
-and reviewed boundaries are in the
-[completed storage evaluation](benchmarks/torch-storage-evaluation.json).
-The readable companion and underlying reviews remain in workspace
-`runtime/reopened-storage-evaluation-20261009/`:
-`storage-evaluation-final-v1.txt`, `storage-evaluation-final-independent-review-v1.json`
-and `coverage-pool-probe-terminal-root-review-v2.json`. No new storage rewrite
-or allocation is proposed.
+The subsequent R-coverage/DuckDB-call hybrid is a separate experiment from the
+rejected SQL-coverage implementation above. Its frozen `37587aa` burden
+worker retains R coverage accumulation and annotation, stages raw calls in a
+private database, then restores the same self-contained public QS2 and removes
+the private storage after a successful save. These steps are included in the
+complete-worker measurements; preflight and scientific validation are separate.
+
+| Inputs | Native actual CPU seconds | Hybrid actual CPU seconds | Native process peak KiB | Hybrid process peak KiB |
+|---|---:|---:|---:|---:|
+| 15 | 6,949.075195 | 5,910.533931 | 21,859,692 | 21,858,236 |
+| 60 | 26,678.520544 | 22,483.688875 | 44,588,704 | 37,881,108 |
+
+The full60 observation saves **15.72% actual CPU** and **15.04% process peak**
+(42.52 to 36.13 GiB). Full15's 14.95% CPU reduction used the opposite execution
+order, but its two peaks were dominated by common setup. These are single
+same-host sequential pairs at different sizes, not replicated full60 trials or
+whole-workflow savings. Most full60 CPU difference lies in mixed raw-call
+binding/coverage preparation (3,526.980 versus 520.870 seconds); shared coverage
+annotation also varies (11,774.359 versus 11,318.131 seconds). The probes do not
+isolate a SQL speedup. Hybrid ran first at full60; retained file cache caused
+late native reclamation at the shared 192 GiB limit without OOM or swap. Both
+process peaks preceded this event. Cgroup/Slurm peaks include cache and cannot
+replace per-arm process peaks or establish a smaller safe allocation.
+
+Full15 passes all 20 components and eight ordered BED/index proofs. Full60 also
+passes entire ordinary-object identity, including the outer list attributes,
+and eight ordered BED payloads totaling 12,156,923,034 rows, 16 own-file index
+rebuilds and 80 indexed-query checks. The single ordinary R output consumer
+(`19597712`) first passed strict whole-object identity between native60 and the
+retained accepted `358e4bf` burden, then replaced only the nuclear-strict input
+in the original four-input command. Final validation (`19598870`) passes the
+whole output object and all 18 components, all 310 exports under the established
+VCF/PDF comparison rules, and 56 own-file index rebuilds. Successful cleanup
+leaves one ordinary public output QS2 and no private output parts. The consumer
+used 1,494.629730 CPU seconds, 1,533.177780 wall seconds and 33,575,108 KiB process
+peak; this is compatibility evidence, not an output performance pair. Final
+validation ran at 96 GiB/45 minutes after the original 128 GiB submission was
+rejected before job creation. That resource-only amendment retained all proof
+commands and comparators unchanged.
+
+The maintenance cost is a 187-line R adapter plus integration edits, DBI/DuckDB
+dependencies, handwritten SQL, R factor/type/name/list restoration, ordering
+and NA semantics, and private database failure/cleanup handling. No custom
+C++/Rcpp is added; Python/shell serve experimental control and validation.
+The prototype's per-table integer row IDs impose a `2^31-1` ceiling and its
+accepted schemas exclude several general R types. These are implementation
+restrictions, not a validated workload range or observed failures of the tested
+pipeline inputs. Memory is not bounded independently of input size: R coverage,
+collected call tables and final ordinary-QS assembly remain. Integrated hybrid
+mitochondrial/zero-call paths remain unproved. No separate GC-screen changes
+have been added to the frozen hybrid. This is a worthwhile moderate integration
+candidate if the user chooses its measured benefit over the maintenance cost.
+Production adoption requires that separate user decision and the remaining
+hybrid edge checks. Production R and the single-public-QS contract are unchanged.
+Exact metrics and source-bound receipts are in the
+[hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
+
+The separate R-only single-public-QS output task passed its LIB1 completion and
+LIB2 integration/repeat proofs and was installed in `3dabe21` after acceptance
+of the `358e4bf` workflow. Its output-stage proofs do not establish a full
+workflow at the later revision. The earlier SQL-coverage rejection and its
+boundaries remain in the [completed storage evaluation](benchmarks/torch-storage-evaluation.json),
+with workspace companion `runtime/reopened-storage-evaluation-20261009/storage-evaluation-final-v1.txt`
+and the retained independent and pool-probe reviews. Its unexecuted full60
+SQL-coverage successor remains disabled; the hybrid result does not reverse
+that decision.
 
 The [first evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
 and [compact evidence](benchmarks/torch-2026-10-09-storage-evaluation.json) retain

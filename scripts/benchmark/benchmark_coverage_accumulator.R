@@ -19,7 +19,8 @@ if(any(file.exists(paths))) stop("Refusing to overwrite benchmark outputs")
 dir.create(dirname(prefix), recursive = TRUE, showWarnings = FALSE)
 expressions <- parse(file.path(repo, "bin", "calculateBurdens.R"))
 for(name in c("sum_RleList", "bc_orientation_is_asymmetric", "validate_bam.gr.filtertrack",
-              "calc_duplex_coverage", "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result")) {
+              "duplex_coverage_ranges", "calc_duplex_coverage", "make_chunk_coverage_kernels",
+              "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result")) {
   hits <- vapply(expressions, function(x) is.call(x) && identical(x[[1]], as.name("<-")) &&
                    identical(x[[2]], as.name(name)), logical(1))
   stopifnot(sum(hits) == 1L)

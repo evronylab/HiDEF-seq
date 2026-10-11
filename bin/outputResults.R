@@ -1,5 +1,163 @@
 #!/usr/bin/env -S Rscript --vanilla
 
+# Private outputResults handoff. The public result remains one ordinary QS2.
+output_results_component_names <- function() c(
+  "yaml.config", "run_metadata", "individual_id", "sample_id",
+  "molecule_stats.by_run_id", "molecule_stats.by_analysis_id",
+  "region_genome_filter_stats", "finalCalls", "finalCalls.bytype",
+  "germlineVariantCalls", "germlineVariantCalls_for_tsv",
+  "finalCalls.reftnc_spectra", "bam.gr.filtertrack.bytype.coverage_tnc",
+  "genome.reftnc", "genome_chromgroup.reftnc", "sensitivity",
+  "finalCalls.burdens", "estimatedSBSMutationErrorProbability"
+)
+
+output_results_parse_cli <- function(args) {
+  options <- list(
+    optparse::make_option(c("-c", "--config"), type = "character", default = NULL,
+                         help = "path to YAML configuration file"),
+    optparse::make_option(c("-s", "--sample_id_toanalyze"), type = "character", default = NULL,
+                         help = "sample_id to analyze"),
+    optparse::make_option(c("-f", "--files"), type = "character", default = NULL,
+                         help = "comma-separated calculateBurdens qs2 files"),
+    optparse::make_option(c("-o", "--output_basename"), type = "character", default = NULL,
+                         help = "output basename")
+  )
+  opt <- optparse::parse_args(optparse::OptionParser(option_list = options), args = args)
+  if (is.null(opt$config) || is.null(opt$sample_id_toanalyze) ||
+      is.null(opt$files) || is.null(opt$output_basename)) stop("Missing input parameter(s)!")
+  # No data are read by the launcher. Empty input is an error, not an empty table.
+  if (!nzchar(trimws(opt$files))) stop("No calculateBurdens input files supplied!")
+  opt
+}
+
+output_results_target <- function(filename) {
+  file.path(normalizePath(dirname(filename), mustWork = TRUE), basename(filename))
+}
+
+output_results_launch <- function() {
+  directory <- Sys.getenv("HIDEF_OUTPUT_RESULTS_PARTS", unset = "")
+  if (!nzchar(directory) || !dir.exists(directory)) stop("Missing private output handoff!")
+  launch <- readRDS(file.path(directory, "launch.rds"))
+  stopifnot(identical(launch$args, commandArgs(trailingOnly = TRUE)),
+            identical(launch$directory, normalizePath(directory, mustWork = TRUE)),
+            identical(dirname(launch$directory), dirname(launch$output)))
+  launch
+}
+
+output_results_entry <- function(args) {
+  options(warn = 2)
+  role <- Sys.getenv("HIDEF_OUTPUT_RESULTS_STAGE", unset = "")
+  if (!role %in% c("", "worker", "assemble")) stop("Invalid internal output stage!")
+  file_args <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+  stopifnot(length(file_args) == 1L)
+  script <- normalizePath(sub("^--file=", "", file_args), mustWork = TRUE)
+  if (nzchar(role)) {
+    launch <- output_results_launch()
+    stopifnot(identical(launch$script, script))
+    if (role == "worker") {
+      cat("## outputResults worker PID: ", Sys.getpid(), "\n", sep = "")
+      return(invisible(NULL))
+    }
+    cat("## outputResults assembly PID: ", Sys.getpid(), "\n", sep = "")
+    # This branch runs in a new R process, after the calculation child exited.
+    suppressPackageStartupMessages({
+      library(GenomicRanges); library(tidyverse); library(qs2)
+    })
+    output_results_assemble(launch)
+    quit(status = 0L, runLast = FALSE)
+  }
+  if (nzchar(Sys.getenv("HIDEF_OUTPUT_RESULTS_PARTS", unset = ""))) {
+    stop("Unexpected inherited private output handoff!")
+  }
+  opt <- output_results_parse_cli(args)
+  output <- output_results_target(paste0(opt$output_basename, ".outputResults.qs2"))
+  directory <- tempfile(pattern = ".hidef-output-parts-", tmpdir = dirname(output))
+  stopifnot(dir.create(directory))
+  launch <- list(args = args, script = script, output = output,
+                 directory = normalizePath(directory, mustWork = TRUE))
+  saveRDS(launch, file.path(directory, "launch.rds"))
+  rscript <- file.path(R.home("bin"), "Rscript")
+  child <- function(stage) {
+    # Each argument is separately shell-quoted; no parent environment is changed.
+    status <- system2(rscript, c("--vanilla", shQuote(script), shQuote(args)),
+      env = c(paste0("HIDEF_OUTPUT_RESULTS_STAGE=", shQuote(stage)),
+              paste0("HIDEF_OUTPUT_RESULTS_PARTS=", shQuote(directory))), wait = TRUE)
+    if (status != 0L) quit(status = status, runLast = FALSE)
+  }
+  cat("## outputResults launcher PID: ", Sys.getpid(), "\n", sep = "")
+  child("worker")
+  cat("## outputResults calculation/export child exited successfully\n")
+  stopifnot(identical(readRDS(file.path(directory, "worker-complete.rds")), launch))
+  child("assemble")
+  stopifnot(file.exists(output), file.info(output)$size > 0)
+  # Only this attempt's directory is removed, after the final file was closed/renamed.
+  stopifnot(unlink(directory, recursive = TRUE) == 0L, !file.exists(directory))
+  quit(status = 0L, runLast = FALSE)
+}
+
+output_results_save_coverage <- function(x, i, inputs) {
+  launch <- output_results_launch()
+  stopifnot(is.character(inputs), length(inputs) > 0L, !anyNA(inputs),
+            all(nzchar(inputs)), length(i) == 1L, i %in% seq_along(inputs),
+            is.data.frame(x), !anyDuplicated(names(x)),
+            "bam.gr.filtertrack.coverage" %in% names(x))
+  metadata <- list(inputs = inputs, parts = sprintf("coverage-%06d.qs2", seq_along(inputs)))
+  metadata_file <- file.path(launch$directory, "coverage.rds")
+  if (i == 1L) {
+    stopifnot(!file.exists(metadata_file))
+    saveRDS(metadata, metadata_file)
+  } else stopifnot(identical(readRDS(metadata_file), metadata))
+  path <- file.path(launch$directory, metadata$parts[[i]])
+  stopifnot(!file.exists(path))
+  qs2::qs_save(x, path)
+  # Actual payload release also needs the original input's existing rm/gc.
+  dplyr::select(x, -dplyr::all_of("bam.gr.filtertrack.coverage"))
+}
+
+output_results_save_remainder <- function(x, filename) {
+  launch <- output_results_launch()
+  component <- "bam.gr.filtertrack.bytype.coverage_tnc"
+  metadata <- readRDS(file.path(launch$directory, "coverage.rds"))
+  stopifnot(identical(output_results_target(filename), launch$output),
+            identical(names(x), output_results_component_names()),
+            !"bam.gr.filtertrack.coverage" %in% names(x[[component]]),
+            length(metadata$inputs) > 0L,
+            identical(metadata$parts, sprintf("coverage-%06d.qs2", seq_along(metadata$inputs))),
+            all(file.exists(file.path(launch$directory, metadata$parts))))
+  path <- file.path(launch$directory, "remainder.qs2")
+  stopifnot(!file.exists(path))
+  qs2::qs_save(x[setdiff(names(x), component)], path)
+}
+
+output_results_worker_done <- function() {
+  launch <- output_results_launch()
+  stopifnot(file.exists(file.path(launch$directory, "remainder.qs2")))
+  saveRDS(launch, file.path(launch$directory, "worker-complete.rds"))
+}
+
+output_results_assemble <- function(launch) {
+  stopifnot(identical(readRDS(file.path(launch$directory, "worker-complete.rds")), launch))
+  metadata <- readRDS(file.path(launch$directory, "coverage.rds"))
+  stopifnot(length(metadata$inputs) > 0L,
+            identical(metadata$parts, sprintf("coverage-%06d.qs2", seq_along(metadata$inputs))))
+  component <- "bam.gr.filtertrack.bytype.coverage_tnc"
+  x <- qs2::qs_read(file.path(launch$directory, "remainder.qs2"))
+  stopifnot(identical(names(x), setdiff(output_results_component_names(), component)))
+  x[[component]] <- dplyr::bind_rows(lapply(metadata$parts, function(part) {
+    y <- qs2::qs_read(file.path(launch$directory, part))
+    stopifnot(is.data.frame(y), "bam.gr.filtertrack.coverage" %in% names(y))
+    y
+  }))
+  x <- x[output_results_component_names()]
+  temporary <- file.path(launch$directory, "assembled.qs2")
+  stopifnot(!file.exists(temporary))
+  qs2::qs_save(x, temporary)
+  # Private directory and final output share a filesystem; rename occurs after close.
+  stopifnot(file.rename(temporary, launch$output))
+}
+
+output_results_entry(commandArgs(trailingOnly = TRUE))
+
 #outputResults.R:
 # Output results. Also calculates sensitivity-corrected burdens and estimated SBS mutation error rate.
 
@@ -34,22 +192,7 @@ cat("## Loading configuration...\n")
 options(warn=2) #Stop script for any warnings
 
 #Command line arguments
-option_list = list(
-	make_option(c("-c", "--config"), type = "character", default=NULL,
-							help="path to YAML configuration file"),
-	make_option(c("-s", "--sample_id_toanalyze"), type = "character", default=NULL,
-							help="sample_id to analyze"),
-	make_option(c("-f", "--files"), type = "character", default=NULL,
-							help="comma-separated calculateBurdens qs2 files"),
-	make_option(c("-o", "--output_basename"), type = "character", default=NULL,
-							help="output basename")
-)
-
-opt <- parse_args(OptionParser(option_list=option_list))
-
-if(is.null(opt$config) | is.null(opt$sample_id_toanalyze) | is.null(opt$files) | is.null(opt$output_basename) ){
-	stop("Missing input parameter(s)!")
-}
+opt <- output_results_parse_cli(commandArgs(trailingOnly = TRUE))
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 sample_id_toanalyze <- opt$sample_id_toanalyze
@@ -329,6 +472,11 @@ for(i in seq_along(calculateBurdensFiles)){
 		) %>%
 		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
+	# Save full annotated coverage; retain only the existing export columns.
+	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- output_results_save_coverage(
+		bam.gr.filtertrack.bytype.coverage_tnc[[i]], i, calculateBurdensFiles
+	)
+
 	#Whole genome trinucleotide counts and fractions
 	genome.reftnc[[i]] <- calculateBurdensFile %>%
 		pluck("genome.reftnc") %>%
@@ -747,9 +895,9 @@ finalCalls.burdens <- finalCalls.burdens %>%
 ######################
 ### Output qs2 data object
 ######################
-cat("## Outputting qs2 data object...")
+cat("## Saving private final-QS components...")
 
-qs_save(
+output_results_save_remainder(
 	lst(
 		yaml.config,
 		run_metadata,
@@ -775,14 +923,12 @@ qs_save(
 
 cat("DONE\n")
 
-# The single final QS2 now contains all 18 original components. Retain only
-# the small coverage spectra needed for the later exports, then release raw
-# calls and the rebound formatted table (original per-group tables remain).
-bam.gr.filtertrack.bytype.coverage_tnc <- bam.gr.filtertrack.bytype.coverage_tnc %>%
-    select(-bam.gr.filtertrack.coverage)
+# The private handoff contains all18 original components. Thin coverage
+# spectra remain for exports; release raw calls and the rebound formatted
+# table (original per-group tables remain).
 rm(germlineVariantCalls, finalCalls, germlineVariantCalls_for_tsv, finalCalls.bytype)
 invisible(gc())
-cat("## Released final-QS-only payload before exports\n")
+cat("## Released private-QS-only payload before exports\n")
 
 ######################
 ### Output configuration parameters
@@ -1283,3 +1429,6 @@ estimatedSBSMutationErrorProbability %>%
 	)
 
 cat("DONE\n")
+
+# Exports must finish before the launcher starts fresh assembly.
+output_results_worker_done()

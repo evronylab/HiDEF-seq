@@ -138,6 +138,38 @@ raw pairs, exact comparisons, source/environment identities, edge-case scope
 and evidence paths. Full logs and unsuccessful test-harness attempts remain
 outside production under workspace `runtime/gc-lifetime-20261011/`.
 
+### Complete mitochondrial empty-input and zero-call checks
+
+Job `19576204` compared original `6b6598b` with optimized `00e0be1`
+(including filtering cleanup `c778cc3`) through complete extraction, both
+chromosome-group filters and burdens, and merged ordinary output. All three
+cases passed, with nuclear reads and coverage retained:
+
+| Case | Raw mitochondrial alignment records | Raw mitochondrial call rows | Final mitochondrial calls | Mitochondrial interrogated coverage |
+|---|---:|---:|---:|---|
+| No mitochondrial reads | 0 | 0 | 0 | Zero |
+| Natural mitochondrial duplex without calls | 2 | 0 | 0 | Positive |
+| Natural mitochondrial duplex with germline-filtered calls | 2 | 2 | 0 | Positive |
+
+All **18 whole QS objects** were identical, including types, attributes, order
+and NA/NaN. The extraction comparator permits the previously accepted `sa`
+storage conversion, but none of these cases needed it: the unmodified objects
+were already identical. The comparisons also passed **48 ordered coverage
+BEDs**, **702 exports**, and **228 own-file index rebuild checks**, using the
+established encoding/metadata rules for exported files. No pipeline code
+change was needed.
+
+These are controlled strict-filter fixtures using natural reads, an exact
+reindexed chr1 slice and complete circular chrM. The third case uses an
+explicitly constructed germline VCF to remove its actual raw mitochondrial
+calls. Nuclear coverage is positive, but nuclear final calls are zero in every
+case. This is neither a new whole-workflow run nor a circular-origin alignment
+test. The [source-bound validation receipt](benchmarks/torch-mitochondrial-empty-validation.json)
+records the original-first stage gates, counts, coverage, source/environment
+identities, independent review and preserved test-setup failures. Earlier empty
+burden/output fixtures were nuclear; the earlier mitochondrial fixture was
+nonempty. This follow-up explicitly closes those two mitochondrial test gaps.
+
 ### Other object-lifetime and manual-GC candidates
 
 The broader `rm()` / `invisible(gc())` evaluation is complete. Filtering above

@@ -41,6 +41,14 @@ meaningful peak-memory savings on the tested workloads, so those candidates
 are excluded. The [complete evaluation](optimization-validation.md#other-object-lifetime-and-manual-gc-candidates)
 records the exact comparisons, CPU observations and workload limitations.
 
+Separate complete original/current stage chains also pass for zero
+mitochondrial reads, mitochondrial reads without raw calls, and raw
+mitochondrial calls removed by germline filtering while coverage remains
+positive. All whole QS objects and required exports agree under the established
+comparison rules; no pipeline fix was necessary. The
+[mitochondrial edge-case evidence](optimization-validation.md#complete-mitochondrial-empty-input-and-zero-call-checks)
+defines the real-read fixture scope and its limits.
+
 The frozen `358e4bf` source passed nine focused kernel suites, annotation and
 preparation checks, cache protocol checks and a Nextflow configuration preview.
 Its fresh two-sample workflow completed all **649 tasks**, with zero failures,

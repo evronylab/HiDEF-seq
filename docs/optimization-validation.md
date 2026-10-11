@@ -138,6 +138,48 @@ raw pairs, exact comparisons, source/environment identities, edge-case scope
 and evidence paths. Full logs and unsuccessful test-harness attempts remain
 outside production under workspace `runtime/gc-lifetime-20261011/`.
 
+### Other object-lifetime and manual-GC candidates
+
+The broader `rm()` / `invisible(gc())` evaluation is complete. Filtering above
+is the only additional cleanup adopted in `c778cc3`. All candidates used **R
+only**, with no new package. Existing collections remain in place. Complete
+scientific comparisons and terminal source/input checks passed for every
+completed benchmark below:
+
+| Candidate excluded from production | Process peak-memory result | Actual CPU observation | Test scope |
+|---|---|---|---|
+| Extraction object release | Negligible reduction, 0.023% | Mean paired increase 3.46% | One large real chunk, two complete AB/BA pairs |
+| VCF raw-object release plus forced GC | 11.76% increase, about 1.89 GiB | Mean decrease 1.07% | Whole configured VCF, two complete AB/BA pairs |
+| VCF raw-object release without forced GC | Unchanged, about 16.08 GiB | One-pair decrease 5.20% | Whole configured VCF, one AB screen |
+| Final-output consumed export-slot release | Unchanged, about 35.23 GiB | One-pair increase 0.48% | Complete four-input LIB2 output task, including fresh ordinary-QS assembly |
+| Burden sensitivity/BED scratch cleanup | Unchanged, about 20.85 GiB | No causal CPU benefit established | Complete task using the first 15 of 60 ordered LIB1 inputs |
+
+The VCF tests compare the complete GRanges and 68 focused cases, including
+matching errors for truly empty-record VCFs. The output comparison covers the
+whole ordinary QS object, all 18 components, 310 exports and 56 own-file index
+rebuild checks. Both complete zero-call output cases, with nonzero and zero
+coverage respectively, also match the original and optimized baseline.
+
+The burden candidate matches all 20 named QS components, eight ordered BED
+payloads, 16 own-file index proofs and 80 indexed queries. Its peak occurred
+before input loading; the added cleanup checkpoints did not reduce immediate
+process RSS. Unchanged RSS does not mean no R heap space became reusable.
+The candidate used 15.46% less CPU than a retained native run on another node,
+but an unchanged prefix was already faster before any added cleanup, and the
+instrumentation differed. That observation is not attributed to GC. This
+15-input screen establishes neither a larger-input memory bound nor a useful
+reason to add these collections to production.
+
+Reference preparation, germline-filter preparation, BSgenome installation and
+artifact-cache helpers were also reviewed for large dead objects between
+allocations. No additional candidate with a clear potential memory benefit
+was identified. The [complete GC evaluation](benchmarks/torch-gc-lifetime-evaluation.json)
+records the measurements, source identities, validation evidence and scope
+limits. Rejected candidate code remains confined to the workspace experiments.
+No changes from this GC screen have been added to the frozen hybrid study;
+any later hybrid cleanup evaluation depends on a separate decision to adopt
+that approach.
+
 ### Separate storage and output-task decisions
 
 The reopened Arrow/DuckDB evaluation is complete. Exact representation and
@@ -227,13 +269,18 @@ The readable `storage-evaluation-final-v1.txt` companion and underlying
 `coverage-pool-probe-terminal-root-review-v2.json` reviews remain in workspace
 `runtime/reopened-storage-evaluation-20261009/`.
 
-R-native coverage plus native-column DuckDB calls remains feasible but
-unvalidated as a combined path. It would retain non-R SQL query/order logic,
-without custom C++, and still needs combined readers, manifests, track mapping,
-lifecycle handling, ordinary assembly and all-configuration proofs. It is
-deferred while finalization retains the clean R calculation and self-contained
-QS2. No further full Arrow burden rewrite, SQL full60 run or new hybrid
-allocation is proposed.
+At the close of that SQL-coverage study, the alternative combining R-native
+coverage with DuckDB calls remained untested. A subsequent, independent hybrid
+experiment is now underway outside production. As of 2026-10-11, its complete
+15-input native/hybrid pair preserves all 20 burden components and eight
+ordered BED/index outputs; the 60-input pair is still running. The ordinary
+public QS2 is restored before the hybrid worker finishes, including that cost
+in its measurements. This prototype uses R and non-R SQL through DuckDB, with
+no custom C++. No changes from the separate GC screen have been added to this
+frozen prototype. Its eventual recommendation requires the complete larger
+comparison and a separate user decision; the
+production pipeline retains the R calculation and self-contained QS2.
+Workspace evidence is under `runtime/hybrid-r-coverage-duckdb-calls-20261010/`.
 
 The earlier R-only few-QS component variant passed 18 components through both
 its reader and ordinary-QS reconstruction, all 310 exports and 56 own-file

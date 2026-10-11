@@ -35,6 +35,11 @@ This uses R only and no new package. The
 [separate cleanup evidence](optimization-validation.md#additional-filtering-object-lifetime-cleanup)
 records the tested inputs, optional-setting/empty-input checks and limitations.
 These results are not extrapolated to a new whole-workflow total.
+The broader object-lifetime/manual-GC evaluation is also complete: additional
+cleanup in extraction, VCF loading, burdens and final exports did not produce
+meaningful peak-memory savings on the tested workloads, so those candidates
+are excluded. The [complete evaluation](optimization-validation.md#other-object-lifetime-and-manual-gc-candidates)
+records the exact comparisons, CPU observations and workload limitations.
 
 The frozen `358e4bf` source passed nine focused kernel suites, annotation and
 preparation checks, cache protocol checks and a Nextflow configuration preview.

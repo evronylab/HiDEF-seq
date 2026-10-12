@@ -324,24 +324,24 @@ and retained hybrid file cache caused late native reclamation at the shared
 192 GiB job limit without OOM or swap. Process peaks preceded that reclamation;
 job/cgroup peaks include cache and are not per-arm process memory.
 
-The prototype adds a 187-line R adapter plus integration edits and custom SQL
-through DBI/DuckDB, with no custom C++. Its schema/row-ID restrictions are
-implementation limits, not proof across all valid pipeline inputs. Memory is
-not bounded independently of input size: coverage and final QS assembly remain
-in R. Integrated hybrid mitochondrial/zero-call cases remain unproved. No
-changes from the separate GC screen have been added. The single ordinary R
-consumer (`19597712`) passed strict whole-object identity between native60 and
-its accepted `358e4bf` burden input before replacing only the nuclear-strict
-input. Final validation (`19598870`) passes the whole output object, all 18
+These measurements used the frozen 187-line R adapter plus integration edits
+and custom SQL through DBI/DuckDB, with no custom C++. The later 208-line helper
+passes the scoped schema and mitochondrial qualification below; the historical
+performance measurements still belong to the frozen helper. Memory is not
+bounded independently of input size: coverage and final QS assembly remain in
+R. No changes from the separate GC screen were added to the frozen hybrid.
+The single ordinary R consumer (`19597712`) passed strict whole-object identity
+between native60 and its accepted `358e4bf` burden input before replacing only
+the nuclear-strict input. Final validation (`19598870`) passes the whole output object, all 18
 components, all 310 exports under the established VCF/PDF comparison rules and
 56 own-file index checks; private output parts were removed. Its 96 GiB/45-minute
 validation allocation followed a resource-only amendment after the original
 128 GiB request was rejected before job creation; proof commands were unchanged.
 The hybrid is a worthwhile moderate integration candidate if the user chooses
 its measured benefit over the additional maintenance. Adoption still requires
-that separate user decision and the remaining hybrid edge checks. Production
-retains its R calculation and self-contained QS2. Precise metrics, source
-bindings and limitations are in the [hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
+that separate user decision. Production retains its R calculation and
+self-contained QS2. Precise metrics, source bindings and limitations are in the
+[hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
 
 The earlier R-only few-QS component variant passed 18 components through both
 its reader and ordinary-QS reconstruction, all 310 exports and 56 own-file
@@ -396,6 +396,44 @@ in workspace `runtime/native-single-qs-completion-v1/postrun-review-v1/` and
 [output-task experiment](workflow-optimization.md#complete-r-only-single-public-qs-output-task-lib1-and-lib2).
 LIB1 used historical burden inputs and LIB2 used current `358e4bf` inputs;
 these output-stage proofs do not establish a full later-source workflow.
+
+#### Hybrid call-store qualification
+
+The subsequent qualification found and fixed a valid-input gap: empty producer
+call tables can contain zero-level factors, which the frozen helper rejected.
+All three native mitochondrial controls passed; the frozen hybrid failed the
+zero-read and zero-raw-call cases, while its filtered-to-zero case passed.
+The selected 208-line helper preserves these factor prototypes, follows native
+`vctrs` factor-name casting, distinguishes omitted names from genuine `NA` names,
+and avoids overflow in buffer endpoints. Named-factor fixtures extend the
+supported contract; they are not currently produced by the audited pipeline.
+The helper change is +26/-5 lines; helper plus integration totals +229/-27
+lines relative to native, excluding benchmark hooks. It remains R with custom
+SQL through DBI/DuckDB and adds no custom C++.
+
+All **178 contract checks** (30 original plus 148 extended) pass strict identity.
+All three corrected mitochondrial burdens pass whole-object identity, all 20
+components and outer attributes, 24 ordered BED comparisons, 48 own-file index
+rebuilds and 64 indexed-query checks in total. Each ordinary QS2 reads without
+loading DuckDB and leaves no private database after successful cleanup; all
+160 pinned inputs, sources and other guarded artifacts remain unchanged.
+This closes the identified schema and mitochondrial edge checks for the
+selected candidate, not every possible pipeline configuration.
+
+A real three-chunk call-store replay in old/fixed/fixed/old order also passes
+strict native-oracle identity for all four ordinary result bundles. Mean worker
+CPU is 29.791775/28.922917 seconds and mean process peak is
+4,037,058/4,035,494 KiB for old/fixed: no appreciable regression at this scale,
+without a new speedup claim. This replay covers call storage, restoration,
+ordinary save and cleanup, not coverage or complete burden timing. The
+`2^31-1` table cap remains consistent with safe constructor checks of the pinned
+native tibble/vctrs path; neither those checks nor private synthetic counters
+establish performance at that size. Memory remains dependent on input size.
+The corrected helper has no new full60, latest full-workflow or downstream
+310-export replay. The historical results above remain unchanged, and adoption
+still requires the user's separate decision. Exact scope, package versions and
+small-receipt hashes are in the
+[qualification report](benchmarks/torch-hybrid-qualification.json).
 
 ## Historical accepted follow-on: `7e37ada`
 

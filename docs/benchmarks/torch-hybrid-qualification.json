@@ -1,0 +1,151 @@
+{
+  "title": "R-coverage/DuckDB-call hybrid: completed scoped qualification",
+  "status": "PASS; research qualification complete; production not adopted",
+  "reviewed_utc": "2026-10-12T00:44:22.623892+00:00",
+  "documentation_base_revision": "1b00fbd1a6eb92792292d2dce012f6219e5abad8",
+  "decision": "Worthwhile moderate integration candidate if the user chooses the measured historical benefit over additional maintenance; adoption requires a separate user decision.",
+  "selected_sources": {
+    "directory": "runtime/hybrid-qualification-20261011/candidate-factors-v3",
+    "helper_sha256": "8a49e2abbd3465610a8dd6c15d9b113d842b994ec4e36263fed010884827e554",
+    "burden_script_sha256": "73f99eb68de26717c2f0ce3873cd361fb1ebf399a5099a4feeaeb2d1d906d7f8",
+    "helper_physical_lines": 208,
+    "helper_delta_from_frozen": {
+      "added": 26,
+      "removed": 5
+    },
+    "helper_and_integration_delta_from_native_excluding_benchmark_hooks": {
+      "added": 229,
+      "removed": 27,
+      "net": 202
+    },
+    "implementation": "R plus handwritten SQL through DBI/DuckDB; no custom C++/Rcpp. Python/shell are qualification controls. Coverage/scientific calculations unchanged.",
+    "maintenance": "Native factor/type/name/list restoration, ordering and NA semantics, DBI/DuckDB behavior, and private database ownership/failure/cleanup handling."
+  },
+  "schema_and_fix": {
+    "valid_input_gap": "Native empty producer SBS/indel call tables retain zero-level factors; the frozen helper rejected them. Original empty fixtures retained existing levels and missed the gap.",
+    "changes": [
+      "Use SQL VARCHAR with retained R factor prototypes when levels are empty.",
+      "Follow native vctrs factor-name casting and current common prototypes.",
+      "Default omitted auxiliary names to blank while retaining explicit NA names.",
+      "Use overflow-safe buffer endpoint arithmetic."
+    ],
+    "scope": "Producer-schema audit follows the current successful pipeline paths. Named-factor fixtures extend the supported contract; audited producer factor columns are unnamed. Zero-level factors are valid producer output. This is not a general R serializer or proof of all barcode/MDB configurations."
+  },
+  "package_context": {
+    "R": "4.4.2",
+    "dplyr": "1.1.4",
+    "vctrs": "0.6.5",
+    "tibble": "3.3.0",
+    "DBI": "1.2.3",
+    "duckdb": "1.3.1",
+    "qs2": "0.1.5",
+    "container_sha256": "ba870dd115e746165f97c31b49d90c2a59b918d47f985dc23dfcdc0b9570b332"
+  },
+  "proofs": {
+    "contracts": {
+      "job": "19602086",
+      "state": "COMPLETED 0:0",
+      "original": 30,
+      "extended": 148,
+      "total_passed": 178,
+      "method": "R identical(), including types/classes/attributes/order; no normalization or tolerance. Includes empty factors, name/list/NA semantics, SQL selection/counts, overflow guards and cleanup."
+    },
+    "mitochondrial": {
+      "baseline_job": "19601731",
+      "baseline": "All three native controls passed. Frozen hybrid failed zero_mt_reads and mt_reads_zero_raw_calls; mt_raw_calls_filtered_zero passed. Failed artifacts retained.",
+      "corrected_job": "19602111",
+      "state": "COMPLETED 0:0",
+      "cases": [
+        "zero_mt_reads",
+        "mt_reads_zero_raw_calls",
+        "mt_raw_calls_filtered_zero"
+      ],
+      "whole_object_and_20_components_exact_per_case": true,
+      "outer_attributes_exact": true,
+      "ordered_bed_pairs": 24,
+      "own_file_index_rebuilds": 48,
+      "indexed_query_comparisons": 64,
+      "standalone_ordinary_qs_without_duckdb": 3,
+      "owned_private_databases_cleaned": 3,
+      "unchanged_pins": 160,
+      "scope": "Complete burdens against retained native controls, with existing fixtures/configuration; no extraction/filter rerun. These small fixtures are correctness proofs, not performance claims."
+    },
+    "real_call_replay": {
+      "job": "19602126",
+      "state": "COMPLETED 0:0",
+      "source_chunks": [
+        1,
+        30,
+        60
+      ],
+      "selected_final_rows": 20467,
+      "selected_germline_rows": 227716,
+      "buffer_appends_per_worker": 9,
+      "order": [
+        "old-1",
+        "fixed-1",
+        "fixed-2",
+        "old-2"
+      ],
+      "whole_native_oracle_identical_bundles": 4,
+      "method": "Strict whole ordinary-object and component identity against independent native bind_rows/project/count/filter oracle, including attributes, factor/name/list/NA semantics and order. Successful owned cleanup in all four workers.",
+      "scope": "Call storage only; no coverage/BED or complete burden replay. Actual factor levels agree across selected chunks; synthetic transitions are in the separate contracts."
+    }
+  },
+  "call_store_performance": {
+    "node": "cs601.hpc.nyu.edu",
+    "method": "Two fresh workers per arm, old/fixed/fixed/old. Actual CPU is Linux RUSAGE_CHILDREN user+system for waited descendants; RSS is largest waited process high-water memory, not cgroup/job aggregate.",
+    "included": "Package startup, full input QS loading, selection, append, projection/count/restoration, checkpoint/close, ordinary QS save and private cleanup. Both arms additionally restore the complete raw-final table for proof.",
+    "arm_means": {
+      "old": {
+        "actual_cpu_seconds": 29.791775,
+        "wall_seconds": 30.930161874741316,
+        "max_rss_kib": 4037058,
+        "peak_rss_gib": 3.850038528442383
+      },
+      "fixed": {
+        "actual_cpu_seconds": 28.922917,
+        "wall_seconds": 29.90756781073287,
+        "max_rss_kib": 4035494,
+        "peak_rss_gib": 3.8485469818115234
+      }
+    },
+    "separate_oracle_cpu_seconds": 28.934802,
+    "separate_validation_cpu_seconds": 7.720594,
+    "interpretation": "No appreciable regression at this measured scale. Small differences are not a new speedup claim. Warmed caches, allocator/order effects and setup-dominated RSS remain; two repetitions per arm do not estimate small differences precisely.",
+    "excluded_failed_preflight": {
+      "job": "19602110",
+      "scientific_workers_launched": 0,
+      "cause": "Python preflight assumed a named JSON numeric object, but jsonlite emitted an array. Python-only correction; scientific sources/inputs unchanged. Not a science or performance failure."
+    }
+  },
+  "limits": {
+    "rows": "The per-table 2^31-1 integer row cap and integer count output remain. Safe zero-column constructors confirm that the pinned native tibble/vctrs path rejects larger ordinary tables. Synthetic counters exercise the last two IDs and guarded overflow without allocating billions of rows; no cardinality benchmark or general long-vector claim.",
+    "memory": "Memory is not bounded independently of input size: R coverage, collected call tables and final ordinary QS assembly remain materialized.",
+    "scope": "Identified schema and three mitochondrial edge checks are closed for the selected helper and pinned package context. No blanket all-input/all-configuration claim.",
+    "not_repeated": "No corrected-helper full60 timing/scientific replay, new downstream 310-export replay, or latest full-Nextflow run.",
+    "production": "Hybrid remains outside production, pending a separate user adoption decision. One ordinary public QS2 is preserved."
+  },
+  "historical_evidence": {
+    "report": "docs/benchmarks/torch-hybrid-burden-evaluation.json",
+    "sha256": "393c8055ffe5aa7691e62dbe3816b94d1b94099b4bd02bb861bb6c0525fc9d4f",
+    "frozen_helper_sha256": "6d32106af8df557d9581029e3ad19f2303e5beddc717e739d0554bea5d5aea0d",
+    "helper_physical_lines": 187,
+    "interpretation": "Full15/full60 metrics and complete full60/downstream exactness proofs belong to the frozen pre-qualification helper. Full60 observed 15.72% actual CPU and 15.04% process-peak reduction; mixed preparation and shared-cache/timing caveats remain. These are not corrected-helper or whole-pipeline savings. The separate full-SQL coverage rejection is unchanged."
+  },
+  "receipt_sha256": {
+    "runtime/hybrid-qualification-20261011/candidate-factors-v3/manifest.json": "68c4fdc7bccbf9403b5c6c3de5598ac2671a913f911a0d93142f80d29f51e3d8",
+    "runtime/hybrid-qualification-20261011/schema-audit/source-schema-audit.json": "3d5a2d4911d0b78b1c7fe034db75313048249b46737977dffe908f3c0b5308c7",
+    "runtime/hybrid-qualification-20261011/contracts/independent-contract-review.json": "f83130aea310ce65a66f68483d9c90a92e9e84c1e08738b47a877ad57e759e91",
+    "runtime/hybrid-qualification-20261011/contracts/factors-v3/extended-results/installed-native-boundary.json": "f59ccf840f4ca923de723fe70e2297a109d599fa4ab1f15f878c598a2933fc0c",
+    "runtime/hybrid-qualification-20261011/mitochondrial/baseline-receipt.json": "e7a9ee29f42cad48678e33f57e2dfd99f5cf1cf4014099360aec3c56aa48fe6a",
+    "runtime/hybrid-qualification-20261011/mitochondrial/corrected-factors-v3/plan.json": "f043f3417b581d3c16a81d40c3aacb1a8446a4c11680ee4fa682d20c2e77f559",
+    "runtime/hybrid-qualification-20261011/mitochondrial/qualification-receipt.json": "6d77479f63fa0915a087e95db349fb886f3152a98670c40508e0738bf55a90c1",
+    "runtime/hybrid-qualification-20261011/real-call-replay/plan.json": "b1e9e27e0a71c301d7f8345c9b501e9e4b1b40f6c4f7319fdfed47be4fe71d78",
+    "runtime/hybrid-qualification-20261011/real-call-replay/final-review.json": "6e3d8b4b30358aab2c1b3719905fe4a1af0674889915df99f8ba5c4d71b31cb2",
+    "runtime/hybrid-qualification-20261011/real-call-replay/summary.json": "ca3ad4274b433a63d5a21d40753f3f2d23f6cd66c4d441e1e6927172132968ad",
+    "runtime/hybrid-qualification-20261011/real-call-replay/exactness.json": "10caf7e463561f91503e1c8b55d4fc77b3c00a2aa09845834c1b5db038e99cc1",
+    "runtime/hybrid-qualification-20261011/real-call-replay/attempt1-harness-failure/failure.json": "e34c6978b68b6116594878a185591ff35e9c378364d3cfc59ef2db01c5a1bbfd",
+    "runtime/hybrid-qualification-20261011/root-final-qualification-review.json": "c4c8f7dc86824b397dc26c547a36d018fcdd58d315d417ea95ac0a695d3288c2"
+  }
+}

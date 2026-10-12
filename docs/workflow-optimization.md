@@ -172,7 +172,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Native Rle addition and immediate sharing, selected after whole-worker proof | R | Uses existing Bioconductor compiled operations; no new custom Python/C++/Rcpp implementation |
 | Temporary-QS coverage storage, experimental and not adopted | R | Existing compiled qs2/Bioconductor packages and annotation/index CLIs; Python/shell benchmark controls only, no custom non-R scientific kernel |
 | DuckDB calls and coverage storage, current SQL integration rejected | R with embedded SQL | **Yes: SQL query/reduction logic** through the existing DuckDB package; no custom C++/Rcpp; Python/shell benchmark controls only |
-| R coverage with private DuckDB call staging, experimental; full60 burden and ordinary-consumer proofs complete; not adopted | R with embedded SQL | **Yes: custom SQL** through DBI/DuckDB; 187-line R adapter plus integration edits; no custom C++/Rcpp; ordinary public-QS consumer remains R; Python/shell research controls only |
+| R coverage with private DuckDB call staging, experimental; historical full60/consumer proofs and subsequent scoped qualification complete; not adopted | R with embedded SQL | **Yes: custom SQL** through DBI/DuckDB; qualified 208-line R adapter plus integration edits (historical full60 used 187 lines); no custom C++/Rcpp; ordinary public-QS consumer remains R; Python/shell research controls only |
 | Single-public-QS output task, both samples validated; installed in `3dabe21` | R | Existing packages and export CLIs; no new package or custom non-R scientific logic; Python/shell measurement and validation controls only |
 
 ## Torch launch and resource settings
@@ -1081,20 +1081,20 @@ validation ran at 96 GiB/45 minutes after the original 128 GiB submission was
 rejected before job creation. That resource-only amendment retained all proof
 commands and comparators unchanged.
 
-The maintenance cost is a 187-line R adapter plus integration edits, DBI/DuckDB
-dependencies, handwritten SQL, R factor/type/name/list restoration, ordering
-and NA semantics, and private database failure/cleanup handling. No custom
-C++/Rcpp is added; Python/shell serve experimental control and validation.
-The prototype's per-table integer row IDs impose a `2^31-1` ceiling and its
-accepted schemas exclude several general R types. These are implementation
-restrictions, not a validated workload range or observed failures of the tested
-pipeline inputs. Memory is not bounded independently of input size: R coverage,
-collected call tables and final ordinary-QS assembly remain. Integrated hybrid
-mitochondrial/zero-call paths remain unproved. No separate GC-screen changes
-have been added to the frozen hybrid. This is a worthwhile moderate integration
-candidate if the user chooses its measured benefit over the maintenance cost.
-Production adoption requires that separate user decision and the remaining
-hybrid edge checks. Production R and the single-public-QS contract are unchanged.
+The historical measurements used a 187-line R adapter; the subsequently
+qualified helper below has 208 lines plus integration edits. Maintenance covers
+DBI/DuckDB dependencies, handwritten SQL, R factor/type/name/list restoration,
+ordering and NA semantics, and private database failure/cleanup handling.
+No custom C++/Rcpp is added; Python/shell serve experimental control and
+validation. The per-table `2^31-1` row limit is consistent with the pinned native
+ordinary-tibble constructor limit, and the supported schema follows the audited
+producer paths. Neither establishes a validated workload size or coverage of
+all configurations. Memory is not bounded independently of input size: R
+coverage, collected call tables and final ordinary-QS assembly remain. No
+separate GC-screen changes have been added to the frozen hybrid. This is a
+worthwhile moderate integration candidate if the user chooses its measured
+benefit over the maintenance cost. Production adoption requires that separate
+user decision. Production R and the single-public-QS contract are unchanged.
 Exact metrics and source-bound receipts are in the
 [hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
 
@@ -1112,6 +1112,73 @@ The [first evaluation](benchmarks/torch-2026-10-09-storage-evaluation.txt)
 and [compact evidence](benchmarks/torch-2026-10-09-storage-evaluation.json) retain
 the earlier R-coverage storage prototype's 5/15/60-input results, phase
 measurements, exactness proofs and limitations.
+
+#### Qualification of the hybrid call store
+
+The producer-schema audit identified a valid empty-call case missing from the
+original helper tests: zero-level factors survive in native empty SBS/indel
+call tables. Empty-table checks in the original 30 fixtures used slices with
+existing levels.
+All three native mitochondrial controls passed, but the frozen helper failed
+zero mitochondrial reads and reads with zero raw calls; raw calls filtered to
+zero already passed. These original failures are retained. The selected
+`candidate-factors-v3` helper supports zero-level factors through SQL `VARCHAR`
+and retained R prototypes, follows native `vctrs` casting for factor names,
+preserves genuine `NA` names separately from omitted names, and computes buffer
+endpoints without integer overflow. Named-factor tests are synthetic supported
+contract cases, whereas zero-level factors occur in valid producer output.
+The helper is 208 lines (+26/-5 against the frozen 187); helper plus integration
+is +229/-27 lines relative to native, excluding benchmark hooks. Coverage and
+scientific calculations are unchanged.
+
+The selected helper passes **178 exact contract checks**, including empty and
+nonempty factor transitions, native name/type/list semantics, SQL selection and
+counts, guarded row limits and cleanup. The three complete mitochondrial edge
+burdens each pass whole-object identity, all 20 components and outer attributes:
+24 paired ordered BED payloads, 48 own-file index rebuilds and 64 indexed-query
+comparisons pass in total. All three outputs are ordinary standalone QS2 files
+readable without loading DuckDB, with successful owned private-storage cleanup.
+All 160 pinned inputs, native outputs, sources, configuration and container
+artifacts are unchanged. These proofs close the identified mitochondrial and
+schema checks for this candidate; they do not cover every barcode/MDB or other
+pipeline configuration.
+
+The real-call replay uses existing nuclear-strict chunks 1, 30 and 60, selecting
+20,467 final and 227,716 germline rows with nine buffered appends per worker.
+Four fresh workers run old/fixed/fixed/old on the same node. All four ordinary
+result bundles are strictly identical to the independent native
+`bind_rows`/projection/count/filter oracle, including attributes and order;
+every private database is removed after a successful save.
+
+| Call-store replay, two workers per arm | Mean actual CPU seconds | Mean wall seconds | Mean process peak KiB |
+|---|---:|---:|---:|
+| Frozen helper | 29.791775 | 30.930162 | 4,037,058 |
+| Qualified helper | 28.922917 | 29.907568 | 4,035,494 |
+
+The workers include package startup, complete input loading, selection, append,
+projection/count/restoration, checkpoint/close, ordinary QS save and cleanup.
+Both arms also restore the complete raw-final table for proof. Native-oracle
+and validation costs are separate. The first replay job failed Python
+preflight before any R worker; its corrected rerun changed only that harness
+check. The completed replay shows no appreciable regression at this scale.
+Two repetitions per arm, warmed caches and setup-dominated process peaks do not
+establish a small speedup. The actual selected factor levels agree across
+chunks; artificial transitions are covered by the contract fixtures. RSS is
+largest-process high-water memory, not aggregate job memory. This replay did not
+repeat coverage or complete burden computation.
+
+The `2^31-1` table cap and integer count output remain. Safe zero-column
+constructor checks confirm that the pinned tibble/vctrs path rejects larger
+ordinary tables; synthetic private counters test overflow rejection without
+allocating billions of rows. This is not a cardinality benchmark or a memory
+bound. R 4.4.2, dplyr 1.1.4, vctrs 0.6.5, tibble 3.3.0, DBI 1.2.3, DuckDB 1.3.1
+and qs2 0.1.5 define the tested package context. The historical full60 timing,
+full60 scientific proof and downstream 310-export proof still belong to the
+frozen helper. There is no corrected-helper full60 timing, new downstream
+export proof or latest full-Nextflow result. Qualification is complete within
+the recorded scope; production adoption remains a separate user decision.
+The [qualification report](benchmarks/torch-hybrid-qualification.json) pins the
+selected sources and final receipts; the original burden report is unchanged.
 
 ### R-only private components with ordinary final-QS reconstruction
 

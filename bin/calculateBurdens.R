@@ -19,6 +19,8 @@ suppressPackageStartupMessages(library(configr))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(survival))
 suppressPackageStartupMessages(library(qs2))
+suppressPackageStartupMessages(library(DBI))
+suppressPackageStartupMessages(library(duckdb))
 suppressPackageStartupMessages(library(tidyverse))
 
 ######################
@@ -98,8 +100,7 @@ call_types_toanalyze <- yaml.config$call_types %>%
 	mutate(filtergroup = filtergroup %>% factor)
 
  #sensitivity thresholds
-sensitivity_parameters <- yaml.config$sensitivity_parameters %>%
-	as_tibble
+sensitivity_parameters <- yaml.config$sensitivity_parameters
 
  #individual_id of this sample_id
 individual_id <- yaml.config$samples %>%
@@ -474,14 +475,19 @@ filtertrack_coverage_result <- function(state){
 prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individual_id, sensitivity_parameters, BSgenome_name, chroms_toanalyze, sex_chromosomes, mitochondrial_chromosome){
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
-		modify_tree(leaf = as.character) %>%
-		map(~ .x %>% keep(names(.x) %in% c("individual_id","germline_vcf_files"))) %>%
-		enframe(name=NULL) %>%
-		unnest_wider(value) %>%
-		unnest_longer(germline_vcf_files) %>%
-		unnest_wider(germline_vcf_files) %>%
-		filter(individual_id == !!individual_id) %>%
-		nrow
+		keep(~ as.character(.x$individual_id) == individual_id) %>%
+		map_int(~ length(.x$germline_vcf_files)) %>%
+		sum
+
+	#Without germline VCFs there are no sensitivity sites. The existing minimum
+	#detection/coverage checks below retain the default sensitivity of 1.
+	if(num_germline_vcf_files == 0L){
+		return(tibble(
+			seqnames = factor(), start = integer(), end = integer(),
+			ref_plus_strand = character(), alt_plus_strand = character(),
+			call_class = factor(), call_type = factor(), SBSindel_call_type = factor()
+		))
+	}
 
 	#Load sensitivity_vcf
 	sensitivity_vcf <- load_vcf(
@@ -498,6 +504,7 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 			yaml.config$cache_dir,"/",
 			individual_id,".",
 			yaml.config$individuals %>%
+				map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 				modify_tree(leaf = as.character) %>%
 				bind_rows %>%
 				filter(individual_id == !!individual_id) %>%
@@ -712,9 +719,9 @@ if(sensitivity_enabled_for_chromgroup){
 ######################
 cat("## Loading data from filterCalls files...\n > analysis chunk:")
 
-#Create lists for data loading
-finalCalls <- list()
-germlineVariantCalls <- list()
+#Keep raw calls on disk while accumulating coverage in R. All private storage
+#stays inside this task working directory.
+call_store <- new_burden_call_store()
 molecule_stats <- list()
 coverage_accumulator <- new.env(parent = emptyenv())
 
@@ -760,14 +767,14 @@ for(i in seq_along(filterCallsFiles)){
 	}
 
 	#Load final calls that pass all filters, without filtering on call_toanalyze == TRUE in order to retain SBS/mismatch-ss calls needed for downstream analyses if they are not a call type to analyze.
-	finalCalls[[i]] <- filterCallsFile %>%
+	chunk_finalCalls <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
 			if_all(contains("passfilter"), ~ .x == TRUE)
 		)
 	
 	#Load germline variant calls that pass all filters ignoring the germline filters, since we will later also need the calls filtered by germline filters to calculate sensitivity
-	germlineVariantCalls[[i]] <- filterCallsFile %>%
+	chunk_germlineVariantCalls <- filterCallsFile %>%
 		pluck("calls") %>%
 		filter(
 			call_class %in% c("SBS","indel"),
@@ -776,6 +783,9 @@ for(i in seq_along(filterCallsFiles)){
 			germline_vcf.passfilter == FALSE #Detected in at least one germline VCF
 		)
 	
+	call_store$append_calls(chunk_finalCalls, chunk_germlineVariantCalls, i)
+	rm(chunk_finalCalls, chunk_germlineVariantCalls)
+
 	#The accumulator environment is the only owner of aggregate coverage until
 	#all chunks finish, so replacing one category releases its old coverage.
 	accumulate_bam.gr.filtertracks(
@@ -799,16 +809,6 @@ for(i in seq_along(filterCallsFiles)){
 
 bam.gr.filtertrack.bytype <- filtertrack_coverage_result(coverage_accumulator)
 rm(coverage_accumulator)
-
-#Combine finalCalls and germlineVariantCalls each to one tibble. Do not remove call_toanalyze column since needed later to filter after done using SBS/mismatch-ss calls that are only present for downstream calculations.
-finalCalls <- finalCalls %>%
-	bind_rows(.id = "analysis_chunk") %>%
-	mutate(analysis_chunk = analysis_chunk %>% as.integer)
-
-germlineVariantCalls <- germlineVariantCalls %>%
-	bind_rows(.id = "analysis_chunk") %>%
-	mutate(analysis_chunk = analysis_chunk %>% as.integer) %>%
-	select(-call_toanalyze)
 
 #Combine molecule_stats to one tibble and sum stats. Also do a left_join to molecule_stats[[1]] without the value column to preserve the original row order of stats. Also calculate stats summed across all run_ids.
 molecule_stats.by_run_id <- molecule_stats[[1]] %>%
@@ -1332,9 +1332,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 	
 	#Nest join finalCalls
 	nest_join(
-		finalCalls %>%
-			#Remove filter annotation columns since all finalCalls pass filters so this information is not needed for final tsv and vcf outputs
-			select(-c("germline_vcf_types_detected", "germline_vcf_files_detected", "call_toanalyze", contains("passfilter"))) %>%
+		call_store$project_final() %>%
 			#Reformat list columns to be comma-delimited.
 			mutate(
 				across(
@@ -1431,11 +1429,6 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		)
 	) %>%
 	select(-finalCalls)
-
-#Remove SBS/mismatch-ss calls from finalCalls if they were included until here just for populating finalCalls.bytype that is used for downstream calculations.
-finalCalls <- finalCalls %>%
-	filter(call_toanalyze == TRUE) %>%
-	select(-call_toanalyze)
 
 #Add barcode-orientation-specific list rows for single-strand call types and calculate trinucleotide counts and fractions. Mutation rows remain all-barcode-orientation aggregate only.
 per_bc_orientation_finalCall_groups <- bam.gr.filtertrack.bytype %>%
@@ -2107,14 +2100,7 @@ if(sensitivity_enabled_for_chromgroup){
 	#Annotate for each variant in high_confidence_germline_vcf_variants how many times it was detected in germlineVariantCalls, counting 1 for each zm in which it was detected. 
 	high_confidence_germline_vcf_variants <- high_confidence_germline_vcf_variants %>%
 		left_join(
-			germlineVariantCalls %>%
-				distinct(
-					across(all_of(c("run_id","zm",names(high_confidence_germline_vcf_variants))))
-				) %>%
-				count(
-					across(all_of(names(high_confidence_germline_vcf_variants))),
-					name = "num_zm_detected"
-				),
+			call_store$sensitivity_counts(names(high_confidence_germline_vcf_variants)),
 			by = names(high_confidence_germline_vcf_variants)
 		) %>%
 		mutate(num_zm_detected = num_zm_detected %>% replace_na(0))
@@ -2205,7 +2191,7 @@ if(sensitivity_enabled_for_chromgroup){
 	
 	cat("DONE\n")
 	
-}else if(!is.null(sensitivity_parameters$use_chromgroup) & sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
+}else if(!is.null(sensitivity_parameters$use_chromgroup) && sensitivity_parameters$use_chromgroup != chromgroup_toanalyze){
 	cat("## All non-MDB sensitivities set to NA since the currently analyzed chromgroup is not equal to sensitivity_parameters$use_chromgroup.\n")
 	sensitivity <- sensitivity %>%
 		mutate(
@@ -2333,6 +2319,14 @@ cat("DONE\n")
 ### Save results
 ######################
 cat("## Saving results...")
+#Restore ordinary R tables in input order for the standalone QS2 output. Drop
+#SBS/mismatch-ss calls retained only for downstream calculations above.
+finalCalls <- call_store$read_table("finalCalls",
+	columns = setdiff(names(call_store$state$contracts$finalCalls$prototype), "call_toanalyze"),
+	where = '"call_toanalyze" = TRUE')
+germlineVariantCalls <- call_store$read_table("germlineVariantCalls")
+call_store$close()
+invisible(gc())
 qs_save(
 	lst(
 		yaml.config,
@@ -2358,5 +2352,7 @@ qs_save(
 	),
 	outputFile
 )
+call_store$cleanup()
+rm(call_store)
 
 cat("DONE\n")

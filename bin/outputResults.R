@@ -663,11 +663,7 @@ for(i in chromgroups){
 		output_basename_full <- str_c(str_c(germlineVariantCalls_dir,i,"/",output_basename),i,j,sep=".")
 		
 		#Define germline filter columns to keep in the output
-		region_read_filters_cols_keep <- yaml.config$region_filters %>%
-			map("read_filters") %>%
-			flatten %>%
-			enframe(name=NULL) %>%
-			unnest_wider(value) %>%
+		region_read_filters_cols_keep <- region_filter_config(yaml.config, "read_filters") %>%
 			mutate(region_filter_threshold_file = cache_file(str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 			filter(
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
@@ -678,11 +674,7 @@ for(i in chromgroups){
 			basename %>%
 			str_c("region_read_filter_",.,".passfilter")
 		
-		region_genome_filters_cols_keep <- yaml.config$region_filters %>%
-			map("genome_filters") %>%
-			flatten %>%
-			enframe(name=NULL) %>%
-			unnest_wider(value) %>%
+		region_genome_filters_cols_keep <- region_filter_config(yaml.config, "genome_filters") %>%
 			mutate(region_filter_threshold_file = cache_file(str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 			filter(
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),

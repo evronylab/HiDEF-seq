@@ -30,8 +30,9 @@ Specifically, we configured this GitHub repository to be able to be directly run
 Reusable R helpers live in [bin/sharedFunctions.R](bin/sharedFunctions.R). Workflow
 preparation and standalone R consumers use the same reference-summary and
 germline-coverage-filter builders. The scientific R code uses existing packages
-and command-line tools; custom non-R production code consists of Python BAM
-dispatch and Nextflow/Groovy orchestration, including shell commands.
+and command-line tools. Custom non-R production code includes Python BAM
+dispatch, Nextflow/Groovy orchestration and shell commands, and SQL for private
+burden call staging through DBI/DuckDB. Coverage calculation remains in R.
 
 ### Create a Nextflow configuration file
 
@@ -105,6 +106,9 @@ needed in the run YAML. The pipeline does not install Python packages during
 tasks.
 Prepared-cache operations use R with `jsonlite`, `digest` and `openssl`, plus
 Linux `flock`, `stat` and `sync`, already available in the tested 3.0 environment.
+
+Burden calculation additionally requires the R packages `DBI` and `duckdb` in
+the container (qualified with DBI 1.2.3 and duckdb 1.3.1).
 
 ## Reference genome
 The pipeline requires reference genome files and multiple derivative files, which can be prepared per below.
@@ -262,7 +266,7 @@ single-public-QS output helper and 42 lifecycle checks were installed in
 that later revision. The [current validation status](docs/optimization-validation.md#current-accepted-workflow-358e4bf)
 separates these measurements from the historical `7e37ada` results below.
 
-These optimizations preserve scientific output schemas, formats, and filenames, including one final QS2 per sample. They introduce no call batching or output sharding. The two-sample Torch follow-on at revision `7e37ada` completed all 650 tasks: common downstream actual CPU fell from **447.2 to 157.8 hours (64.7%)**, and the observed maximum burden-task Slurm memory fell from **288.0 to 135.3 GiB (53.0%)**. Cold preparation used a separate 9.0 CPU-hours. All **711 required scientific output paths are accepted** under the agreed comparison rules; prepared-cache comparisons and separate deterministic output-stage replays also passed. This run predates the allele-key helper in `00f6e33` and excludes experimental coverage storage. The [validation ledger](docs/optimization-validation.md) and [complete-workload report](docs/benchmarks/torch-python-r-followon.json) retain the original strict-order failures, supplemental proofs and memory caveats, separately from the earlier `3911047` and `ea8d06f` runs.
+These optimizations preserve scientific output schemas, formats, and filenames, including one final QS2 per sample. They retain ordinary public call tables and introduce no public output shards. The two-sample Torch follow-on at revision `7e37ada` completed all 650 tasks: common downstream actual CPU fell from **447.2 to 157.8 hours (64.7%)**, and the observed maximum burden-task Slurm memory fell from **288.0 to 135.3 GiB (53.0%)**. Cold preparation used a separate 9.0 CPU-hours. All **711 required scientific output paths are accepted** under the agreed comparison rules; prepared-cache comparisons and separate deterministic output-stage replays also passed. This run predates the allele-key helper in `00f6e33` and excludes experimental coverage storage. The [validation ledger](docs/optimization-validation.md) and [complete-workload report](docs/benchmarks/torch-python-r-followon.json) retain the original strict-order failures, supplemental proofs and memory caveats, separately from the earlier `3911047` and `ea8d06f` runs.
 
 Five earlier R changes have [component and combined-chain results](docs/workflow-optimization.md#follow-on-r-optimization-results): generated-field parsing, VCF target lookup, targeted dtplyr aggregation, output object lifetime and level-1 compression in R coverage annotation. On one real chunk from each library, extraction plus four separate filters passed 128 exact QS component comparisons and used 36.11% less summed actual CPU. Memory varied by operation. This chain did not exercise the output or compression changes and does not establish full-workflow acceptance. The [validation ledger](docs/optimization-validation.md#follow-on-component-and-chain-validation) and [compact benchmark](docs/benchmarks/torch-2026-10-07-followon.json) retain scope, regressions and evidence hashes.
 
@@ -274,8 +278,14 @@ The production pipeline retains one self-contained final QS2 per sample and
 the existing TSV, VCF, PDF and indexed coverage BED products. The R output helper
 uses private temporary QS handoff parts, then assembles one ordinary public QS2
 in a fresh process and removes the private parts after success. No public split
-format or new reader API is introduced. Experimental Arrow/DuckDB and persistent
-temporary-coverage storage are not production options.
+format or new reader API is introduced. Public QS2 files remain readable without
+DuckDB. The [implementation and validation notes](docs/workflow-optimization.md#production-implementation-and-validation-status)
+describe private call staging and its qualification.
+
+The adopted call-store integration and barcode channel fix are pending a fresh
+full-workflow validation. Historical accepted full-workflow measurements remain
+those of `358e4bf`; separate hybrid qualification does not extend that acceptance
+to the current branch.
 
 Publication uses hard links for BAMs and enabled intermediate QS files, moves
 for coverage and final sample outputs, and copies for logs and other designated

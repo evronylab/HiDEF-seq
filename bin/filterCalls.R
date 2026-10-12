@@ -122,22 +122,14 @@ filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
 	filter(filtergroup == filtergroup_toanalyze)
   
  #region filter parameters (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
-region_read_filters_config <- yaml.config$region_filters %>%
-  map("read_filters") %>%
-  flatten %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
+region_read_filters_config <- region_filter_config(yaml.config, "read_filters") %>%
   mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
-region_genome_filters_config <- yaml.config$region_filters %>%
-  map("genome_filters") %>%
-  flatten %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
+region_genome_filters_config <- region_filter_config(yaml.config, "genome_filters") %>%
   mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
@@ -629,6 +621,7 @@ germline_vcf_variants <- qs_read(cache_file(
 		cache_dir,
 		individual_id_toanalyze,".",
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -1207,6 +1200,7 @@ passfilter_label <- "min_germlineBAM_TotalReads.passfilter"
 germline_bam_samtools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -1303,6 +1297,7 @@ variant_regions_bcftools_mpileup <- calls %>%
 germline_bam_bcftools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -1922,6 +1917,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 }
 
 #Update molecule stats of each filter applied individually regardless of any prior filters. This is possible in this case since these are molecule-level filters. Note, all_filter_suffix = NULL, because can't calculate all_filter stats from bam at this point since non-molecule filters have already been applied upstream.
+if(nrow(region_read_filters_config) > 0L){
 molecule_stats <- molecule_stats %>%
 	bind_rows(
 		calculate_molecule_stats_frombam(
@@ -1933,6 +1929,7 @@ molecule_stats <- molecule_stats %>%
 			extractCallsFile.input = extractCallsFile
 		)
 	)
+}
 
 #Update molecule stats of remaining molecules and bases after all region read filters are applied
 molecule_stats <- molecule_stats %>%

@@ -684,7 +684,10 @@ workflow {
     .map { cfg ->
       tuple(cfg.run_id, cfg.barcode_ids_parsed.canonical, cfg.individual_id, cfg.sample_id, cfg.barcode_ids)
     }
-    .join(limaDemux_round1_map_ch, by: [0,1])
+    // A sample can reuse an outer pair with distinct inner pairs. Merge its
+    // outer BAMs once; every sample must receive both barcode orientations.
+    .unique()
+    .combine(limaDemux_round1_map_ch, by: [0,1])
     .map { run_id, barcode_pair_key, individual_id, sample_id, barcode_ids, bamFile ->
       tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
     }
@@ -700,7 +703,7 @@ workflow {
     .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.canonical) }
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
-    .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
+    .combine(limaDemux_round2_samples_ch, by: [0,1,2,3])
     .combine(round2_barcodes_fasta_ch, by: 0)
     .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta ->
       tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)

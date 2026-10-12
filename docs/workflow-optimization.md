@@ -23,7 +23,19 @@ allele grouping, generated-field parsing and compressed-tag lookup now support
 the general input cases without dispatching to an older scientific
 implementation. No selectable legacy scientific algorithm or experimental
 storage path remains in production. Historical implementations remain only as
-test or benchmark oracles. These changes add no custom non-R scientific code.
+test or benchmark oracles. The qualified hybrid call store is now adopted:
+burden tasks stage calls through R and SQL using DBI/DuckDB while retaining R
+coverage accumulation and annotation. This adds custom SQL, with no custom
+C++/Rcpp. It is separate from the rejected SQL-coverage experiment.
+
+Private database and temporary files stay within the Nextflow task directory
+and are removed after successful QS2 output. No database is published or added
+to the prepared cache. Public QS2 files remain readable without DuckDB; R
+coverage and ordinary QS2 assembly still require memory proportional to the data.
+
+A fresh frozen full-workflow execution and strict scientific comparison of
+these integrated changes are pending. The qualification results below apply to
+their recorded sources; the latest accepted complete workflow remains `358e4bf`.
 
 Filtering also releases large temporary objects after their final
 use, collecting at existing cleanup points where possible. Two complete paired
@@ -112,9 +124,10 @@ full-workflow measurements.
 The reopened Arrow/DuckDB evaluation is complete. Exact storage and export
 proofs passed, but the current SQL coverage integration is rejected for
 production: complete five- and fifteen-input workers used 44.5% and 176.2% more
-CPU without improving process peak memory. No disk-backed call representation
-has been adopted. This experimental scientific logic uses SQL through existing
-DuckDB/DBI packages; it adds no custom C++/Rcpp.
+CPU without improving process peak memory. The separately qualified hybrid
+call-store implementation is adopted, with coverage retained in R. Historical
+SQL-coverage measurements and their rejection remain unchanged; both approaches
+use SQL through existing DuckDB/DBI packages without custom C++/Rcpp.
 
 ## Historical accepted full-workflow comparison: `7e37ada`
 
@@ -136,7 +149,7 @@ also records the separate strict output-stage repeatability proof.
 
 This run includes the selected native burden accumulator and the five follow-on
 R changes. It excludes the later allele-key helper installed in `00f6e33` and the
-experimental temporary coverage storage described below. Production includes
+experimental temporary coverage storage described below. That revision includes
 custom Python BAM dispatch and Nextflow/Groovy orchestration alongside R and
 existing compiled packages and CLI tools; benchmark-only Python/shell controls
 are identified separately.
@@ -172,7 +185,7 @@ regression test, for example, has a Python fixture driver and an R comparison.
 | Native Rle addition and immediate sharing, selected after whole-worker proof | R | Uses existing Bioconductor compiled operations; no new custom Python/C++/Rcpp implementation |
 | Temporary-QS coverage storage, experimental and not adopted | R | Existing compiled qs2/Bioconductor packages and annotation/index CLIs; Python/shell benchmark controls only, no custom non-R scientific kernel |
 | DuckDB calls and coverage storage, current SQL integration rejected | R with embedded SQL | **Yes: SQL query/reduction logic** through the existing DuckDB package; no custom C++/Rcpp; Python/shell benchmark controls only |
-| R coverage with private DuckDB call staging, experimental; historical full60/consumer proofs and subsequent scoped qualification complete; not adopted | R with embedded SQL | **Yes: custom SQL** through DBI/DuckDB; qualified 208-line R adapter plus integration edits (historical full60 used 187 lines); no custom C++/Rcpp; ordinary public-QS consumer remains R; Python/shell research controls only |
+| R coverage with private DuckDB call staging, adopted after qualification; integrated full-workflow validation pending | R with embedded SQL | **Yes: custom SQL** through DBI/DuckDB; R adapter derived from the qualified 208-line helper plus integration edits (historical full60 used 187 lines); no custom C++/Rcpp; ordinary public-QS consumer remains R; Python/shell research controls only |
 | Single-public-QS output task, both samples validated; installed in `3dabe21` | R | Existing packages and export CLIs; no new package or custom non-R scientific logic; Python/shell measurement and validation controls only |
 
 ## Torch launch and resource settings
@@ -204,8 +217,9 @@ To reproduce the latest fully benchmarked and accepted workflow exactly, set
 name. That accepted run includes the allele-key helper, generalized R
 implementations, preparation consolidation and publication cleanup. The branch
 additionally contains the output-only R handoff installed in `3dabe21`, with
-separate both-sample and 42-check lifecycle validation; no full workflow was
-measured at that later revision. The earlier accepted candidate was `3911047`; subsequent
+separate both-sample and 42-check lifecycle validation, the filtering cleanup,
+and the qualified private DuckDB call store. A fresh full workflow for the
+integrated branch is pending. The earlier accepted candidate was `3911047`; subsequent
 reference-summary consolidation into `sharedFunctions.R` preserved its function
 definitions and passed focused container checks in job `19289528`.
 Final validation passed under the approved BAM rule: logical records, multiplicities,
@@ -284,8 +298,8 @@ These reference-summary functions live in the single common
 `bin/sharedFunctions.R` file. The separate helper file has been removed, and its
 production callers, benchmark and cache dependency list use the common file.
 Every prepared-artifact identity includes the complete `sharedFunctions.R` hash.
-Any change to that file, including the consolidation or the later allele-key
-helper addition, therefore changes all prepared-cache identities on the next
+Any change to that file, including consolidation, the allele-key helper or the
+private DuckDB call-store integration, changes all prepared-cache identities on the next
 launch, even when a preparer's own calculation is unchanged. Downstream R task
 signatures also include this hash. Existing cache bundles are retained; they are
 not silently reused under changed source hashes.
@@ -933,9 +947,9 @@ complete final assembly and later sample-level output still impose growing
 memory requirements. The prototype retained 3.55 GB in 1,760 private files and
 adds 455 lines of reduction/storage logic before production lifecycle integration.
 The evaluation therefore weighs the further 9.53% observed task CPU saving
-against retry, cleanup and maintenance costs. The recommendation is to retain
-the current native default and single QS2. No production adoption or larger-input
-memory guarantee follows from these experiments.
+against retry, cleanup and maintenance costs. This temporary-coverage approach
+was not adopted; coverage remains in R and the output remains a single QS2.
+No larger-input memory guarantee follows from these experiments.
 
 The first disk-backed call-table feasibility attempt stopped after Arrow failed
 while applying table metadata and DuckDB failed startup configuration. That
@@ -1091,10 +1105,11 @@ ordinary-tibble constructor limit, and the supported schema follows the audited
 producer paths. Neither establishes a validated workload size or coverage of
 all configurations. Memory is not bounded independently of input size: R
 coverage, collected call tables and final ordinary-QS assembly remain. No
-separate GC-screen changes have been added to the frozen hybrid. This is a
-worthwhile moderate integration candidate if the user chooses its measured
-benefit over the maintenance cost. Production adoption requires that separate
-user decision. Production R and the single-public-QS contract are unchanged.
+separate GC-screen changes have been added to the frozen hybrid. The qualified
+successor is now adopted for private call staging. Its integration has not yet
+completed a fresh full workflow; the historical pair measurements remain scoped
+to the frozen helper. Coverage remains in R and the single-public-QS contract is
+unchanged.
 Exact metrics and source-bound receipts are in the
 [hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
 
@@ -1176,7 +1191,8 @@ and qs2 0.1.5 define the tested package context. The historical full60 timing,
 full60 scientific proof and downstream 310-export proof still belong to the
 frozen helper. There is no corrected-helper full60 timing, new downstream
 export proof or latest full-Nextflow result. Qualification is complete within
-the recorded scope; production adoption remains a separate user decision.
+the recorded scope. The qualified helper is now adopted, with a fresh
+integrated full-workflow validation still pending.
 The [qualification report](benchmarks/torch-hybrid-qualification.json) pins the
 selected sources and final receipts; the original burden report is unchanged.
 

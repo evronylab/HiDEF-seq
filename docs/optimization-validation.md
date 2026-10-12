@@ -1,5 +1,33 @@
 # Optimization validation ledger
 
+## Integrated production changes: full-workflow validation pending
+
+The qualified hybrid call store is now adopted in burden calculation. Raw calls
+are staged through DBI/DuckDB; coverage accumulation and annotation remain in R.
+Public burden and final QS2 files contain ordinary R objects and need no DuckDB
+reader.
+
+The accompanying Nextflow channel fix retains shared first-round barcode pairs,
+every configured second-round pair and both BAM orientations of a canonical
+pair. Repeated sample/outer prefixes are merged once. Publication modes,
+prepared-cache identity and deterministic scientific ordering are retained.
+
+Focused integration checks passed: 14 R suites, the final 158-check call-store
+suite, three complete mitochondrial burden cases with exact ordinary QS2 and
+indexed coverage comparisons, and optional-input filtering-to-output chains.
+The latter cover absent region filters, empty germline-VCF lists, disabled and
+enabled sensitivity, and actual raw mitochondrial calls. Barcode matching and
+Nextflow previews also passed. These checks include fixes for previously
+failing empty configurations; they do not claim equality to an original run
+that failed. Receipts are recorded in workspace
+`runtime/production-finalization-20261012/focused-summary.json`.
+
+A fresh frozen full-workflow execution, accounting and scientific comparison
+of this integrated source are pending. Historical hybrid measurements and
+qualification below keep their original source scope. The accepted `358e4bf`
+workflow remains the latest complete-workflow reference; adopting private call
+staging does not reverse the separate rejection of SQL coverage calculation.
+
 ## Current accepted workflow: `358e4bf`
 
 The source now consolidates coverage annotation and standalone/prepared
@@ -209,7 +237,7 @@ was identified. The [complete GC evaluation](benchmarks/torch-gc-lifetime-evalua
 records the measurements, source identities, validation evidence and scope
 limits. Rejected candidate code remains confined to the workspace experiments.
 No changes from this GC screen have been added to the frozen hybrid study;
-any later hybrid cleanup evaluation depends on a separate decision to adopt
+any later hybrid cleanup evaluation remains separate from the decision to adopt
 that approach.
 
 ### Separate storage and output-task decisions
@@ -337,10 +365,11 @@ components, all 310 exports under the established VCF/PDF comparison rules and
 56 own-file index checks; private output parts were removed. Its 96 GiB/45-minute
 validation allocation followed a resource-only amendment after the original
 128 GiB request was rejected before job creation; proof commands were unchanged.
-The hybrid is a worthwhile moderate integration candidate if the user chooses
-its measured benefit over the additional maintenance. Adoption still requires
-that separate user decision. Production retains its R calculation and
-self-contained QS2. Precise metrics, source bindings and limitations are in the
+The qualified successor to this hybrid is now adopted for private call staging.
+The current integrated source is pending fresh full-workflow validation; these
+historical measurements retain their original scope. Coverage calculation stays
+in R and the public QS2 remains self-contained. Precise metrics, source bindings
+and limitations are in the
 [hybrid burden report](benchmarks/torch-hybrid-burden-evaluation.json).
 
 The earlier R-only few-QS component variant passed 18 components through both
@@ -430,8 +459,9 @@ ordinary save and cleanup, not coverage or complete burden timing. The
 native tibble/vctrs path; neither those checks nor private synthetic counters
 establish performance at that size. Memory remains dependent on input size.
 The corrected helper has no new full60, latest full-workflow or downstream
-310-export replay. The historical results above remain unchanged, and adoption
-still requires the user's separate decision. Exact scope, package versions and
+310-export replay. The historical results above remain unchanged. The qualified
+helper is now adopted; a fresh validation of the integrated full workflow is
+pending. Exact scope, package versions and
 small-receipt hashes are in the
 [qualification report](benchmarks/torch-hybrid-qualification.json).
 

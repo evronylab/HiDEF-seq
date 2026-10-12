@@ -298,6 +298,21 @@ reference_cache_dir <- function(yaml.config){
   if(is.null(yaml.config$reference_cache_dir)) yaml.config$cache_dir else yaml.config$reference_cache_dir
 }
 
+# Optional region-filter lists still need their column schema when no entries
+# are configured. Populated lists retain their existing inferred types/order.
+region_filter_config <- function(yaml.config, type = c("read_filters", "genome_filters")){
+  type <- match.arg(type)
+  entries <- yaml.config$region_filters %>% map(type) %>% flatten
+  if(length(entries)) return(entries %>% enframe(name = NULL) %>% unnest_wider(value))
+  result <- tibble(
+    region_filter_file = character(), binsize = integer(), threshold = character(),
+    padding = integer(), applyto_chromgroups = character(),
+    applyto_filtergroups = character(), is_germline_filter = logical()
+  )
+  if(type == "read_filters") result <- add_column(result, read_threshold = character(), .after = "padding")
+  result
+}
+
 #Function to derive the BSgenome package name created from the configured FASTA
 get_bsgenome_name <- function(yaml.config){
 	genome_suffix <- yaml.config$genome_fasta %>%
@@ -3239,4 +3254,203 @@ observed_allele_interaction <- function(columns) {
     labels <- next_labels
   }
   structure(as.integer(result[ids]), levels = labels, class = "factor")
+}
+
+# Stage raw burden call tables in DuckDB while coverage remains in R. The final
+# QS2 contains ordinary R objects and has no dependency on this private store.
+# Supported inputs: ordinary tibbles, base scalars/unordered factors, integer
+# vector list cells without per-cell attributes, and optional per-row names.
+# Unsupported schemas fail explicitly; this is not a general R serialization API.
+new_burden_call_store <- function(buffer_rows = 50000L) {
+  task_directory <- normalizePath(getwd())
+  path <- tempfile(pattern = ".burden-calls-", tmpdir = task_directory)
+  stopifnot(dir.create(path, showWarnings = FALSE))
+  for (part in c('extensions', 'secrets', 'temp'))
+    dir.create(file.path(path, part), showWarnings = FALSE)
+  con <- DBI::dbConnect(duckdb::duckdb(dbdir = file.path(path, 'calls.duckdb'), config = list(
+    threads = '1', memory_limit = '512MB', extension_directory = file.path(path, 'extensions'),
+    secret_directory = file.path(path, 'secrets'), temp_directory = file.path(path, 'temp'))))
+  # DuckDB 1.3.1 resets this setting while opening the database.
+  DBI::dbExecute(con, paste('SET secret_directory =',
+    DBI::dbQuoteString(con, file.path(path, 'secrets'))))
+  state <- new.env(parent = emptyenv())
+  state$contracts <- list(); state$rows <- list(); state$parts <- list(); state$closed <- FALSE
+  quote_id <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
+  contract_for <- function(x) list(prototype = x[0, ],
+    named = names(x)[vapply(x, function(v) !is.null(names(v)), logical(1))],
+    lists = names(x)[vapply(x, is.list, logical(1))])
+  validate <- function(x) {
+    stopifnot(identical(class(x), c('tbl_df', 'tbl', 'data.frame')),
+      setequal(names(attributes(x)), c('class', 'row.names', 'names')),
+      !anyDuplicated(names(x)), !any(startsWith(names(x), '__hidef_')))
+    for (column in names(x)) {
+      value <- x[[column]]
+      if (is.factor(value)) {
+        stopifnot(identical(class(value), 'factor'), !anyNA(levels(value)),
+          all(names(attributes(value)) %in% c('names', 'levels', 'class')))
+      } else {
+        stopifnot(typeof(value) %in% c('logical', 'integer', 'double', 'character', 'list'),
+          all(names(attributes(value)) %in% 'names'))
+        if (is.double(value)) stopifnot(!any(is.nan(value) | is.infinite(value)))
+        if (is.list(value)) stopifnot(all(vapply(value, function(cell)
+          identical(typeof(cell), 'integer') && is.null(attributes(cell)), logical(1))))
+      }
+    }
+    invisible(NULL)
+  }
+  encode <- function(x, contract, row_ids = seq_len(nrow(x))) {
+    for (column in contract$named) {
+      x[[paste0('__hidef_names_', column)]] <- names(x[[column]])
+      names(x[[column]]) <- NULL
+    }
+    # An empty factor has no valid SQL ENUM. Keep its R prototype and
+    # store it as VARCHAR until a later chunk supplies factor levels.
+    for (column in names(x)) if (is.factor(x[[column]]) && !length(levels(x[[column]])))
+      x[[column]] <- as.character(x[[column]])
+    x[['__hidef_rowid']] <- as.integer(row_ids)
+    x
+  }
+  restore <- function(x, contract) {
+    x <- tibble::as_tibble(x)
+    for (column in intersect(contract$lists, names(x))) x[[column]] <- as.list(x[[column]])
+    for (column in intersect(names(contract$prototype), names(x))) {
+      prototype <- contract$prototype[[column]]
+      if (is.factor(prototype)) {
+        if (!is.factor(x[[column]]) || !identical(levels(x[[column]]), levels(prototype)))
+          x[[column]] <- factor(as.character(x[[column]]), levels = levels(prototype))
+      } else if (!identical(typeof(x[[column]]), typeof(prototype))) {
+        x[[column]] <- vctrs::vec_cast(x[[column]], prototype)
+      }
+    }
+    for (column in intersect(contract$named, names(x))) {
+      auxiliary <- paste0('__hidef_names_', column)
+      stopifnot(auxiliary %in% names(x))
+      names(x[[column]]) <- x[[auxiliary]]
+    }
+    x[, !startsWith(names(x), '__hidef_')]
+  }
+  append_table <- function(name, x) {
+    validate(x)
+    if (is.null(state$contracts[[name]])) {
+      state$contracts[[name]] <- contract_for(x)
+      state$rows[[name]] <- 0L; state$parts[[name]] <- 0L
+      DBI::dbWriteTable(con, name, encode(x[0, ], state$contracts[[name]]),
+        field.types = setNames(rep('INTEGER[]', length(state$contracts[[name]]$lists)),
+          state$contracts[[name]]$lists))
+      # Unnamed later chunks must get blank names, while explicit NA
+      # names remain NA. Defaults apply only when a column is omitted.
+      for (column in state$contracts[[name]]$named) DBI::dbExecute(con,
+        paste0('ALTER TABLE ', quote_id(name), ' ALTER COLUMN ',
+          quote_id(paste0('__hidef_names_', column)), " SET DEFAULT ''"))
+    }
+    contract <- state$contracts[[name]]
+    stopifnot(identical(names(x), names(contract$prototype)),
+      identical(names(x)[vapply(x, is.list, logical(1))], contract$lists),
+      state$rows[[name]] + as.double(nrow(x)) <= .Machine$integer.max)
+    # Match native bind_rows factor union and scalar promotion, retaining unused levels.
+    for (column in names(x)) {
+      old <- contract$prototype[[column]]; new <- x[[column]]
+      if (is.factor(old) || is.factor(new) || !identical(typeof(old), typeof(new))) {
+        common <- vctrs::vec_ptype_common(old, new)
+        # Use native casting for factor-name semantics. Factors may lose
+        # names on combination/promotion even when their levels match.
+        if (state$parts[[name]] > 0L) {
+          if (is.factor(old) && column %in% contract$named &&
+              is.null(names(vctrs::vec_cast(setNames(old[0], character()), common)))) {
+            if (state$rows[[name]] > 0L) DBI::dbExecute(con, paste0('UPDATE ',
+              quote_id(name), ' SET ', quote_id(paste0('__hidef_names_', column)), " = ''"))
+            contract$named <- setdiff(contract$named, column)
+          }
+          if (is.factor(new) && !is.null(names(new)) &&
+              is.null(names(vctrs::vec_cast(new[0], common)))) names(x[[column]]) <- NULL
+        }
+        if (!identical(old, common)) {
+          sqltype <- if (is.factor(common) && length(levels(common))) paste0('ENUM(',
+            paste(DBI::dbQuoteString(con, levels(common)), collapse = ','), ')') else
+            if (is.factor(common)) 'VARCHAR' else DBI::dbDataType(con, common)
+          DBI::dbExecute(con, paste0('ALTER TABLE ', quote_id(name), ' ALTER COLUMN ',
+            quote_id(column), ' SET DATA TYPE ', sqltype))
+        }
+        contract$prototype[[column]] <- common
+      }
+    }
+    if (nrow(x)) {
+      incoming_named <- names(x)[vapply(x, function(v) !is.null(names(v)), logical(1))]
+      active_named <- if (state$rows[[name]] == 0L) incoming_named else union(contract$named, incoming_named)
+      new_fields <- setdiff(paste0('__hidef_names_', active_named, recycle0 = TRUE), DBI::dbListFields(con, name))
+      for (field in new_fields) DBI::dbExecute(con, paste0('ALTER TABLE ', quote_id(name),
+        ' ADD COLUMN ', quote_id(field), " VARCHAR DEFAULT ''"))
+      contract$named <- active_named
+      for (column in contract$named) if (is.null(names(x[[column]]))) names(x[[column]]) <- rep('', nrow(x))
+    }
+    if (state$rows[[name]] == 0L && !nrow(x) && state$parts[[name]] > 0L)
+      contract <- contract_for(dplyr::bind_rows(contract$prototype, x[0, ]))
+    state$parts[[name]] <- state$parts[[name]] + 1L
+    state$contracts[[name]] <- contract
+    if (nrow(x)) for (lo in seq.int(1L, nrow(x), by = buffer_rows)) {
+      rows <- seq.int(lo, min(nrow(x), as.double(lo) + buffer_rows - 1))
+      DBI::dbAppendTable(con, name, encode(x[rows, ], contract, state$rows[[name]] + rows))
+    }
+    state$rows[[name]] <- state$rows[[name]] + nrow(x)
+    invisible(NULL)
+  }
+  read_table <- function(name, columns = NULL, where = NULL) {
+    contract <- state$contracts[[name]]
+    if (is.null(columns)) columns <- names(contract$prototype)
+    stopifnot(length(columns) > 0L, all(columns %in% names(contract$prototype)))
+    auxiliary <- paste0('__hidef_names_', intersect(columns, contract$named), recycle0 = TRUE)
+    query <- paste0('SELECT ', paste(quote_id(c(columns, auxiliary)), collapse = ','),
+      ' FROM ', quote_id(name), if (!is.null(where)) paste0(' WHERE ', where) else '',
+      ' ORDER BY __hidef_rowid')
+    value <- restore(DBI::dbGetQuery(con, query), contract)
+    if (!nrow(value)) value <- dplyr::bind_rows(value)
+    value
+  }
+  append_calls <- function(final, germline, chunk) {
+    append_table('finalCalls', tibble::add_column(final,
+      analysis_chunk = rep.int(as.integer(chunk), nrow(final)), .before = 1L))
+    append_table('germlineVariantCalls', tibble::add_column(germline,
+      analysis_chunk = rep.int(as.integer(chunk), nrow(germline)), .before = 1L) %>% dplyr::select(-call_toanalyze))
+    invisible(NULL)
+  }
+  project_final <- function() {
+    # The original select operates on metadata to choose the identical projection.
+    columns <- names(state$contracts$finalCalls$prototype %>%
+      dplyr::select(-c('germline_vcf_types_detected', 'germline_vcf_files_detected',
+        'call_toanalyze', dplyr::contains('passfilter'))))
+    read_table('finalCalls', columns)
+  }
+  sensitivity_counts <- function(keys) {
+    contract <- state$contracts$germlineVariantCalls
+    stopifnot(length(keys) > 0L, all(keys %in% names(contract$prototype)),
+      !any(keys %in% contract$lists), !any(c('run_id', 'zm') %in% keys))
+    cols <- paste(quote_id(keys), collapse = ',')
+    allcols <- paste(quote_id(c('run_id', 'zm', keys)), collapse = ',')
+    auxiliary <- paste0('__hidef_names_', intersect(keys, contract$named), recycle0 = TRUE)
+    selected <- paste(paste0('calls.', quote_id(c(keys, auxiliary))), collapse = ',')
+    sql <- paste0('WITH detected AS (SELECT ', allcols,
+      ',MIN(__hidef_rowid) AS first_row FROM germlineVariantCalls GROUP BY ', allcols, '), ',
+      'counts AS (SELECT ', cols,
+      ',CAST(COUNT(*) AS INTEGER) AS num_zm_detected,MIN(first_row) AS first_row FROM detected GROUP BY ', cols, ') ',
+      'SELECT ', selected, ',counts.num_zm_detected FROM germlineVariantCalls calls ',
+      'JOIN counts ON calls.__hidef_rowid=counts.first_row')
+    restore(DBI::dbGetQuery(con, sql), contract) %>% dplyr::arrange(dplyr::across(dplyr::all_of(keys)))
+  }
+  close <- function() {
+    if (!state$closed) {
+      DBI::dbExecute(con, 'CHECKPOINT')
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      state$closed <- TRUE
+    }
+    invisible(NULL)
+  }
+  # The caller removes this exact directory only after qs_save succeeds.
+  cleanup <- function() {
+    stopifnot(state$closed, identical(dirname(normalizePath(path)), task_directory),
+      unlink(path, recursive = TRUE) == 0L, !file.exists(path))
+    invisible(NULL)
+  }
+  list(append_table = append_table, read_table = read_table, append_calls = append_calls,
+    project_final = project_final, sensitivity_counts = sensitivity_counts, close = close,
+    cleanup = cleanup, state = state)
 }

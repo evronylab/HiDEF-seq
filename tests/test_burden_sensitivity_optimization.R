@@ -165,7 +165,9 @@ variant_keys <- c("seqnames", "start", "end", "ref_plus_strand", "alt_plus_stran
                   "call_class", "call_type", "SBSindel_call_type")
 config <- list(cache_dir = "/unused", genome_fasta = "/unused/ref.fa", bcftools_bin = "/unused/bcftools",
                individuals = list(list(individual_id = "individual", germline_bam_file = "germline.bam",
-                                       germline_vcf_files = list(list(file = "a"), list(file = "b")))))
+                                       germline_vcf_files = list(list(file = "a"), list(file = "b"))),
+                                  list(individual_id = "other", germline_bam_file = "other.bam",
+                                       germline_vcf_files = list())))
 thresholds <- list(sensitivity_vcf = "/unused/sensitivity.vcf", genotype = "homozygous",
                    SBS_min_Depth_quantile = 0.6, indel_min_Depth_quantile = 0.3,
                    SBS_min_GQ_quantile = 0.6, indel_min_GQ_quantile = 0.3,
@@ -191,3 +193,72 @@ for(genotype in c("homozygous", "heterozygous")) {
   stopifnot(nrow(prepare()) == 0L) #External sensitivity VCF restriction.
 }
 cat("PASS: genome-wide per-VCF quantiles, both genotypes, all-VCF intersection, sex/mito and external-VCF filtering\n")
+
+#The producer saves a metadata-free GRanges for omitted/null/[] VCF lists.
+#Preparation must provide typed empty variant keys, then the actual enabled
+#sensitivity branch must retain its existing default-1 result for every type.
+empty_keys <- GRanges(ref_plus_strand = character(), alt_plus_strand = character(),
+  call_class = factor(), call_type = factor(), SBSindel_call_type = factor()) %>%
+  as_tibble() %>% select(all_of(variant_keys))
+empty_vcf <- empty_keys %>% mutate(Depth = integer(), VAF = numeric(), GT = character(),
+  GQ = numeric(), QUAL = numeric(), germline_vcf_file = factor())
+dispatch <- Filter(function(x) is.call(x) && identical(x[[1L]], as.name("if")) &&
+  grepl("All non-MDB sensitivities set to 1", paste(deparse(x), collapse = " "), fixed = TRUE), expressions)
+stopifnot(length(dispatch) == 1L)
+call_types <- tibble(call_type = c("SBS", "SBS", "insertion", "deletion"),
+  call_class = c("SBS", "SBS", "indel", "indel"),
+  SBSindel_call_type = c("mutation", "mismatch-ss", "mutation", "mutation"),
+  filtergroup = factor("strict"), analyzein_chromgroups = "all")
+for(case in c("omitted", "null", "empty_list", "empty_vcf")) {
+  cfg <- config
+  cfg$individuals[[2L]]$germline_vcf_files <- config$individuals[[1L]]$germline_vcf_files
+  cfg$individuals[[1L]]$germline_vcf_files <- NULL
+  if(case == "null") cfg$individuals[[1L]]["germline_vcf_files"] <- list(NULL)
+  if(case == "empty_list") cfg$individuals[[1L]]$germline_vcf_files <- list()
+  if(case == "empty_vcf") cfg$individuals[[1L]]$germline_vcf_files <- list(list(file = "empty"))
+  original_config <- cfg
+  env <- new.env(parent = globalenv())
+  env$qs_reads <- 0L
+  env$vcf_reads <- 0L
+  env$qs_read <- function(path) {
+    env$qs_reads <- env$qs_reads + 1L
+    stopifnot(identical(path, "/unused/individual.germline.bam.germline_vcf_variants.qs2"))
+    if(case == "empty_vcf") empty_vcf else unlist(GRangesList())
+  }
+  env$load_vcf <- function(...) {
+    env$vcf_reads <- env$vcf_reads + 1L
+    empty_keys
+  }
+  env$cache_file <- function(file, config) file
+  eval(assignment("prepare_high_confidence_germline_vcf_variants"), env)
+  prepared <- env$prepare_high_confidence_germline_vcf_variants(
+    cfg, "individual", thresholds, "unused", "chr1", "chrX", "chrM")
+  stopifnot(identical(prepared, empty_keys), identical(cfg, original_config),
+    identical(env$qs_reads, as.integer(case == "empty_vcf")),
+    identical(env$vcf_reads, as.integer(case == "empty_vcf")))
+  queries <- make_sensitivity_coverage_queries(prepared, si)
+  stopifnot(nrow(queries) == 0L)
+  for(genotype in c("homozygous", "heterozygous")) {
+    env$call_types_toanalyze <- call_types
+    env$sensitivity_parameters <- c(thresholds, list(SBS_min_variant_detections = 0L,
+      indel_min_variant_detections = 0L))
+    env$sensitivity_parameters$genotype <- genotype
+    env$sensitivity_enabled_for_chromgroup <- TRUE
+    env$high_confidence_germline_vcf_variants <- prepared
+    env$sensitivity_coverage_queries <- queries
+    env$call_store <- list(sensitivity_counts = function(columns) {
+      stopifnot(identical(columns, variant_keys))
+      mutate(empty_keys, num_zm_detected = integer())
+    })
+    env$bam.gr.filtertrack.except_germline_filters.bytype <- call_types %>%
+      select(-analyzein_chromgroups) %>% mutate(
+        coverage_start = rep(list(numeric()), n()), coverage_end = rep(list(numeric()), n()))
+    eval(assignment("sensitivity"), env)
+    expected <- env$sensitivity %>% mutate(
+      high_confidence_germline_vcf_variants_sum_zm_detected = 0L,
+      high_confidence_germline_vcf_variants_sum_duplex_coverage = 0L)
+    eval(dispatch[[1L]], env)
+    stopifnot(identical(env$sensitivity, expected))
+  }
+  cat("PASS:", case, "VCF preparation and enabled sensitivity preserve typed default-1 output\n")
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S Rscript --vanilla
-# Run inside the pinned container with wiggletools and wigToBigWig on PATH.
+# Run inside the pipeline container with wiggletools and wigToBigWig on PATH.
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(plyranges))
@@ -27,13 +27,13 @@ query <- GRanges(c("chr1", "chr1", "chr2", "chrEmpty"),
                  IRanges(c(4L, 13L, 7L, 1L), c(5L, 14L, 8L, 8L)), seqinfo=reference)
 
 for(threshold in c(0, 0.1, 1, 15, 16, 26)) {
-  # Literal legacy shell/import/Seqinfo/select sequence on a tiny sparse track.
+  # Independent shell/import/Seqinfo/select reference on a tiny sparse track.
   commands <- c("set -euo pipefail",
-    "awk '{print $1 \"\t0\t\" $2}' reference.fa.fai | sort -k1,1 -k2,2n > legacy.chromsizes.bed",
+    "awk '{print $1 \"\t0\t\" $2}' reference.fa.fai | sort -k1,1 -k2,2n > reference_model.chromsizes.bed",
     paste(shQuote(wiggletools), "lt", threshold,
-          "trim legacy.chromsizes.bed fillIn legacy.chromsizes.bed coverage.bw |",
-          shQuote(wigToBigWig), "stdin <(cut -f 1,2 reference.fa.fai) legacy.bw"))
-  legacy_status <- system2("/bin/bash", args="-s", input=commands)
+          "trim reference_model.chromsizes.bed fillIn reference_model.chromsizes.bed coverage.bw |",
+          shQuote(wigToBigWig), "stdin <(cut -f 1,2 reference.fa.fai) reference_model.bw"))
+  reference_model_status <- system2("/bin/bash", args="-s", input=commands)
   output <- paste0("threshold", threshold, ".qs2")
   status <- system2(file.path(R.home("bin"), "Rscript"), args=c("--vanilla", shQuote(helper),
     "--bigwig coverage.bw --fai reference.fa.fai --threshold", threshold,
@@ -44,12 +44,12 @@ for(threshold in c(0, 0.1, 1, 15, 16, 26)) {
     # failure rather than silently changing the pipeline's empty-filter policy.
     error <- tryCatch(prepare_germline_coverage_filter("coverage.bw", "reference.fa.fai",
                        threshold, wiggletools, wigToBigWig), error = identity)
-    stopifnot(legacy_status != 0L, status != 0L, !file.exists(output), inherits(error, "error"),
+    stopifnot(reference_model_status != 0L, status != 0L, !file.exists(output), inherits(error, "error"),
               !length(list.files(pattern = "^\\.germline-coverage-", all.files = TRUE)))
     next
   }
-  stopifnot(legacy_status == 0L, status == 0L)
-  expected <- import("legacy.bw", format="bigWig")
+  stopifnot(reference_model_status == 0L, status == 0L)
+  expected <- import("reference_model.bw", format="bigWig")
   seqlevels(expected) <- seqlevels(reference)
   seqinfo(expected) <- reference
   expected <- plyranges::select(expected, -score)
@@ -74,4 +74,4 @@ for(threshold in c(0, 0.1, 1, 15, 16, 26)) {
   stopifnot(identical(actual, expected), identical(sum(width(actual)), sum(width(expected))),
             identical(overlapsAny(query, actual), overlapsAny(query, expected)))
 }
-cat("Germline coverage cache matches legacy GRanges, Seqinfo, widths and overlaps at five thresholds; shared standalone/prepared paths agree and reject the empty-stream edge.\n")
+cat("Germline coverage cache matches expected GRanges, Seqinfo, widths and overlaps at five thresholds; shared standalone/prepared paths agree and reject the empty-stream edge.\n")

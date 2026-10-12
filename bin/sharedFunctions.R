@@ -3,7 +3,7 @@
 ######################
 
 # Small reusable reference summaries. Callers load BSgenome, GenomicRanges and
-# Biostrings. Reference sequence boundaries and literal N matching are unchanged.
+# Biostrings. N ranges use literal N matching and retain sequence boundaries.
 reference_n_ranges <- function(genome) {
   reference_info <- seqinfo(genome)
   chromosomes <- seqnames(genome)
@@ -31,8 +31,8 @@ reference_counts_for_chromosomes <- function(counts, chromosomes) {
   if (anyNA(chromosomes) || any(!chromosomes %in% names(counts))) {
     stop("Requested chromosome is absent from the prepared reference summary", call. = FALSE)
   }
-  # Preserve requested order and repeated chromosomes, as getSeq(chromosomes)
-  # did. Integer counts and their channel names retain their original types.
+  # Preserve requested order and repeated chromosomes. Counts retain their
+  # integer types and channel names.
   Reduce(`+`, counts[chromosomes])
 }
 
@@ -259,8 +259,8 @@ annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
         context[inner] <- bases[offset] * 25L + bases[offset + 1L] * 5L + bases[offset + 2L] + 1L
         seen[unique(context)] <- TRUE
         # rowsum adds doubles in input order, starting with the previous total.
-        # Prepending that total preserves awk's per-base accumulation, even for
-        # fractional/large depths across windows and input batches.
+        # Prepending that total preserves per-base accumulation order across
+        # windows and input batches, including fractional/large depths.
         sums <- as.vector(rowsum(c(sums, depths[run]), c(seq_len(126L), context), reorder = FALSE))
         if(!is.null(destination)) write_bed(chromosome, position, runs[[4L]][run], context_names[context])
       }
@@ -2801,8 +2801,8 @@ plot_spectrum_generic <- function(spec, lwr, upr, name, max_y, colors, boxes) {
 # Prepared-artifact cache protocol, shared by the small artifactCache.R CLI.
 # Linux flock locks are held by an R file connection (the same open-file
 # description is inherited by the flock subprocess). Closing that connection,
-# including on an R error or process death, releases the lock. Do not substitute
-# POSIX/fcntl locks: they do not interoperate with earlier Python cache writers.
+# including on an R error or process death, releases the lock. POSIX/fcntl locks
+# do not coordinate with flock locks.
 artifact_cache_with_lock <- function(path, operation) {
   path <- normalizePath(path, mustWork = FALSE)
   before <- list.files("/proc/self/fd", full.names = TRUE)
@@ -2830,7 +2830,7 @@ artifact_cache_object <- function() setNames(list(), character())
 
 # Retain integer tokens (including integers above 2^53) separately from JSON
 # floating-point values. jsonlite's default conversion would round those integers
-# and would erase the distinction between the legacy key bytes for 1 and 1.0.
+# and would erase the distinction between the canonical key bytes for 1 and 1.0.
 artifact_cache_parse_json <- function(text) {
   parsed <- jsonlite::fromJSON(text, simplifyVector = FALSE)
   prefix <- "__hidef_cache_number__"
@@ -2846,7 +2846,7 @@ artifact_cache_parse_json <- function(text) {
   }
   restore <- function(value) {
     if (is.list(value)) {
-      # JSON objects follow the earlier Python parser's last-key-wins rule.
+      # For duplicate JSON object keys, the last value wins.
       if (!is.null(names(value))) value <- value[!duplicated(names(value), fromLast = TRUE)]
       return(lapply(value, restore))
     }
@@ -2866,7 +2866,7 @@ artifact_cache_float <- function(value) {
   if (!is.finite(value)) stop("Non-finite JSON number", call. = FALSE)
   if (value == 0) return(if (1 / value < 0) "-0.0" else "0.0")
   # Find the shortest significant-decimal representation that round trips to
-  # this IEEE double, then use Python's fixed/scientific notation boundaries.
+  # this IEEE double; exponents below -4 or at least 16 use scientific notation.
   for (digits in seq_len(17L)) {
     rendered <- sprintf(paste0("%.", digits - 1L, "e"), value)
     if (jsonlite::fromJSON(rendered) == value) break
@@ -2957,7 +2957,7 @@ artifact_cache_key <- function(identity) {
 }
 
 artifact_cache_location <- function(root, identity) {
-  file.path(root, "v1", identity$namespace, artifact_cache_key(identity))
+  file.path(root, identity$namespace, artifact_cache_key(identity))
 }
 
 artifact_cache_size <- function(path) {
@@ -3019,8 +3019,8 @@ artifact_cache_inventory <- function(directory) {
 }
 
 artifact_cache_equal <- function(left, right) {
-  # Manifest verification uses JSON value equality, as Python dictionaries did;
-  # key generation still distinguishes exact canonical number representations.
+  # Manifest verification uses JSON value equality; key generation distinguishes
+  # exact canonical number representations.
   numeric_value <- function(value) inherits(value, "artifact_cache_number") || is.numeric(value) || is.logical(value)
   if (numeric_value(left) || numeric_value(right)) {
     if (!numeric_value(left) || !numeric_value(right) || length(left) != 1L || length(right) != 1L) return(FALSE)
@@ -3414,7 +3414,7 @@ new_burden_call_store <- function(buffer_rows = 50000L) {
     invisible(NULL)
   }
   project_final <- function() {
-    # The original select operates on metadata to choose the identical projection.
+    # Select public columns from schema metadata before reading call rows.
     columns <- names(state$contracts$finalCalls$prototype %>%
       dplyr::select(-c('germline_vcf_types_detected', 'germline_vcf_files_detected',
         'call_toanalyze', dplyr::contains('passfilter'))))

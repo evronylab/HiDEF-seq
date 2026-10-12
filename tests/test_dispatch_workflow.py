@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate/verify a small Nextflow replay of the actual dispatch integration.
 
-Generate inside the pinned container with PacBio tools active, run the emitted
+Generate inside the pipeline container with PacBio tools active, run the emitted
 fixture.nf with Nextflow on compute, then verify in that container. The fixture
 extracts production process definitions, channel wiring and tuple expansion.
 """
@@ -93,11 +93,11 @@ def verify(args):
             include = directory / f'{sample}.{chunk}.include.txt'
             include.write_text('\n'.join(ids[offset:offset + size]) + '\n')
             offset += size
-            legacy = directory / f'{sample}.{chunk}.legacy.bam'
-            run([args.zmwfilter, '--include', include, original, legacy])
-            if run([args.samtools, 'view', '--no-PG', legacy]).stdout != run([args.samtools, 'view', '--no-PG', row[2]]).stdout:
+            reference_model = directory / f'{sample}.{chunk}.reference_model.bam'
+            run([args.zmwfilter, '--include', include, original, reference_model])
+            if run([args.samtools, 'view', '--no-PG', reference_model]).stdout != run([args.samtools, 'view', '--no-PG', row[2]]).stdout:
                 raise AssertionError('Record/tag/order difference in ' + basename)
-            if binary_records(legacy) != binary_records(Path(row[2])):
+            if binary_records(reference_model) != binary_records(Path(row[2])):
                 raise AssertionError('Exact binary record difference in ' + basename)
             for line in run([args.samtools, 'view', '--no-PG', '-H', original]).stdout.splitlines():
                 if line not in run([args.samtools, 'view', '--no-PG', '-H', row[2]]).stdout.splitlines():
@@ -105,7 +105,7 @@ def verify(args):
             run([args.samtools, 'quickcheck', row[2]])
             run([args.samtools, 'idxstats', row[2]])
         report[sample] = dict(chunks=expected_chunks, status='exact records, headers, indices and tuples')
-    (directory / 'validation.json').write_text(json.dumps(report, indent=2) + '\n')
+    (directory / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 
 
@@ -128,7 +128,7 @@ def verify_cache(args):
             raise AssertionError('Source-content cache key did not isolate split task: ' + name)
     report = {'status': 'pass', 'first_tasks': 5, 'resumed_tasks': 5,
               'source_change_reexecuted_split_tasks': 2, 'source_change_cached_enumerations': 3}
-    (directory / 'cache-validation.json').write_text(json.dumps(report, indent=2) + '\n')
+    (directory / 'cache-results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 
 

@@ -11,7 +11,7 @@ cat("#### Running filterCalls ####\n")
 ######################
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
-# Match the one-CPU filterCalls task and the measured dtplyr aggregation.
+# Keep data.table aggregation within the task's one-CPU allocation.
 data.table::setDTthreads(1L)
 suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
@@ -320,9 +320,8 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info
 #iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
 convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
-	# The row identifier is already the positional index into bam.input. Keep
-	# the same mapping primitive and input order without flattening its GRanges
-	# through several full data frames and joining that identifier back again.
+	# Each row identifier directly indexes bam.input, preserving input order
+	# and keeping its GRanges intact during query-to-reference mapping.
 	group <- rep.int(seq_along(irangeslist.input), elementNROWS(irangeslist.input))
 	if(!length(group)) return(GRanges(run_id=factor(), zm=integer()))
 	query <- GRanges(
@@ -866,8 +865,8 @@ cat("## Applying genome 'N' base sequence filter...")
 
 passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
-#Keep full-reference N ranges so the whole-genome filtered-base statistic is
-#unchanged even when this task analyzes only a small chromosome group.
+#Count N bases across the full reference for whole-genome filtering statistics,
+#including tasks that analyze only one chromosome group.
 region_genome_filter <- load_reference_summary(
   yaml.config, get(BSgenome_name), "n_ranges")$n_ranges
 

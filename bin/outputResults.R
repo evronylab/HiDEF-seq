@@ -110,7 +110,7 @@ output_results_save_coverage <- function(x, i, inputs) {
   path <- file.path(launch$directory, metadata$parts[[i]])
   stopifnot(!file.exists(path))
   qs2::qs_save(x, path)
-  # Actual payload release also needs the original input's existing rm/gc.
+  # The caller must also remove its full input and collect garbage to release the payload.
   dplyr::select(x, -dplyr::all_of("bam.gr.filtertrack.coverage"))
 }
 
@@ -472,7 +472,7 @@ for(i in seq_along(calculateBurdensFiles)){
 		) %>%
 		relocate(filtergroup, bc_orientation, call_class, .after = chromgroup)
 	
-	# Save full annotated coverage; retain only the existing export columns.
+	# Save full annotated coverage; retain only the export columns.
 	bam.gr.filtertrack.bytype.coverage_tnc[[i]] <- output_results_save_coverage(
 		bam.gr.filtertrack.bytype.coverage_tnc[[i]], i, calculateBurdensFiles
 	)
@@ -615,7 +615,7 @@ invisible(gc())
 
 cat(" DONE\n")
 
-# Preserve the original per-group tables for deferred exports without
+# Preserve the per-group tables for deferred exports without
 # keeping closures that capture the raw calls or coverage payload.
 finalCalls.bytype.for_export <- finalCalls.bytype
 #Remove 'for_vcf' tables since not needed anymore.
@@ -915,9 +915,9 @@ output_results_save_remainder(
 
 cat("DONE\n")
 
-# The private handoff contains all18 original components. Thin coverage
-# spectra remain for exports; release raw calls and the rebound formatted
-# table (original per-group tables remain).
+# The private handoff contains all 18 public components. Coverage spectra and
+# per-group tables remain for exports; release raw calls and combined formatted
+# tables.
 rm(germlineVariantCalls, finalCalls, germlineVariantCalls_for_tsv, finalCalls.bytype)
 invisible(gc())
 cat("## Released private-QS-only payload before exports\n")

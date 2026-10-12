@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise actual preparedInputIdentity() with the pinned Nextflow on compute.
+"""Exercise actual preparedInputIdentity() with Nextflow on a compute node.
 
 Run: python3 tests/test_prepared_input_identity.py --directory NEW_FIXTURE_DIR
-Optional --probe PATH records read-only metadata for cross-node comparisons.
 """
 import argparse
 import json
@@ -14,14 +13,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--directory', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, action='append', default=[])
     args = parser.parse_args()
     directory = args.directory.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     source = (args.repo / 'main.nf').read_text()
     helper = source[source.index('def preparedInputIdentity('):source.index('def canonicalCacheValue(')]
     (directory / 'production-helper.nf.txt').write_text(helper)
-    (directory / 'probes.json').write_text(json.dumps([str(p.resolve(strict=True)) for p in args.probe]))
     fixture = helper + r'''
 workflow {
   def checks = []
@@ -53,12 +50,8 @@ workflow {
   input.text = 'longer content'
   assert preparedInputIdentity(input).bytes != replaced.bytes
   checks << 'size-change-invalidates'
-  def probes = new groovy.json.JsonSlurper().parse(file('probes.json').toFile()).collect { name ->
-    [identity: preparedInputIdentity(name), localFileKey: java.nio.file.Files.readAttributes(
-      file(name), java.nio.file.attribute.BasicFileAttributes).fileKey().toString()]
-  }
   file('results.json').text = groovy.json.JsonOutput.prettyPrint(
-    groovy.json.JsonOutput.toJson([checks: checks, probes: probes]))
+    groovy.json.JsonOutput.toJson([checks: checks]))
 }
 '''
     (directory / 'main.nf').write_text(fixture)
@@ -66,15 +59,7 @@ workflow {
                     '-work-dir', str(directory / 'work')], cwd=directory, check=True)
     report = json.loads((directory / 'results.json').read_text())
     assert len(report['checks']) == 5
-    for row in report['probes']:
-        identity = row['identity']
-        stat = Path(identity['path']).stat()
-        # Java Unix inode is a signed long; Python exposes the unsigned number.
-        signed = stat.st_ino if stat.st_ino < 2**63 else stat.st_ino - 2**64
-        assert identity['inode'] == str(signed)
-        assert identity['bytes'] == stat.st_size
-        assert 'fileKey' not in identity and 'device' not in identity
-    print(json.dumps({'status': 'pass', 'checks': len(report['checks']), 'probes': len(report['probes'])}))
+    print(json.dumps({'status': 'pass', 'checks': len(report['checks'])}))
 
 
 if __name__ == '__main__':

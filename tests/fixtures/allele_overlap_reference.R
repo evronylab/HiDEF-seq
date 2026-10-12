@@ -1,7 +1,5 @@
-# Baseline function preserved verbatim from bin/filterCalls.R at
-# 7e37ada2664f07e9534e9dbd695b68a0fbcc22f3 (before observed allele keys).
-# Original full-file SHA256: e4e6e67e371c25df9c13b840300df8ab09a9f8421c09cd35903a58b352bd69ab
-# Scientific reference only; do not update alongside the implementation.
+# Independent overlap reference using ordinary metadata interaction keys.
+# Keep the expected semantics independent of the production implementation.
 overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore.strand = TRUE, overlap_adjacent_query_insertion = FALSE) {
 	
 	stopifnot(inherits(query, "GenomicRanges"), inherits(subject, "GenomicRanges"))

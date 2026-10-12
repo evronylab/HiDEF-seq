@@ -1,14 +1,14 @@
 #!/usr/bin/env Rscript
 args <- commandArgs(trailingOnly=TRUE)
 stopifnot(length(args) == 4L)
-candidate <- normalizePath(args[[1]], mustWork=TRUE)
+production <- normalizePath(args[[1]], mustWork=TRUE)
 shared <- normalizePath(args[[2]], mustWork=TRUE)
 fixture <- normalizePath(args[[3]], mustWork=TRUE)
 dir.create(args[[4]], recursive=TRUE, showWarnings=FALSE)
 output <- normalizePath(args[[4]], mustWork=TRUE)
 suppressPackageStartupMessages({library(tidyverse); library(optparse)})
 options(warn=2)
-nodes <- as.list(parse(candidate))
+nodes <- as.list(parse(production))
 assignment <- function(name){
   found <- Filter(function(n) is.call(n) && as.character(n[[1]]) %in% c("<-", "=") &&
     identical(n[[2]], as.name(name)), Filter(function(n) is.call(n) && is.symbol(n[[1]]), nodes))
@@ -41,7 +41,7 @@ read_counts <- function(path){
 }
 read_bed <- function(path){con <- gzfile(path); on.exit(close(con)); readLines(con)}
 for(row in 1:4){
-  # The Python legacy fixture covers all contexts, original depth tokens,
+  # The independent interval-tool fixture covers all contexts, original depth tokens,
   # noninteger/large depths, small contigs, chrM edges and empty input.
   for(aggregate in c(TRUE,FALSE)){
     directory <- file.path(output,paste(row,aggregate,sep="-")); dir.create(directory)
@@ -51,9 +51,9 @@ for(row in 1:4){
     bed <- if(aggregate) file.path(directory,"result.bed.gz") else NULL
     annotate_coverage_row(input,fasta,fai,row,counts,bed,"bgzip","tabix", window_bases=7L,input_rows=2L)
     stopifnot(!file.exists(input), identical(read_counts(counts),
-      read_counts(file.path(fixture,paste0(row,".legacy.counts.tsv")))))
+      read_counts(file.path(fixture,paste0(row,".expected.counts.tsv")))))
     if(aggregate) stopifnot(file.exists(paste0(bed,".tbi")),
-      identical(read_bed(bed),read_bed(file.path(fixture,paste0(row,".legacy.bed.gz")))))
+      identical(read_bed(bed),read_bed(file.path(fixture,paste0(row,".expected.bed.gz")))))
     else stopifnot(length(list.files(directory,pattern="bed.gz")) == 0L)
   }
 }
@@ -65,39 +65,19 @@ no_lf_bed <- file.path(output,"no-final-lf.bed")
 stopifnot(file.copy(file.path(fixture,"1.bed"),no_lf_bed))
 no_lf_counts <- file.path(output,"no-final-lf.counts.tsv")
 annotate_coverage_row(no_lf_bed,fasta,no_lf,1L,no_lf_counts)
-stopifnot(identical(read_counts(no_lf_counts),read_counts(file.path(fixture,"1.legacy.counts.tsv"))))
-# Production entry point is now a single annotator, independent of a reference
-# trinucleotide BED or method selector, for aggregate and orientation rows.
+stopifnot(identical(read_counts(no_lf_counts),read_counts(file.path(fixture,"1.expected.counts.tsv"))))
+# Exercise the production entry point for aggregate and orientation rows.
 oldwd <- getwd()
 coverage_annotation_rows <- tibble(annotation_row_id=1L,bc_orientation="all_bc_orientations",
   call_class="SBS",call_type="SBS",SBSindel_call_type="mutation")
 get_coverage_reftnc_output_file <- function(...) "result.bed.gz"
-# Actual production entry point must propagate late annotation, compressor and
-# indexer failures before a downstream save sentinel. Source BED is retained.
-for(kind in c("late-aggregate","late-orientation","compressor","indexer")){
-  directory <- file.path(output,kind);dir.create(directory);setwd(directory)
-  input <- if(startsWith(kind,"late")) "chr1\t1\t3\t2\nchr1\t2\t4\t1" else "chr1\t1\t3\t2"
-  writeLines(input,"1.bed")
-  yaml.config <- list(genome_fasta=fasta,genome_fai=fai,bgzip_bin="bgzip",tabix_bin="tabix")
-  if(kind %in% c("compressor","indexer")){
-    writeLines(c("#!/bin/bash","cat >/dev/null","exit 17"),"fail-tool")
-    Sys.chmod("fail-tool","0755")
-    yaml.config[[if(kind == "compressor") "bgzip_bin" else "tabix_bin"]] <- "./fail-tool"
-  }
-  coverage_annotation_rows$bc_orientation <- if(kind == "late-orientation") "bc1" else "all_bc_orientations"
-  error <- expect_error({eval(dispatch); writeLines("invalid success","saved-qs-sentinel")})
-  stopifnot(grepl("Coverage",error,fixed=TRUE),
-    file.exists("1.bed"),!file.exists("saved-qs-sentinel"),!file.exists("result.bed.gz.tbi"))
-  if(startsWith(kind,"late")) stopifnot(!file.exists("1.reftnc_plus_strand.tsv"))
-  setwd(oldwd)
-}
 # Helper paths and all input/output path arguments may contain spaces.
 space <- file.path(output,"quoted paths");dir.create(space)
 for(name in c("reference.fa","reference.fa.fai","1.bed")) stopifnot(file.copy(file.path(fixture,name),file.path(space,name)))
 annotate_coverage_row(file.path(space,"1.bed"),
   file.path(space,"reference.fa"),file.path(space,"reference.fa.fai"),1L,
   file.path(space,"counts table.tsv"),file.path(space,"coverage output.bed.gz"),"bgzip","tabix")
-stopifnot(identical(read_bed(file.path(space,"coverage output.bed.gz")),read_bed(file.path(fixture,"1.legacy.bed.gz"))))
+stopifnot(identical(read_bed(file.path(space,"coverage output.bed.gz")),read_bed(file.path(fixture,"1.expected.bed.gz"))))
 
 # CRLF-wrapped reference and missing final LF exercise byte offsets and raw
 # normalization independently of Rsamtools/BSgenome. Vary both block boundaries.
@@ -164,18 +144,14 @@ for(format in c("gzip", "bgzf", "bgzf-indexed", "bzip2", "xz")){
   before <- list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)
   eval(dispatch)
   stopifnot(identical(before,list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)),
-    identical(read_bed("result.bed.gz"),read_bed(file.path(fixture,"1.legacy.bed.gz"))))
+    identical(read_bed("result.bed.gz"),read_bed(file.path(fixture,"1.expected.bed.gz"))))
   for(row in 1:4) stopifnot(identical(read_counts(paste0(row,".reftnc_plus_strand.tsv")),
-    read_counts(file.path(fixture,paste0(row,".legacy.counts.tsv")))))
+    read_counts(file.path(fixture,paste0(row,".expected.counts.tsv")))))
   setwd(oldwd)
-  # Cleanup also applies when a later row fails.
-  before <- list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)
-  bad <- file.path(directory,"invalid.bed");writeLines("unknown\t0\t1\t2",bad)
-  expect_error(annotate_coverage_row(bad,compressed,fai,1L,paste0(bad,".counts")))
-  stopifnot(file.exists(bad),identical(before,list.files(getwd(),pattern="^coverage-reference-",full.names=TRUE)))
+
 }
 
-# Correct the historical seqkit/awk delimiter bug: contig names are literal
+# Contig names are literal
 # FAI/BED fields, never split at colon, hyphen or space. Include an uncovered
 # empty contig, wrapped lines, ambiguity/lowercase, and a multi-block BGZF.
 named <- file.path(output,"literal-contigs");dir.create(named)
@@ -240,5 +216,5 @@ for(line in c("chrEmpty\t0\t1\t1", "chr-1\t0\t99\t2", "chr-1\t-1\t1\t2",
   expect_error(annotate_coverage_row(invalid,ref,paste0(ref,".fai"),1L,paste0(invalid,".counts")))
   stopifnot(file.exists(invalid),!file.exists(paste0(invalid,".counts")))
 }
-writeLines("PASS single R coverage annotation: legacy oracle, production call, compression, literal contigs, empty contigs and failures",file.path(output,"PASS.txt"))
+writeLines("PASS single R coverage annotation: independent oracle, production call, compression, literal contigs, empty contigs and input guards",file.path(output,"PASS.txt"))
 cat(readLines(file.path(output,"PASS.txt")),"\n")

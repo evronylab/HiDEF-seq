@@ -419,8 +419,8 @@ accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_typ
 		state$orientation <- vector("list", nrow(incoming_metadata))
 		incoming_rows <- seq_len(nrow(incoming_metadata))
 	}else{
-		#Reproduce the former left join's order and metadata/factor promotion,
-		#including repeated keys, without putting coverage into a data mask.
+		#Join metadata to preserve left-join order and factor promotion, including
+		#repeated keys, while coverage remains outside the data mask.
 		matched <- left_join(
 			state$metadata %>% mutate(.previous_row = row_number()),
 			incoming_metadata %>% mutate(.incoming_row = row_number()),
@@ -460,7 +460,7 @@ accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_typ
 }
 
 #Materialize the public tibble only after accumulation, when no large coverage
-#replacement remains. This preserves the former column names and order.
+#replacement remains.
 filtertrack_coverage_result <- function(state){
 	state$metadata %>%
 		mutate(
@@ -471,7 +471,7 @@ filtertrack_coverage_result <- function(state){
 
 #Select high-confidence variants once before reading chunks. Quantile filters
 #remain genome-wide within each VCF; chromosome/sex/mitochondrial restrictions
-#are applied only after those original filters and the all-VCF intersection.
+#are applied only after those VCF filters and the all-VCF intersection.
 prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individual_id, sensitivity_parameters, BSgenome_name, chroms_toanalyze, sex_chromosomes, mitochondrial_chromosome){
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
@@ -479,7 +479,7 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 		map_int(~ length(.x$germline_vcf_files)) %>%
 		sum
 
-	#Without germline VCFs there are no sensitivity sites. The existing minimum
+	#Without germline VCFs there are no sensitivity sites. The minimum
 	#detection/coverage checks below retain the default sensitivity of 1.
 	if(num_germline_vcf_files == 0L){
 		return(tibble(
@@ -1583,7 +1583,7 @@ finalCalls.reftnc_spectra <- finalCalls.reftnc_spectra %>%
 
 #Extract indel spectra. Pyrimidine-collapsed spectra are calculated for all-barcode-orientation aggregate rows and per-barcode-orientation single-strand rows; template-strand spectra are calculated for single-strand call types.
 #Indel context extraction accesses chromosomes by name and clips contexts at
-#their original boundaries. Retain full sequences only for chromosomes carrying
+#their boundaries. Retain full sequences only for chromosomes carrying
 #indel calls; there is no reference allocation when every indel table is empty.
 indel_spectrum_chroms <- finalCalls.reftnc_spectra %>%
 	filter(call_class == "indel") %>%
@@ -2113,7 +2113,7 @@ if(sensitivity_enabled_for_chromgroup){
 			end = if_else(call_class == "indel", end + 1, end)
 		)
 	
-	#The original variant/category join order matches the query order used while
+	#The variant/category join order matches the query order used while
 	#loading chunks. Flank totals are now complete, so their minimum is valid.
 	bam.gr.filtertrack.except_germline_filters.bytype <- bam.gr.filtertrack.except_germline_filters.bytype %>%
 		nest_join(high_confidence_germline_vcf_variants, by = "call_type") %>%

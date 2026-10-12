@@ -106,7 +106,7 @@ def fileSha256(path) {
     .toString()
 }
 
-// Metadata identities avoid reading large BAMs, references or containers on the
+// Metadata identities avoid reading large BAMs or references on the
 // orchestration node. They are intentionally not described as content hashes.
 def preparedInputIdentity(rawPath) {
   def source = file(rawPath).toRealPath()
@@ -120,7 +120,7 @@ def preparedInputIdentity(rawPath) {
   }
   try {
     // UnixFileKey includes st_dev, which is local to a node's mount table.
-    // The same shared file can therefore have different fileKeys on Torch.
+    // The same shared file can therefore have different fileKeys across nodes.
     inode = java.nio.file.Files.getAttribute(source, 'unix:ino').toString()
   } catch (UnsupportedOperationException ignored) {
     inode = null
@@ -327,7 +327,6 @@ workflow {
     }
     inputIdentities[name]
   }
-  containerIdentity = file(params.hidefseq_container).exists() ? identifyInput.call(params.hidefseq_container) : [kind: 'container-uri', uri: params.hidefseq_container]
   workflowSource = file("${workflow.projectDir}/main.nf").text
   cacheArtifacts = [:]
   makeCacheEntry = { namespace, processName, settings, inputs, scripts, products ->
@@ -338,7 +337,7 @@ workflow {
     scriptHashes['process'] = java.security.MessageDigest.getInstance('SHA-256').digest(processSource.getBytes('UTF-8')).encodeHex().toString()
     scriptHashes['artifactCache.R'] = fileSha256(params.cache_helper)
     scriptHashes['sharedFunctions.R'] = fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")
-    def toolIdentities = [container: containerIdentity]
+    def toolIdentities = [:]
     settings.findAll { name, value -> name in ['seqkit', 'bgzip', 'tabix', 'bcftools', 'samtools', 'bedGraphToBigWig', 'wiggletools', 'wigToBigWig'] }.each { name, executable ->
       toolIdentities[name] = file(executable).exists() ? identifyInput.call(executable) : [kind: 'container-command', command: executable]
     }
@@ -347,7 +346,7 @@ workflow {
       scripts: scriptHashes, tools: toolIdentities])
     def serialized = groovy.json.JsonOutput.toJson(identity)
     def digest = java.security.MessageDigest.getInstance('SHA-256').digest(serialized.getBytes('UTF-8')).encodeHex().toString()
-    def directory = "${params.prepared_cache_root}/v1/${namespace}/${digest}".toString()
+    def directory = "${params.prepared_cache_root}/${namespace}/${digest}".toString()
     products.each { product ->
       def destination = "${directory}/${product}".toString()
       if (cacheArtifacts.containsKey(product) && cacheArtifacts[product] != destination) {

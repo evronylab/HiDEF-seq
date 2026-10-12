@@ -4,14 +4,14 @@ suppressPackageStartupMessages({
   library(GenomicRanges); library(vcfR); library(tidyverse); library(jsonlite)
 })
 options(warn = 2)
-baseline <- new.env(parent = globalenv())
-candidate <- new.env(parent = globalenv())
+reference_model <- new.env(parent = globalenv())
+production <- new.env(parent = globalenv())
 stopifnot(length(args) == 2L)
-sys.source(file.path(args[[1]], 'bin/sharedFunctions.R'), envir = baseline)
-sys.source(file.path(args[[1]], 'bin/sharedFunctions.R'), envir = candidate)
+sys.source(file.path(args[[1]], 'bin/sharedFunctions.R'), envir = reference_model)
+sys.source(file.path(args[[1]], 'bin/sharedFunctions.R'), envir = production)
 # Control: query the unchanged exact target intervals directly, disabling only
 # coalescing. Normalization and parsing remain the same for both arms.
-baseline$coalesce_vcf_regions <- function(regions, ...) regions
+reference_model$coalesce_vcf_regions <- function(regions, ...) regions
 folder <- normalizePath(args[[2]])
 setwd(folder)
 fake_genome <- GRanges(c("chrA", "chrB"), IRanges(1L, 50000L),
@@ -46,8 +46,8 @@ capture <- function(fun, vcffile, regions) {
 result <- list()
 for(vcf in c("with_gt.vcf.gz", "without_gt.vcf.gz")) {
   for(name in names(cases)) {
-    old <- capture(baseline$load_vcf, file.path(folder, vcf), cases[[name]])
-    new <- capture(candidate$load_vcf, file.path(folder, vcf), cases[[name]])
+    old <- capture(reference_model$load_vcf, file.path(folder, vcf), cases[[name]])
+    new <- capture(production$load_vcf, file.path(folder, vcf), cases[[name]])
     if(name %in% c('nearby_sbs', 'deletion_interior')) {
       stopifnot(old$ok, new$ok, length(old$value) > 0L, length(new$value) > 0L)
       if(name == 'nearby_sbs') stopifnot(sum(start(old$value) == 100L) == 2L)
@@ -55,9 +55,9 @@ for(vcf in c("with_gt.vcf.gz", "without_gt.vcf.gz")) {
     }
     exact <- identical(old$ok, new$ok) && (!old$ok || identical(old$value, new$value))
     result[[length(result)+1L]] <- list(vcf=vcf, case=name, exact=exact,
-       baseline_success=old$ok, candidate_success=new$ok,
-       baseline_error=old$message, candidate_error=new$message)
-    if(!exact) saveRDS(list(baseline=old,candidate=new), paste0(vcf,".",name,".mismatch.rds"))
+       reference_model_success=old$ok, production_success=new$ok,
+       reference_model_error=old$message, production_error=new$message)
+    if(!exact) saveRDS(list(reference_model=old,production=new), paste0(vcf,".",name,".mismatch.rds"))
   }
 }
 # A gap of exactly 1000 joins; nested intervals must not shorten the group's
@@ -65,7 +65,7 @@ for(vcf in c("with_gt.vcf.gz", "without_gt.vcf.gz")) {
 input <- rows(c('chrA','chrA','chrA','chrA','chrB'),
               c(1L,2L,1100L,2200L,1L), c(100L,3L,1100L,2200L,1L))
 expected <- rows(c('chrA','chrA','chrB'), c(1L,2200L,1L), c(1100L,2200L,1L))
-stopifnot(identical(candidate$coalesce_vcf_regions(input), expected))
+stopifnot(identical(production$coalesce_vcf_regions(input), expected))
 stopifnot(all(map_lgl(result,'exact')),
-          all(map_lgl(keep(result, ~ .x$case != 'no_records'), 'baseline_success')))
+          all(map_lgl(keep(result, ~ .x$case != 'no_records'), 'reference_model_success')))
 cat('PASS: 32 coalesced/direct VCF target comparisons, including GT/no-GT, long deletions, duplicate records, ordering and interval boundaries\n')

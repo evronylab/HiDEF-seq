@@ -1,5 +1,5 @@
-#Benchmark/reference fixture: orientation-gated whole-table accumulation before
-#the per-category accumulator. Shared helper dependencies come from calculateBurdens.R.
+# Independent whole-table reference for orientation-specific coverage.
+# Shared coverage primitives are loaded by the calling test.
 sum_bam.gr.filtertracks <- function(bam.gr.filtertrack1, bam.gr.filtertrack2=NULL, orientation_call_types=NULL){
 
 	#Helper function to calculate strand-level coverage for each barcode configuration and aligned read strand.

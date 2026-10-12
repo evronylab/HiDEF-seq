@@ -64,10 +64,10 @@ genome_one <- read_one[setdiff(names(read_one), "read_threshold")]
 genome_one$region_filter_file <- "/input/genome1.bw"
 configured <- list(cache_dir = "/cache", region_filters = list(
   list(read_filters = list(read_one, read_two)), list(genome_filters = list(genome_one))))
-legacy <- function(config, type) config$region_filters %>% map(type) %>% flatten %>%
+reference_model <- function(config, type) config$region_filters %>% map(type) %>% flatten %>%
   enframe(name = NULL) %>% unnest_wider(value)
 for (type in c("read_filters", "genome_filters")) {
-  stopifnot(identical(env$region_filter_config(configured, type), legacy(configured, type)))
+  stopifnot(identical(env$region_filter_config(configured, type), reference_model(configured, type)))
 }
 env$cache_dir <- "/cache/"
 env$i <- "nuclear"

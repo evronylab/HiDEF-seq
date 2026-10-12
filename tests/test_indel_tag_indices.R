@@ -15,9 +15,9 @@ actual <- lines[grepl("indels_queryspace_pos[", lines, fixed=TRUE) |
                 grepl("indels_queryspace_pos.opposite_strand[", lines, fixed=TRUE)]
 actual <- actual[grepl(":=", actual, fixed=TRUE)]
 stopifnot(length(actual)==12L)
-legacy <- actual[grepl("_val :=", actual, fixed=TRUE)]
-legacy <- gsub("tag_index[1]", "zm_strand[1]", legacy, fixed=TRUE)
-stopifnot(length(legacy)==6L)
+reference_model <- actual[grepl("_val :=", actual, fixed=TRUE)]
+reference_model <- gsub("tag_index[1]", "zm_strand[1]", reference_model, fixed=TRUE)
+stopifnot(length(reference_model)==6L)
 run <- function(code, tags, query) {
   env <- new.env(parent=globalenv())
   env$sa.input <- lapply(tags, Rle)
@@ -46,12 +46,12 @@ query <- data.table(zm_strand=c("102_+", "101_+", "101_+", "101_-", "102_+", "10
                     start_end_queryspace=c("1_2", "2_4", "2_4", "1_6", "1_2", "1_6"),
                     pos_queryspace=c(1L, 2L, 4L, 1L, 2L, 6L))
 for (valid_tags in list(lapply(tags, as.numeric), lapply(tags, as.integer))) {
-  stopifnot(identical(run(legacy, valid_tags, query), run(actual, valid_tags, query)))
+  stopifnot(identical(run(reference_model, valid_tags, query), run(actual, valid_tags, query)))
 }
 for (vector_tags in list(lapply(tags, as.numeric), lapply(tags, as.integer), tags)) {
  for (q in list(query, query[0], copy(query)[, pos_queryspace := c(NA_integer_, 9L, 2L, 3L, 0L, 6L)],
                copy(query)[, zm_strand := c("", NA_character_, "missing", "101_+", "101_+", "101_+")])) {
-  old <- capture(run(legacy, vector_tags, q))
+  old <- capture(run(reference_model, vector_tags, q))
   new <- capture(run(actual, vector_tags, q))
   if(!identical(old, new)) {str(old); str(new); stop("indel tag index differs")}
  }

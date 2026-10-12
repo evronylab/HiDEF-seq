@@ -93,7 +93,7 @@ stopifnot(identical(cache_file(c("/standalone/cache/two.bw", "/standalone/cache/
 expect_error(cache_file("/standalone/cache/missing.qs2", cache_config), "No prepared cache artifact")
 cat("PASS: shared standalone/prepared reference builders, strict artifact maps and missing-product errors\n")
 
-# Compare the production calls-loading expression against the previous join-
+# Compare the production calls-loading expression with an independent join-
 # then-filter order, including factor levels, duplicate rows, NA chromosomes,
 # additional SBS/indel categories, and an empty chromosome group.
 env$extractedCalls <- list(calls = tibble(

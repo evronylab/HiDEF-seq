@@ -1,7 +1,5 @@
-# Independent original numerical reference from ea8d06f3c0f29a7145e9e56dee1b0bb2424f4b77.
-# Exact eight function bodies from bin/calculateBurdens.R, SHA256
-# 47bac8c08ba60533f11ac2b79e488376c57bc2faf87e14574b12899615d75211.
-# Test fixture only; never sourced by the production pipeline.
+# Independent R coverage and sensitivity reference for small contract fixtures.
+# Keep expected mathematical semantics independent of the production helpers.
 
 sum_RleList <- function(a, b) {
 	seqs_union <- union(names(a), names(b))
@@ -122,7 +120,7 @@ accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_typ
 		state$orientation <- vector("list", nrow(incoming_metadata))
 		incoming_rows <- seq_len(nrow(incoming_metadata))
 	}else{
-		#Reproduce the former left join's order and metadata/factor promotion,
+		# Preserve left-join order and metadata/factor promotion,
 		#including repeated keys, without putting coverage into a data mask.
 		matched <- left_join(
 			state$metadata %>% mutate(.previous_row = row_number()),
@@ -135,7 +133,7 @@ accumulate_bam.gr.filtertracks <- function(state, incoming, orientation_call_typ
 		}
 		state$metadata <- matched %>% select(-.previous_row, -.incoming_row)
 		incoming_rows <- matched$.incoming_row
-		#The legacy code checked every incoming category, even an unmatched one.
+		# Validate every incoming category, including unmatched categories.
 		for(j in setdiff(seq_len(nrow(incoming_metadata)), incoming_rows)){
 			invisible(calc_duplex_coverage(incoming$bam.gr.filtertrack[[j]]))
 		}

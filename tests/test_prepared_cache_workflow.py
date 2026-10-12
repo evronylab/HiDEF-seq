@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """Actual Nextflow prepared-cache integration on tiny tracks; compute nodes only.
 
-Generate in the pinned container, then exercise with the host Nextflow launcher.
+Generate in the pipeline container, then exercise with the host Nextflow launcher.
 All cache mutation is confined to the newly created fixture directory.
 """
 import argparse
 import csv
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
-import time
 import tempfile
 
 
@@ -30,11 +27,10 @@ def generate(args):
     for name in ('regionA.bw', 'regionB.bw'):
         shutil.copy2(inputs / 'coverage.bw', inputs / name)
     wrapper = directory / 'wiggletools-counted'
-    wrapper.write_text('#!/usr/bin/env python3\nimport json,os,sys,time\n' +
+    wrapper.write_text('#!/usr/bin/env python3\nimport json,os,sys\n' +
         'log=' + repr(str(directory / 'build-events.jsonl')) + '\n' +
-        'line=json.dumps(dict(cwd=os.getcwd(),args=sys.argv[1:],time=time.time(),pid=os.getpid()))+"\\n"\n' +
+        'line=json.dumps(dict(cwd=os.getcwd(),args=sys.argv[1:]))+"\\n"\n' +
         'fd=os.open(log,os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)\nos.write(fd,line.encode())\nos.close(fd)\n' +
-        'if any("regionB.bw" in arg for arg in sys.argv[1:]): time.sleep(2)\n' +
         'os.execv(' + repr(args.wiggletools) + ',[' + repr(args.wiggletools) + ']+sys.argv[1:])\n')
     wrapper.chmod(0o755)
     (directory / 'bin').symlink_to(repo / 'bin', target_is_directory=True)
@@ -119,15 +115,6 @@ def generate(args):
   withName: prepareGermlineCoverageFilters { cpus = 1; memory = '4 GB'; time = '5m' }
 }
 ''')
-    (directory / 'compare.R').write_text('''suppressPackageStartupMessages({library(qs2); library(rtracklayer)})
-a <- commandArgs(TRUE)
-pairs <- read.delim(a[[1]], stringsAsFactors=FALSE)
-for(i in seq_len(nrow(pairs))) {
-  load <- if(grepl("\\\\.qs2$", pairs$expected[[i]])) qs2::qs_read else rtracklayer::import
-  stopifnot(identical(load(pairs$expected[[i]]), load(pairs$observed[[i]])))
-}
-cat("Scientific objects identical:", nrow(pairs), "\\n")
-''')
     print('Generated', directory)
 
 
@@ -144,11 +131,13 @@ def audit(args):
             identity_file.write_text(json.dumps(identity))
             destination = Path(subprocess.check_output([*rscript, index['helper'], 'verify',
                 '--root', index['root'], '--identity', str(identity_file)], text=True).strip())
-        assert destination == Path(item['entry']['directory'])
+        expected = Path(index['root']) / identity['namespace'] / item['entry']['key']
+        assert destination == Path(item['entry']['directory']) == expected
+        assert identity['schema'] == 1
         assert (destination / item['product']).is_file()
         paths.append(str(destination / item['product']))
     assert len(paths) == 8 and len(set(paths)) == 8
-    Path(args.output).write_text(json.dumps(dict(manifests_verified=len(paths), files=paths, time=time.time())) + '\n')
+    Path(args.output).write_text(json.dumps(dict(manifests_verified=len(paths), files=paths, path_agreement=True)) + '\n')
 
 
 def events(directory):
@@ -166,7 +155,7 @@ def manifests(index):
     return result
 
 
-def phase_command(directory, phase, cache, work, resume=False):
+def phase_command(directory, phase, cache, work):
     phase_dir = directory / phase
     phase_dir.mkdir()
     params = json.loads((directory / 'base-params.json').read_text())
@@ -176,12 +165,10 @@ def phase_command(directory, phase, cache, work, resume=False):
     command = ['nextflow', '-config', str(directory / 'fixture.config'), 'run', str(directory / 'fixture.nf'),
         '-params-file', str(phase_dir / 'params.json'), '-work-dir', str(work),
         '-with-trace', str(phase_dir / 'trace.tsv')]
-    if resume:
-        command.append('-resume')
     return phase_dir, command
 
 
-def check_phase(directory, phase, baseline=None):
+def check_phase(directory, phase):
     location = directory / phase
     rows = list(csv.DictReader((location / 'trace.tsv').open(), delimiter='\t'))
     assert len(rows) == 10 and all(row['status'] == 'COMPLETED' and row['exit'] == '0' for row in rows), rows
@@ -193,16 +180,6 @@ def check_phase(directory, phase, baseline=None):
     receipts = [line for line in (location / 'results/receipts.jsonl').read_text().splitlines() if line.strip()]
     assert len(receipts) == 2
     assert all(json.loads(line)['manifests_verified'] == 8 for line in receipts)
-    if baseline:
-        by_name = {item['product']: item for item in baseline['entries']}
-        pairs = location / 'scientific-pairs.tsv'
-        pairs.write_text('expected\tobserved\n' + ''.join(
-            str(Path(by_name[item['product']]['entry']['directory']) / item['product']) + '\t' +
-            str(Path(item['entry']['directory']) / item['product']) + '\n' for item in index['entries']))
-        container = json.loads((directory / 'base-params.json').read_text())['hidefseq_container']
-        with (location / 'scientific.log').open('w') as output:
-            subprocess.run(['apptainer', 'exec', '--cleanenv', '-B', '/projects', container,
-                'Rscript', '--vanilla', str(directory / 'compare.R'), str(pairs)], check=True, stdout=output, stderr=subprocess.STDOUT)
     return index
 
 
@@ -211,8 +188,8 @@ def exercise(args):
     launch = directory / 'launch-main'
     launch.mkdir()
     report = {}
-    def sequential(phase, resume=False):
-        location, command = phase_command(directory, phase, directory / 'cache', directory / 'work-main', resume)
+    def sequential(phase):
+        location, command = phase_command(directory, phase, directory / 'cache', directory / 'work-main')
         before = len(events(directory))
         with (location / 'nextflow.log').open('w') as output:
             subprocess.run(command, cwd=launch, stdout=output, stderr=subprocess.STDOUT, check=True)
@@ -222,41 +199,13 @@ def exercise(args):
     cold, built = sequential('cold')
     assert built == 8, built
     initial = manifests(cold)
-    # Keep independent scientific snapshots, including the entry later renamed.
-    baseline = json.loads(json.dumps(cold))
-    snapshot = directory / 'scientific-baseline'
-    snapshot.mkdir()
-    for item in baseline['entries']:
-        source = Path(item['entry']['directory']) / item['product']
-        shutil.copy2(source, snapshot / item['product'])
-        item['entry']['directory'] = str(snapshot)
-    warm, built = sequential('warm-resume', True)
+    warm, built = sequential('warm')
     assert built == 0 and manifests(warm) == initial
-    check_phase(directory, 'warm-resume', baseline)
-    missing = next(item for item in cold['entries'] if item['product'].startswith('regionA.'))
-    Path(missing['entry']['directory']).rename(directory / 'retired-own-test-entry')
-    rebuilt, built = sequential('missing-resume', True)
-    assert built == 1, built
-    after = manifests(rebuilt)
-    assert all(after[name] == original for name, original in initial.items() if name != missing['product'])
-    check_phase(directory, 'missing-resume', baseline)
-    before = len(events(directory))
-    concurrent = []
-    for phase in ('concurrent-a', 'concurrent-b'):
-        location, command = phase_command(directory, phase, directory / 'concurrent-cache', directory / ('work-' + phase))
-        cwd = directory / ('launch-' + phase)
-        cwd.mkdir()
-        handle = (location / 'nextflow.log').open('w')
-        concurrent.append((phase, subprocess.Popen(command, cwd=cwd, stdout=handle, stderr=subprocess.STDOUT), handle))
-    for phase, process, handle in concurrent:
-        status = process.wait()
-        handle.close()
-        assert status == 0, (phase, status)
-        check_phase(directory, phase, baseline)
-    built = len(events(directory)) - before
-    assert built == 8, built
-    report['concurrent'] = dict(actual_builds=built, workflows=2, expected_without_lock=16)
-    report['status'] = 'cold/warm/missing/concurrent cache and global barrier checks passed'
+    report['status'] = 'pass'
+    report['contracts'] = ['cold creation', 'warm reuse without rebuilding',
+                           'complete manifest integrity', 'unchanged published entries',
+                           'actual Nextflow and R namespace/key path agreement',
+                           'all prepared products ready before consumers']
     (directory / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Run in the pipeline R environment on a compute node:
-# Rscript tests/test_burden_native_coverage.R [repository root] [candidate calculateBurdens.R]
-# The 70 checks preserve the exact case bodies that passed isolated job19365179.
+# Rscript tests/test_burden_coverage_semantics.R [repository root] [production calculateBurdens.R]
+# Seventy checks cover coverage, sensitivity, interval types and edge cases.
 suppressPackageStartupMessages({
   library(GenomicRanges)
   library(plyranges)
@@ -10,10 +10,10 @@ suppressPackageStartupMessages({
 options(warn = 2)
 args <- commandArgs(TRUE)
 repo <- if(length(args)) args[[1]] else "."
-candidate_source <- if(length(args) >= 2L) args[[2]] else file.path(repo, "bin", "calculateBurdens.R")
-baseline <- new.env(parent = globalenv())
-sys.source(file.path(repo, "tests", "fixtures", "burden_native_reference_ea8d06f.R"), envir = baseline)
-load_candidate <- function(path) {
+production_source <- if(length(args) >= 2L) args[[2]] else file.path(repo, "bin", "calculateBurdens.R")
+reference_model <- new.env(parent = globalenv())
+sys.source(file.path(repo, "tests", "fixtures", "burden_reference.R"), envir = reference_model)
+load_production <- function(path) {
   env <- new.env(parent = globalenv())
   wanted <- c("sum_RleList", "bc_orientation_is_asymmetric", "validate_bam.gr.filtertrack",
               "calc_duplex_coverage", "accumulate_bam.gr.filtertracks", "filtertrack_coverage_result",
@@ -26,11 +26,11 @@ load_candidate <- function(path) {
   stopifnot(all(wanted %in% ls(env)))
   env
 }
-candidate <- load_candidate(candidate_source)
-report_directory <- tempfile("burden-native-regressions-")
+production <- load_production(production_source)
+report_directory <- tempfile("burden-coverage-contracts-")
 dir.create(report_directory)
 
-# Ordinary coverage, original row joins, factors and orientation sums (14).
+# Ordinary coverage, row joins, factors and orientation sums (14).
 local({
   args <- c("", file.path(report_directory, "ordinary.tsv"))
   report_file <- args[[2]]
@@ -43,10 +43,10 @@ run<-function(chunks,intern=FALSE) {
   for(x in chunks) {
     orientation<-if(any(x$SBSindel_call_type=="mismatch-ss")) x %>% select(-bam.gr.filtertrack) else NULL
     if(intern) {
-      candidate$accumulate_bam.gr.filtertracks(state,x,orientation)
-    } else baseline$accumulate_bam.gr.filtertracks(state,x,orientation)
+      production$accumulate_bam.gr.filtertracks(state,x,orientation)
+    } else reference_model$accumulate_bam.gr.filtertracks(state,x,orientation)
   }
-  baseline$filtertrack_coverage_result(state)
+  reference_model$filtertrack_coverage_result(state)
 }
 cases<-list(ordinary=list(table(gr),table(gr)),empty=list(table(gr[0]),table(gr[0])),
   repeated_keys=list(table(gr,c("one","one")),table(gr,c("one","one"))),
@@ -56,7 +56,7 @@ other<-gr;seqnames(other)[2]<-"b"
 cases$seqnames_odd<-list(table(other));cases$seqnames_even<-list(table(c(other,other)))
 star<-gr[1];strand(star)<-"*"
 cases$star_odd<-list(table(c(gr,star)));cases$star_even<-list(table(c(gr,star,star)))
-cases$late_fallback<-list(table(gr),table(c(gr,star,star)))
+cases$later_unstranded_records<-list(table(gr),table(c(gr,star,star)))
 unknown<-gr;seqlengths(unknown)<-rep(NA_integer_,length(seqlevels(unknown)));cases$unknown_lengths<-list(table(unknown),table(unknown))
 circular<-gr;isCircular(circular)[1]<-TRUE;cases$circular<-list(table(circular))
 asymmetric<-gr;asymmetric$bc_orientation<-factor(c("x-y","y-x"));cases$asymmetric<-list(table(asymmetric))
@@ -75,7 +75,7 @@ for(label in names(cases)) {
 
 })
 
-# Original sensitivity valid/invalid inputs and warning behavior (24).
+# Sensitivity input contracts and warning behavior (24).
 local({
   args <- c("", file.path(report_directory, "sensitivity.tsv"))
   report_file <- args[[2]]
@@ -117,11 +117,11 @@ rows <- list()
 for(name in names(cases)) {
   x <- cases[[name]]
   expected <- capture(function() {
-    baseline$validate_bam.gr.filtertrack(x$track)
-    cov <- baseline$calc_duplex_coverage(x$track)
-    list(start=baseline$gr_1bp_cov(x$start,cov),end=baseline$gr_1bp_cov(x$end,cov))
+    reference_model$validate_bam.gr.filtertrack(x$track)
+    cov <- reference_model$calc_duplex_coverage(x$track)
+    list(start=reference_model$gr_1bp_cov(x$start,cov),end=reference_model$gr_1bp_cov(x$end,cov))
   })
-  actual <- capture(function()candidate$sensitivity_site_counts(x$track,x$start,x$end))
+  actual <- capture(function()production$sensitivity_site_counts(x$track,x$start,x$end))
   ok <- identical(expected,actual)
   rows[[length(rows)+1L]] <- tibble(case=name,identical=ok,
     outcome=if(is.null(expected$result$error))"exact result and warnings" else expected$result$error)
@@ -132,8 +132,8 @@ bytype <- tibble(call_type="SBS",call_class="SBS",SBSindel_call_type="mutation",
   filtergroup=factor("strict"),bam.gr.filtertrack=list(gr))
 for(label in c("disabled","unmatched")) {
   queries <- if(label=="disabled")NULL else tibble(call_type="insertion",query_start=list(q),query_end=list(q))
-  expected <- baseline$sum_filtertrack_sensitivity_coverage(bytype,queries)
-  actual <- candidate$sum_filtertrack_sensitivity_coverage(bytype,queries)
+  expected <- reference_model$sum_filtertrack_sensitivity_coverage(bytype,queries)
+  actual <- production$sum_filtertrack_sensitivity_coverage(bytype,queries)
   stopifnot(identical(expected,actual))
   rows[[length(rows)+1L]] <- tibble(case=label,identical=TRUE,outcome="exact result")
 }
@@ -186,14 +186,14 @@ for(label in names(cases)) for(warn_as_error in c(FALSE, TRUE)) {
   queries <- tibble(call_type="SBS",query_start=list(x$qs),query_end=list(x$qe))
   for(scope in c("site_counts", "whole_sensitivity_wrapper")) {
     expected <- capture(function() {
-      if(scope == "whole_sensitivity_wrapper") return(baseline$sum_filtertrack_sensitivity_coverage(bytype,queries))
-      baseline$validate_bam.gr.filtertrack(x$gr)
-      cov <- baseline$calc_duplex_coverage(x$gr)
-      list(start=baseline$gr_1bp_cov(x$qs,cov),end=baseline$gr_1bp_cov(x$qe,cov))
+      if(scope == "whole_sensitivity_wrapper") return(reference_model$sum_filtertrack_sensitivity_coverage(bytype,queries))
+      reference_model$validate_bam.gr.filtertrack(x$gr)
+      cov <- reference_model$calc_duplex_coverage(x$gr)
+      list(start=reference_model$gr_1bp_cov(x$qs,cov),end=reference_model$gr_1bp_cov(x$qe,cov))
     }, warn_as_error)
     actual <- capture(function() {
-      if(scope == "whole_sensitivity_wrapper") return(candidate$sum_filtertrack_sensitivity_coverage(bytype,queries))
-      candidate$sensitivity_site_counts(x$gr,x$qs,x$qe)
+      if(scope == "whole_sensitivity_wrapper") return(production$sum_filtertrack_sensitivity_coverage(bytype,queries))
+      production$sensitivity_site_counts(x$gr,x$qs,x$qe)
     }, warn_as_error)
     stopifnot(is.null(expected$result$error), !is.null(expected$result$value))
     ok <- identical(expected, actual)

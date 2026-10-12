@@ -1,8 +1,7 @@
 #!/usr/bin/env -S Rscript --vanilla
 
-# Prepare the same whole-genome low-coverage intervals previously rebuilt in
-# every filterCalls task. Reference Seqinfo is assigned by the consumer, exactly
-# where the reference is available; no chromosome restriction is applied.
+# Prepare whole-genome low-coverage intervals without chromosome restrictions.
+# The consumer assigns Seqinfo when the reference is available.
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(rtracklayer))
 suppressPackageStartupMessages(library(plyranges))

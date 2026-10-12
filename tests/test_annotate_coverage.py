@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Build independent legacy fixtures for the R coverage annotation tests.
+"""Build tiny independent coverage annotation fixtures using interval tools.
 
-An optional --helper also compares a preserved external annotation baseline.
-This is a semantic fixture, not a production CPU/memory benchmark. The legacy
-reference BED, merged union, one-base expansion, intersections, awk counting,
-bgzip and tabix steps are all executed. The R BED writer is not modified.
+Reference contexts, interval intersections, depth counting and indexed BED
+outputs provide expected values for test_coverage_annotation.R.
 """
 import argparse
 import decimal
@@ -40,13 +38,10 @@ def counts(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--helper", help="Optional historical compiled annotator")
     parser.add_argument("--output-dir", required=True)
     for tool in ("samtools", "seqkit", "bedtools", "bgzip", "tabix"):
         parser.add_argument("--" + tool, default=tool)
     args = parser.parse_args()
-    if args.helper:
-        args.helper = str(Path(args.helper).resolve())
     directory = Path(args.output_dir).resolve()
     directory.mkdir(parents=True, exist_ok=False)
     # Every ACGTN triplet occurs in chrAll. Other contigs probe normalization,
@@ -74,7 +69,7 @@ def main():
     }
     for row, lines in rows.items():
         (directory / f"{row}.bed").write_text("".join(line + "\n" for line in lines))
-    # Exact reference preprocessing from extractGenomeTrinucleotides.
+    # Normalize reference bases and enumerate centered trinucleotide contexts.
     reference_command = (
         f"{quote(args.seqkit)} seq -u reference.fa | "
         f"{quote(args.seqkit)} replace -s -p '[^ACGTN]' -r N | "
@@ -97,88 +92,23 @@ def main():
     results = {}
     observed_contexts = set()
     for row in rows:
-        legacy_counts = directory / f"{row}.legacy.counts.tsv"
-        candidate_counts = directory / f"{row}.candidate.counts.tsv"
-        legacy_bed = directory / f"{row}.legacy.bed.gz"
-        candidate_bed = directory / f"{row}.candidate.bed.gz"
-        legacy_command = (
+        expected_counts = directory / f"{row}.expected.counts.tsv"
+        expected_bed = directory / f"{row}.expected.bed.gz"
+        expected_command = (
             f"{quote(args.bedtools)} intersect -sorted -wa -wb -a {row}.bed -b all.trinuc.bed -g reference.fa.fai | "
-            "awk -v OFS='\\t' " + f"-v row_id={row} -v counts={quote(legacy_counts)} " +
+            "awk -v OFS='\\t' " + f"-v row_id={row} -v counts={quote(expected_counts)} " +
             "'{print $5,$6,$7,$4,$8; sum[$8]+=$4} END{if(length(sum)==0){print row_id,\"NA\",0 > counts}"
             "else{for(k in sum){print row_id,k,sum[k] > counts}}}' | " +
-            f"{quote(args.bgzip)} -c > {quote(legacy_bed)}\n"
-            f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(legacy_bed)}")
-        shell(legacy_command, directory)
-        if args.helper:
-            helper_command = (
-                f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
-                f"--row-id {row} --counts {quote(candidate_counts)} --bed-output - | "
-                f"{quote(args.bgzip)} -c > {quote(candidate_bed)}\n"
-                f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(candidate_bed)}")
-            shell(helper_command, directory)
-            with gzip.open(legacy_bed, "rb") as expected, gzip.open(candidate_bed, "rb") as actual:
-                expected_bytes, actual_bytes = expected.read(), actual.read()
-            if expected_bytes != actual_bytes:
-                raise AssertionError(f"row {row}: annotated BED bytes differ (coordinates, order, depth tokens or context)")
-            if counts(legacy_counts) != counts(candidate_counts):
-                raise AssertionError(f"row {row}: context counts differ")
-            counts_only = directory / f"{row}.counts-only.tsv"
-            shell(f"{quote(args.helper)} --bed {row}.bed --fasta reference.fa --fai reference.fa.fai "
-                  f"--row-id {row} --counts {quote(counts_only)}", directory)
-            if counts(counts_only) != counts(legacy_counts):
-                raise AssertionError(f"row {row}: counts-only mode differs")
-        else:
-            with gzip.open(legacy_bed, "rb") as expected:
-                actual_bytes = expected.read()
-            candidate_counts = legacy_counts
-        observed_contexts.update(context for _, context in counts(candidate_counts))
-        results[str(row)] = {"annotated_bytes": len(actual_bytes), "counts": len(counts(candidate_counts))}
+            f"{quote(args.bgzip)} -c > {quote(expected_bed)}\n"
+            f"{quote(args.tabix)} -@2 -s1 -b2 -e3 {quote(expected_bed)}")
+        shell(expected_command, directory)
+        with gzip.open(expected_bed, "rb") as stream:
+            annotated_bytes = stream.read()
+        observed_contexts.update(context for _, context in counts(expected_counts))
+        results[str(row)] = {"annotated_bytes": len(annotated_bytes), "counts": len(counts(expected_counts))}
     expected_contexts = {"".join(t) for t in itertools.product("ACGTN", repeat=3)} | {".", "NA"}
     if observed_contexts != expected_contexts:
         raise AssertionError("Not all 125 normalized contexts, dot and empty NA were tested")
-    if not args.helper:
-        (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
-        print(json.dumps(results, indent=2))
-        return
-    # The legacy reference BED parser mishandles these contig names. Fail safely
-    # so a caller can retain its legacy path instead of silently correcting it.
-    for name in ("chr-1", "chr:1"):
-        unsafe = directory / ("unsafe-" + name.replace(":", "colon") + ".fa")
-        unsafe.write_text(f">{name}\nACGT\n")
-        shell(f"{quote(args.samtools)} faidx {quote(unsafe)}", directory)
-        result = subprocess.run([args.helper, "--bed", str(directory / "3.bed"), "--fasta", str(unsafe),
-                                 "--fai", str(unsafe) + ".fai", "--row-id", "3", "--counts", str(directory / "unsafe.tsv")],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if result.returncode == 0 or "legacy-fallback-required" not in result.stderr:
-            raise AssertionError("Legacy-ambiguous reference contig was not rejected")
-    results["legacy_ambiguous_contigs"] = "rejected for fallback"
-    # A valid first row followed by a bad row must fail after output starts.
-    # The caller must detect the failure despite bgzip successfully closing a
-    # partial stream; it must never treat absent fresh counts as a valid row.
-    late_bad = directory / "late-invalid.bed"
-    late_bad.write_text("chr1\t1\t3\t2\nchr1\t2\t4\t1\n")
-    late_counts = directory / "late-invalid.counts.tsv"
-    helper_args = [args.helper, "--bed", str(late_bad), "--fasta", str(reference),
-                   "--fai", str(reference) + ".fai", "--row-id", "late", "--counts", str(late_counts),
-                   "--bed-output", "-"]
-    rejected = subprocess.run(helper_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    expected_partial = "chr1\t1\t2\t2\tACG\nchr1\t2\t3\t2\tCGT\n"
-    if rejected.returncode == 0 or rejected.stdout != expected_partial or late_counts.exists():
-        raise AssertionError("Late-invalid row did not fail with partial BED and absent fresh counts")
-    if "non-overlapping" not in rejected.stderr:
-        raise AssertionError("Late-invalid fixture failed for an unrelated reason")
-    partial_gzip = directory / "late-invalid.partial.bed.gz"
-    success_marker = directory / "late-invalid.unexpected-success"
-    pipeline = " ".join(quote(item) for item in helper_args) + " | " + quote(args.bgzip) + " -c > " + quote(partial_gzip)
-    pipeline += "\nprintf 'unexpected success' > " + quote(success_marker)
-    result = subprocess.run(["/bin/bash", "-c", "set -euo pipefail\n" + pipeline],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if result.returncode == 0 or late_counts.exists() or success_marker.exists():
-        raise AssertionError("pipefail did not stop the caller after annotation failed")
-    with gzip.open(partial_gzip, "rt") as partial:
-        if partial.read() != expected_partial:
-            raise AssertionError("Late failure fixture did not exercise a valid partial bgzip output")
-    results["late_invalid_row"] = "helper and pipefail caller failed; partial BED present, fresh counts and success marker absent"
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
 

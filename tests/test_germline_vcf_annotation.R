@@ -3,11 +3,25 @@ suppressPackageStartupMessages(library(tidyverse))
 options(warn = 2)
 args <- commandArgs(trailingOnly = TRUE)
 repo <- if(length(args)) args[[1]] else "."
-source(file.path(repo, "scripts/benchmark/germline_vcf_block.R"))
-annotation <- germline_vcf_block(file.path(repo, "bin/filterCalls.R"))$annotation
+# Read only the production assignment between the two annotation section markers.
+expressions <- parse(file.path(repo, "bin/filterCalls.R"), keep.source = FALSE)
+marker <- function(text) {
+  hits <- which(vapply(expressions, function(x) is.call(x) &&
+    identical(x[[1L]], as.name("cat")) && length(x) >= 2L &&
+    identical(x[[2L]], text), logical(1)))
+  stopifnot(length(hits) == 1L)
+  hits[[1L]]
+}
+first <- marker("## Applying germline VCF variant filters...")
+last <- marker("## Applying post-germline VCF variant filtering molecule filters...")
+stopifnot(last > first)
+assignments <- Filter(function(x) is.call(x) && identical(x[[1L]], as.name("<-")) &&
+  identical(x[[2L]], as.name("calls")), expressions[seq.int(first + 1L, last - 1L)])
+stopifnot(length(assignments) == 1L)
+annotation <- assignments[[1L]]
 
-# Exact original annotation expression, independently retained as the oracle.
-legacy <- function(calls, germline_vcf_variants) {
+# Independently express the expected grouping, join and MDB exception.
+expected_annotation <- function(calls, germline_vcf_variants) {
   calls %>% left_join(
     germline_vcf_variants %>%
       group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
@@ -38,7 +52,7 @@ check <- function(input_calls, input_variants) {
   env$calls <- input_calls
   env$germline_vcf_variants <- input_variants
   eval(annotation, env)
-  expected <- legacy(input_calls, input_variants)
+  expected <- expected_annotation(input_calls, input_variants)
   stopifnot(identical(env$calls, expected), identical(env$germline_vcf_variants, input_variants))
   env$calls
 }

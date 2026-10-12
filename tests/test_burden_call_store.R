@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Run in the pipeline R environment on a compute node:
 # Rscript tests/test_burden_call_store.R [repository root]
-# Exact native-R contracts from the qualified DuckDB call-store fixtures.
+# Exact R table contracts for the DuckDB call store.
 # These tests exercise successful schema, ordering, counting, and QS2 handoff.
 suppressPackageStartupMessages({
   library(dplyr)
@@ -69,7 +69,7 @@ for (i in seq_along(cases)) {
   store$cleanup()
 }
 
-# Exact original raw-chunk bind/analysis_chunk/projection/filter boundaries.
+# Exact chunk binding, analysis_chunk, projection and filter boundaries.
 call_chunk <- function(index, empty = FALSE) {
   x <- tibble(run_id = factor(c('r2', 'r1'), levels = c('unused', if (index == 1L) c('r2', 'r1') else c('r1', 'r3', 'r2'))),
     zm = c(2L, 1L), call_class = factor(c('SBS', 'SBS'), levels = c('indel', 'SBS')),
@@ -100,7 +100,7 @@ for (empty in c(FALSE, TRUE)) {
 }
 
 # SQL grouping must match dplyr distinct/count including NA keys and duplicates
-# across chunks. Then exercise the original left_join's exact result contract.
+# across chunks. Then exercise the left_join result contract.
 for (empty in c(FALSE, TRUE)) {
   x <- tibble(run_id = factor(c('r1', 'r1', 'r2', 'r1', NA, NA)), zm = c(1L, 1L, 1L, 2L, 3L, 3L),
     call_type = factor(c('SBS', 'SBS', 'SBS', 'indel', 'SBS', 'SBS'), levels = c('unused', 'indel', 'SBS')),

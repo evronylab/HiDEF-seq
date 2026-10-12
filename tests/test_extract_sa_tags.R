@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 #Run on a compute node in the pipeline container:
-#Rscript tests/test_extract_sa_rle_optimization.R [repository root]
+#Rscript tests/test_extract_sa_tags.R [repository root]
 suppressPackageStartupMessages({
   library(GenomicRanges)
   library(tidyverse)
@@ -27,7 +27,7 @@ assignment <- function(node, name) {
   hits[[1]]
 }
 for(name in c("decode_sa_rle", "subset_tag_positions", "separate_generated_pair")) eval(assignment(expressions, name))
-legacy_decode <- function(tag) Rle(inverse.rle(list(lengths = tag[c(TRUE, FALSE)], values = tag[c(FALSE, TRUE)])))
+reference_model_decode <- function(tag) Rle(inverse.rle(list(lengths = tag[c(TRUE, FALSE)], values = tag[c(FALSE, TRUE)])))
 capture <- function(expr) {
   tryCatch(list(value = force(expr)), error = function(e) list(error = "invalid input"))
 }
@@ -43,18 +43,18 @@ valid_tags <- list(
 )
 for(case_name in names(valid_tags)) {
   tag <- valid_tags[[case_name]]
-  baseline_outcome <- capture(legacy_decode(tag))
-  candidate_outcome <- capture(decode_sa_rle(tag))
-  if(!identical(candidate_outcome, baseline_outcome)) stop(paste("sa decode differs for", case_name))
+  reference_model_outcome <- capture(reference_model_decode(tag))
+  production_outcome <- capture(decode_sa_rle(tag))
+  if(!identical(production_outcome, reference_model_outcome)) stop(paste("sa decode differs for", case_name))
   #Some unusual length encodings (including fractional counts) are rejected by
-  #rep.int in the legacy decoder. Compare that failure instead of assuming a
+  #rep.int in the dense decoder. Compare that failure instead of assuming a
   #dense reference vector can always be constructed.
-  if(!is.null(baseline_outcome$error)) next
-  reference <- baseline_outcome$value
-  candidate <- candidate_outcome$value
-  stopifnot(identical(candidate, reference), identical(rev(candidate), Rle(rev(as.vector(reference)))))
+  if(!is.null(reference_model_outcome$error)) next
+  reference <- reference_model_outcome$value
+  production <- production_outcome$value
+  stopifnot(identical(production, reference), identical(rev(production), Rle(rev(as.vector(reference)))))
   for(reverse_strand in c(FALSE, TRUE)) {
-    compressed <- if(reverse_strand) rev(candidate) else candidate
+    compressed <- if(reverse_strand) rev(production) else production
     dense <- if(reverse_strand) rev(as.vector(reference)) else as.vector(reference)
     positions <- list(integer(), seq_along(dense), as.numeric(seq_along(dense)),
                       c(1L, 1L), c(0L, 1L), c(NA_integer_, 1L), c(1L, length(dense) + 1L),
@@ -64,9 +64,9 @@ for(case_name in names(valid_tags)) {
   }
 }
 for(tag in list(NULL, c(1L, 5L, 2L), c(-1L, 5L), c(NA_integer_, 5L), c(Inf, 5))) {
-  baseline <- capture(legacy_decode(tag))
-  candidate <- capture(decode_sa_rle(tag))
-  stopifnot(!is.null(baseline$error), identical(candidate, baseline))
+  reference_model <- capture(reference_model_decode(tag))
+  production <- capture(decode_sa_rle(tag))
+  stopifnot(!is.null(reference_model$error), identical(production, reference_model))
 }
 #Plain sm/sx vectors retain their original classes, names and indexing behavior.
 for(tag in list(1:6, as.numeric(1:6), setNames(1:6, letters[1:6]), numeric(), NULL)) {
@@ -74,7 +74,7 @@ for(tag in list(1:6, as.numeric(1:6), setNames(1:6, letters[1:6]), numeric(), NU
     stopifnot(identical(subset_tag_positions(tag, index), tag[index]))
   }
 }
-cat("PASS: direct/legacy sa decoding, integer/double types, adjacent/zero/empty runs, strand reversal, unusual indices and errors\n")
+cat("PASS: compressed/dense sa decoding, integer/double types, adjacent/zero/empty runs, strand reversal, unusual indices and errors\n")
 
 #Load the actual nested SBS/MDB extractor without executing BAM/CIGAR work.
 extract_calls_definition <- assignment(expressions, "extract_calls")[[3]]
@@ -85,14 +85,14 @@ tags <- list("101_+" = c(2L, 3L, 4L, 6L), "101_-" = c(3L, 8L, 3L, 2L),
              "102_+" = c(1, 2.5, 5, 7.5))
 compressed <- map(tags, decode_sa_rle)
 compressed[["101_-"]] <- rev(compressed[["101_-"]])
-dense <- map(tags, ~ as.vector(legacy_decode(.x)))
+dense <- map(tags, ~ as.vector(reference_model_decode(.x)))
 dense[["101_-"]] <- rev(dense[["101_-"]])
 queries <- list("101_+" = c(1L, 3L, 6L), "101_-" = c(2L, 4L), "102_+" = c(1L, 5L))
 for(tag_name in c("sa", "sm", "sx")) {
-  candidate_input <- if(tag_name == "sa") compressed else dense
+  production_input <- if(tag_name == "sa") compressed else dense
   reference <- extract_sasmsx(tag_name, dense, queries)
-  candidate <- extract_sasmsx(tag_name, candidate_input, queries)
-  stopifnot(identical(candidate, reference), is.list(candidate[[tag_name]]))
+  production <- extract_sasmsx(tag_name, production_input, queries)
+  stopifnot(identical(production, reference), is.list(production[[tag_name]]))
 }
 #The opposite-strand lookup swaps keys but does not reverse already-oriented
 #arrays again; coordinate conversion and resulting row/column order stay exact.
@@ -105,7 +105,7 @@ conversion <- tibble(zm = c(101L, 101L, 101L, 101L),
                      start_queryspace = c(5L, 2L, 4L, 1L), end_queryspace = c(5L, 2L, 4L, 1L))
 stopifnot(identical(extract_sasmsx("sa.opposite_strand", opposite_compressed, opposite_queries, conversion),
                     extract_sasmsx("sa.opposite_strand", opposite_dense, opposite_queries, conversion)))
-#Even legacy errors/empty outputs for no queries must remain the same.
+#Errors and empty outputs for no queries must remain the same.
 stopifnot(identical(capture(extract_sasmsx("sa", compressed, list())),
                     capture(extract_sasmsx("sa", dense, list()))))
 cat("PASS: actual SBS/MDB sa/sm/sx extraction and opposite-strand coordinate-join outputs\n")

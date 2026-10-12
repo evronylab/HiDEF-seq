@@ -310,7 +310,7 @@ The pipeline produces several files per below, and each table contains metadata 
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
-The effective configuration passed to R, stored as nested lists. It retains the original analysis keys documented in [`config_templates/`](../config_templates), with intentional runtime overrides and the prepared-cache fields `reference_cache_dir`, `reference_summary_file`, `cache_artifacts`, and `germline_coverage_filters`. The matching `effectiveParams.<sha256>.yaml` is retained in the shared logs; see [prepared caches and configuration](workflow-optimization.md#prepared-caches-and-publication).
+The effective configuration passed to R, stored as nested lists. It retains the original analysis keys documented in [`config_templates/`](../config_templates), with intentional runtime overrides and the prepared-cache fields `reference_cache_dir`, `reference_summary_file`, `cache_artifacts`, and `germline_coverage_filters`. The matching `effectiveParams.<sha256>.yaml` is retained in the shared logs.
 
 #### run_metadata
 Columns as per `run_metadata.tsv` described above. 

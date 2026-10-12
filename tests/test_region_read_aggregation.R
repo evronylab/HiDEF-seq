@@ -27,7 +27,7 @@ replace_fractions <- function(node) {
 }
 annotation <- replace_fractions(assignments[[1L]])
 stopifnot(replacements == 1L)
-legacy <- function(fractions, bam, type, value) {
+reference_model <- function(fractions, bam, type, value) {
   flags <- fractions %>% group_by(run_id, zm) %>%
     summarize(passfilter = !case_when(
       !!type == "gt" ~ mean(frac) > value,
@@ -48,7 +48,7 @@ cases$character_keys <- cases$ordinary %>% mutate(run_id=as.character(run_id))
 checks <- 0L
 for(fractions in cases) for(type in c("gt","gte","lt","lte")) for(value in c(-Inf,0,.5,1,Inf,NA_real_)) {
   bam <- fractions %>% select(-frac) %>% mutate(order=seq_len(n()), payload=map(order, ~c(.x,.x)))
-  expected <- legacy(fractions, bam, type, value)
+  expected <- reference_model(fractions, bam, type, value)
   env <- new.env(parent=globalenv())
   env$fractions <- fractions
   env$bam <- bam

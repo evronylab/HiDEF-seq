@@ -25,14 +25,7 @@ The HiDEF-seq analysis pipeline is designed to be run by Nextflow and a pre-conf
 
 HiDEF-seq is orchestrated with [Nextflow](https://www.nextflow.io/), which can execute pipelines on local workstations, high-performance computing clusters, and the cloud.
 
-Specifically, we configured this GitHub repository to be able to be directly run by Nextflow via the [main.nf](main.nf) script. This main pipeline script includes a set of workflows that cover each step of the analysis. Each workflow is comprised of processes that execute shell commands, [R](https://www.r-project.org/) scripts, or the Python BAM splitter within the HiDEF-seq container.
-
-Reusable R helpers live in [bin/sharedFunctions.R](bin/sharedFunctions.R). Workflow
-preparation and standalone R consumers use the same reference-summary and
-germline-coverage-filter builders. The scientific R code uses existing packages
-and command-line tools. Custom non-R production code includes Python BAM
-dispatch, Nextflow/Groovy orchestration and shell commands, and SQL for private
-burden call staging through DBI/DuckDB. Coverage calculation remains in R.
+Specifically, we configured this GitHub repository to be able to be directly run by Nextflow via the [main.nf](main.nf) script. This main pipeline script includes a set of workflows that cover each step of the analysis. Each workflow is comprised of a set of processes that execute bash, [R](https://www.r-project.org/), or Python scripts that Nextflow can be configured to run within our pre-configured HiDEF-seq docker image.
 
 ### Create a Nextflow configuration file
 
@@ -50,8 +43,8 @@ When using singularity, download the docker image into an .sif file with `singul
 
 This docker image can be utilized by the Nextflow pipeline by setting the `hidefseq_container` parameter in the pipeline's [YAML parameters file](#yaml-parameters-file) to point either to the docker link or to the singularity. sif file.
 
-The `optimization` branch additionally requires `pysam` with libdeflate support
-for its Python BAM splitter. The tested 3.0 container has system Python 3.12 at
+The pipeline requires `pysam` with libdeflate support
+for its Python BAM splitter. The 3.0 container has system Python 3.12 at
 `/usr/bin/python3`, but no system pip. Run the following as root while building
 the writable container:
 
@@ -70,45 +63,18 @@ env -u HTSLIB_LIBRARY_DIR -u HTSLIB_INCLUDE_DIR -u HTSLIB_LIBRARY_MODE \
 /usr/bin/python3 -c 'import pysam, pysam.config; print(pysam.__version__); assert pysam.config.HAVE_LIBDEFLATE == 1'
 ```
 
-The existing Conda installation supplies only Python 3.12 header files for
-compilation; no Conda packages are installed or changed. The source build uses
-pysam's [bundled HTSlib](https://pysam.readthedocs.io/en/latest/installation.html)
-and existing system compiler/compression libraries. Both tested upstream
-0.23.3 and 0.24.1 Linux wheels lacked libdeflate, so the command builds pysam
-from source. `--no-deps` avoids installing other runtime Python packages;
-`--target` selects the existing system Python's local package directory.
-There is no new environment or wrapper.
-
-The 2026-10-07 apt simulation with current Ubuntu metadata showed that
-`--no-install-recommends` adds pip, setuptools and wheel and updates only
-`python3-pkg-resources`. Omitting that option also updates system Python and
-native libraries used by existing pipeline tools. Package plans can change;
-the observed minimal plan does not modify either Conda installation or the
-pipeline's native libraries.
-
-The native source build passed all splitter fixtures and dependency checks in
-job `19321297`, using a project-local test target. All 13 extension libraries
-resolved only package-local or existing system libraries under both normal
-and PacBio-activated environments, without Conda runtime libraries. The test
-used temporary pip 26.2.1; apt provides pip 24.0 in the rebuilt SIF. The rebuilt
-image passed inventory, dependency and splitter-fixture checks in job `19322320`:
-the 15 checked executables and 57 distinct linked libraries match the original
-image. The final-image full LIB1 splitter comparison also passed exact record
-and index checks; its [measured costs](docs/workflow-optimization.md#bam-dispatch)
-are recorded separately from the [completed full-workflow validation](docs/optimization-validation.md)
-of immutable revision `7e37ada`.
-The earlier full LIB1 benchmark used pysam 0.23.3 in an isolated
-test Conda installation; neither version is enforced by the splitter itself.
+The source build uses the existing Python headers and pysam's bundled HTSlib
+to enable libdeflate support.
 
 Save the rebuilt image under a new filename and set `hidefseq_container` to it.
 The workflow uses `python3` from the container's PATH; no Python path entry is
 needed in the run YAML. The pipeline does not install Python packages during
 tasks.
 Prepared-cache operations use R with `jsonlite`, `digest` and `openssl`, plus
-Linux `flock`, `stat` and `sync`, already available in the tested 3.0 environment.
+Linux `flock`, `stat` and `sync`, already available in the 3.0 environment.
 
 Burden calculation additionally requires the R packages `DBI` and `duckdb` in
-the container (qualified with DBI 1.2.3 and duckdb 1.3.1).
+the container.
 
 ## Reference genome
 The pipeline requires reference genome files and multiple derivative files, which can be prepared per below.
@@ -216,7 +182,7 @@ Launch the pipeline as follows:
 
 ```bash
 HIDEFSEQ_GITREPO=evronylab/HiDEF-seq
-HIDEFSEQ_GITTAG=optimization
+HIDEFSEQ_GITTAG=your-branch-tag-or-commit
 NEXTFLOW_CONFIG=/path/to/nextflow.config
 YAML=/path/to/analysis.yaml
 WORK_DIR=/path/to/nextflow_work
@@ -231,68 +197,20 @@ nextflow -config "$NEXTFLOW_CONFIG" \
   -with-report
 ```
 
-`-r optimization -latest` fetches the current optimization branch for each run.
-To reproduce the latest accepted full-workflow revision, set
-`HIDEFSEQ_GITTAG=7e37ada2664f07e9534e9dbd695b68a0fbcc22f3` instead.
-Omit `-resume` for a new execution; keep the same launch directory and work
-directory when resuming. If several runs share a launch directory, use
-`-resume <session-UUID>` to select the intended run. `-with-report` is optional.
-See [Torch launch and measured resource settings](docs/workflow-optimization.md#torch-launch-and-resource-settings)
-for the SLURM command, tested source revision, and workload-specific allocations.
+Set `HIDEFSEQ_GITTAG` to the branch, tag or commit to run.
+Omit `-resume` for a new execution; keep the same launch and work
+directories when resuming. `-with-report` is optional.
 
 Refer to the <a href="https://www.nextflow.io/docs/latest/cli.html#run" target="_blank" rel="noopener noreferrer">Nextflow CLI documentation</a> for additional Nextflow runtime options.
 
 Each pipeline invocation executes the full analysis sequence end-to-end.
 
-Prepared artifacts have separate cache identities based on their relevant inputs, settings, and code, allowing unaffected reference and germline preparation to be reused. Downstream R tasks receive an immutable effective YAML whose filename hashes its full contents. A change to any retained configuration field can therefore rerun downstream R tasks under `-resume`, even when their individual configuration signatures are unchanged. Downstream invalidation is currently conservative; it is not limited to the scientifically affected tasks. See [prepared caches and resume behavior](docs/workflow-optimization.md) for details.
-
-Any change to the full `sharedFunctions.R` file changes prepared-cache identities
-and downstream R task signatures; existing bundles remain intact. The unused
-whole-genome reference trinucleotide BED preparation has been removed, while
-published coverage products remain required.
-
-The current branch includes later R helper generalization, preparation
-consolidation and publication cleanup frozen at `358e4bf`. Its fresh two-sample
-workflow completed all 649 tasks with no failures, retries or cached tasks.
-Reviewed common downstream actual CPU was **151.54 hours versus 447.19
-originally (66.11% less)**; all workers, cold preparation and the controller
-used **158.61 CPU-hours**. All **711 required publications**, 20 prepared products
-and two cache startup checks passed the agreed scientific comparisons, with
-exact QS/TSV layout and only the existing BAM coordinate-tie exception.
-The [finalization report](docs/benchmarks/torch-python-r-finalization.json)
-records this accepted `358e4bf` workflow. The separately tested R-only
-single-public-QS output helper and 42 lifecycle checks were installed in
-`3dabe21`; its both-sample output proofs do not constitute a full workflow at
-that later revision. The [current validation status](docs/optimization-validation.md#current-accepted-workflow-358e4bf)
-separates these measurements from the historical `7e37ada` results below.
-
-These optimizations preserve scientific output schemas, formats, and filenames, including one final QS2 per sample. They retain ordinary public call tables and introduce no public output shards. The two-sample Torch follow-on at revision `7e37ada` completed all 650 tasks: common downstream actual CPU fell from **447.2 to 157.8 hours (64.7%)**, and the observed maximum burden-task Slurm memory fell from **288.0 to 135.3 GiB (53.0%)**. Cold preparation used a separate 9.0 CPU-hours. All **711 required scientific output paths are accepted** under the agreed comparison rules; prepared-cache comparisons and separate deterministic output-stage replays also passed. This run predates the allele-key helper in `00f6e33` and excludes experimental coverage storage. The [validation ledger](docs/optimization-validation.md) and [complete-workload report](docs/benchmarks/torch-python-r-followon.json) retain the original strict-order failures, supplemental proofs and memory caveats, separately from the earlier `3911047` and `ea8d06f` runs.
-
-Five earlier R changes have [component and combined-chain results](docs/workflow-optimization.md#follow-on-r-optimization-results): generated-field parsing, VCF target lookup, targeted dtplyr aggregation, output object lifetime and level-1 compression in R coverage annotation. On one real chunk from each library, extraction plus four separate filters passed 128 exact QS component comparisons and used 36.11% less summed actual CPU. Memory varied by operation. This chain did not exercise the output or compression changes and does not establish full-workflow acceptance. The [validation ledger](docs/optimization-validation.md#follow-on-component-and-chain-validation) and [compact benchmark](docs/benchmarks/torch-2026-10-07-followon.json) retain scope, regressions and evidence hashes.
-
-The [implementation-language table](docs/workflow-optimization.md#implementation-languages) identifies custom R, Python and Nextflow/shell code for each optimization, separately from existing command-line tools and compiled package internals.
+Prepared reference and germline artifacts are reused when their inputs,
+settings and code are unchanged. YAML edits can rerun downstream R tasks beyond
+the directly affected stages.
 
 ### Outputs
-
-The production pipeline retains one self-contained final QS2 per sample and
-the existing TSV, VCF, PDF and indexed coverage BED products. The R output helper
-uses private temporary QS handoff parts, then assembles one ordinary public QS2
-in a fresh process and removes the private parts after success. No public split
-format or new reader API is introduced. Public QS2 files remain readable without
-DuckDB. The [implementation and validation notes](docs/workflow-optimization.md#production-implementation-and-validation-status)
-describe private call staging and its qualification.
-
-The adopted call-store integration and barcode channel fix are pending a fresh
-full-workflow validation. Historical accepted full-workflow measurements remain
-those of `358e4bf`; separate hybrid qualification does not extend that acceptance
-to the current branch.
-
-Publication uses hard links for BAMs and enabled intermediate QS files, moves
-for coverage and final sample outputs, and copies for logs and other designated
-products. Hard-linked work/results paths share file contents; moved products no
-longer remain at their work paths. Prepared-cache restoration is separate: it
-uses hard links, with a copy only for a cross-filesystem `EXDEV` error. See
-[publication and cache behavior](docs/workflow-optimization.md#prepared-caches-and-publication).
+The pipeline retains one self-contained final QS2 per sample, readable without DuckDB.
 
 A comprehensive description of every final product generated by the pipeline is available in the [outputs documentation](docs/outputs.md).
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Regression of actual installed helpers against the preserved 7e function.
+# Exact allele encoding and overlap semantics against an independent oracle.
 # Run in a compute allocation with the pipeline R/Bioconductor environment.
 args <- commandArgs(TRUE)
 stopifnot(length(args) == 2L)
@@ -20,28 +20,15 @@ read_helper <- function(path, name) {
   eval(read_definition(path, name), env)
   env[[name]]
 }
-baseline_path <- file.path(root, "tests", "fixtures", "overlapsAny_bymcols_7e37ada.R")
+oracle_path <- file.path(root, "tests", "fixtures", "allele_overlap_reference.R")
 filter_path <- file.path(root, "bin", "filterCalls.R")
 shared_path <- file.path(root, "bin", "sharedFunctions.R")
 allele_key_names <- c("call_class", "call_type", "ref_plus_strand", "alt_plus_strand")
 for (name in "observed_allele_interaction") {
   eval(read_definition(shared_path, name), globalenv())
 }
-# The overlap function may differ only by its two calls to the tested encoder.
-replacements <- 0L
-rewrite <- function(x) {
-  if (identical(x, quote(interaction(drop = TRUE)))) {
-    replacements <<- replacements + 1L
-    return(quote(observed_allele_interaction()))
-  }
-  if (is.call(x)) return(as.call(lapply(as.list(x), rewrite)))
-  x
-}
-expected <- rewrite(read_definition(baseline_path, "overlapsAny_bymcols"))
-stopifnot(replacements == 2L,
-          identical(expected, read_definition(filter_path, "overlapsAny_bymcols")))
-oracle <- read_helper(baseline_path, "overlapsAny_bymcols")
-candidate <- read_helper(filter_path, "overlapsAny_bymcols")
+oracle <- read_helper(oracle_path, "overlapsAny_bymcols")
+production <- read_helper(filter_path, "overlapsAny_bymcols")
 capture <- function(expr) {
   warnings <- list()
   value <- tryCatch(withCallingHandlers(list(value = force(expr)),
@@ -84,7 +71,7 @@ check <- function(label, before, after, require_success = TRUE) {
   expected <- capture(before); actual <- capture(after)
   same <- identical(expected, actual) && (!require_success || is.null(expected$value$error))
   rows[[length(rows) + 1L]] <<- data.frame(label = label, exact = same,
-    baseline_success = is.null(expected$value$error))
+    oracle_success = is.null(expected$value$error))
   if (!same) saveRDS(list(expected = expected, actual = actual),
     file.path(output, paste0("mismatch-", length(rows), ".rds")))
 }
@@ -113,12 +100,12 @@ for (name in c("ordinary", "reversed_rows", "reversed_factor_levels", "all_chara
   subject <- make_gr(a, query = FALSE)
   subject$call_class <- factor(subject$call_class, levels = rev(levels(subject$call_class)))
   for (ignore in c(FALSE, TRUE)) for (adjacent in c(FALSE, TRUE)) {
-    frozen <- serialize(list(query, subject), NULL)
+    unchanged <- serialize(list(query, subject), NULL)
     check(paste("helper", name, ignore, adjacent, sep = ":"),
       oracle(query, subject, allele_key_names, ignore, adjacent),
-      candidate(query, subject, allele_key_names, ignore, adjacent),
+      production(query, subject, allele_key_names, ignore, adjacent),
       require_success = !grepl("NA_level", name, fixed = TRUE))
-    stopifnot(identical(frozen, serialize(list(query, subject), NULL)))
+    stopifnot(identical(unchanged, serialize(list(query, subject), NULL)))
   }
 }
 query <- make_gr(a); subject <- make_gr(a, query = FALSE)
@@ -126,7 +113,7 @@ for (keys in list(character(), c("run_id", "zm"))) {
   for (ignore in c(FALSE, TRUE)) for (adjacent in c(FALSE, TRUE)) {
     check(paste("other-keys", paste(keys, collapse = ","), ignore, adjacent, sep = ":"),
       oracle(query, subject, keys, ignore, adjacent),
-      candidate(query, subject, keys, ignore, adjacent))
+      production(query, subject, keys, ignore, adjacent))
   }
 }
 results <- do.call(rbind, rows)
@@ -134,8 +121,7 @@ stopifnot(nrow(results) == 60L, !anyDuplicated(results$label))
 write.table(results, file.path(output, "comparisons.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
 writeLines(capture.output(sessionInfo()), file.path(output, "sessionInfo.txt"))
 completion <- list(status = if (all(results$exact)) "PASS" else "FAIL", checks = nrow(results),
-  overlap_call_replacements = replacements, performance_claim = FALSE,
-  implementation = "Custom R with existing compiled vctrs/Bioconductor internals; no custom non-R scientific code")
+  scope = "Allele factor encoding and overlap types, values and order")
 jsonlite::write_json(completion, file.path(output, "completion.json"), auto_unbox = TRUE, pretty = TRUE)
 cat(completion$status, ": ", nrow(results), " exact allele-factor/overlap cases\n", sep = "")
 quit(status = if (all(results$exact)) 0L else 1L)

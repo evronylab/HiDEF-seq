@@ -8,12 +8,12 @@ load_functions <- function(path, environment) {
  for(expr in parse(path)) if(is.call(expr) && identical(expr[[1L]], as.name('<-')) &&
     is.call(expr[[3L]]) && identical(expr[[3L]][[1L]], as.name('function'))) eval(expr, environment)
 }
-candidate <- new.env(parent = globalenv())
-load_functions(file.path(repo, 'bin/sharedFunctions.R'), candidate)
-load_functions(file.path(repo, 'bin/calculateBurdens.R'), candidate)
-load_functions(file.path(repo, 'bin/extractCalls.R'), candidate)
+production <- new.env(parent = globalenv())
+load_functions(file.path(repo, 'bin/sharedFunctions.R'), production)
+load_functions(file.path(repo, 'bin/calculateBurdens.R'), production)
+load_functions(file.path(repo, 'bin/extractCalls.R'), production)
 reference <- new.env(parent = globalenv())
-sys.source(file.path(repo, 'tests/fixtures/burden_native_reference_ea8d06f.R'), reference)
+sys.source(file.path(repo, 'tests/fixtures/burden_reference.R'), reference)
 capture <- function(expr) tryCatch(list(value = force(expr)), error = function(e) list(error = conditionMessage(e)))
 #Recycling is part of interaction's contract even though data-frame columns
 #normally have equal lengths; a lone factor preserves an explicit NA level.
@@ -21,7 +21,7 @@ for(columns in list(list(factor(c('a','b')),factor(c('w','x','y','z'))),
                     list(factor(c('x',NA),exclude=NULL)),
                     list(c('a','b'), c('x','y','z')))) {
   stopifnot(identical(capture(interaction(columns,drop=TRUE)),
-                      capture(candidate$observed_allele_interaction(columns))))
+                      capture(production$observed_allele_interaction(columns))))
 }
 set.seed(159)
 labels <- c('', '.', 'A', 'A.B', 'B.C', 'C', 'NA', NA_character_)
@@ -29,7 +29,7 @@ for(i in seq_len(500L)) {
  columns <- replicate(sample(1:5, 1), factor(sample(labels, 20L, TRUE),
      levels = sample(labels), exclude = if(i %% 3L) NA else NULL), simplify = FALSE)
  expected <- capture(interaction(columns, drop = TRUE))
- actual <- capture(candidate$observed_allele_interaction(columns))
+ actual <- capture(production$observed_allele_interaction(columns))
  if(is.null(expected$error)) {
    if(!identical(expected, actual)) {dput(columns); print(expected); print(actual); stop('allele factor mismatch')}
  } else {
@@ -44,7 +44,7 @@ for(i in seq_len(500L)) {
 # Cardinalities whose Cartesian product exceeds the integer limit are still
 #valid observed factors. No Cartesian allocation or code multiplication occurs.
 x <- factor(seq_len(50000L), levels = seq_len(50000L))
-large <- candidate$observed_allele_interaction(list(x, x))
+large <- production$observed_allele_interaction(list(x, x))
 stopifnot(identical(as.integer(large), seq_len(50000L)), nlevels(large) == 50000L)
 cat('PASS: 500 randomized separator/NA/factor combinations and Cartesian-overflow cardinality\n')
 for(i in seq_len(150L)) {
@@ -60,10 +60,10 @@ for(i in seq_len(150L)) {
    extra <- gr[1L]; strand(extra) <- '*'; gr <- suppressWarnings(c(gr, extra, extra))
  }
  cov <- reference$calc_duplex_coverage(gr)
- stopifnot(identical(candidate$calc_duplex_coverage(gr), cov))
+ stopifnot(identical(production$calc_duplex_coverage(gr), cov))
  query <- GRanges(rep('a', length(cov[[1L]])), IRanges(seq_len(length(cov[[1L]])), width = 1L))
  expected <- list(start = reference$gr_1bp_cov(query, cov), end = reference$gr_1bp_cov(rev(query), cov))
- actual <- candidate$sensitivity_site_counts(gr, query, rev(query))
+ actual <- production$sensitivity_site_counts(gr, query, rev(query))
  if(!identical(expected, actual)) {print(gr);print(expected);print(actual);stop('circular/clipping mismatch')}
 }
 #Index normalization and assignment are independent for the two query sides.
@@ -74,7 +74,7 @@ query <- function(p) suppressWarnings(GRanges(rep('a',length(p)),IRanges(p,width
 for(a in list(0L,c(0L,2L),c(0L,2L,3L),-2L,c(-2L,-3L),c(0L,-2L))) {
  for(b in list(1L,0L,c(1L,3L),-3L)) {
    expected <- capture(list(start=reference$gr_1bp_cov(query(a),cov),end=reference$gr_1bp_cov(query(b),cov)))
-   actual <- capture(candidate$sensitivity_site_counts(track,query(a),query(b)))
+   actual <- capture(production$sensitivity_site_counts(track,query(a),query(b)))
    stopifnot(identical(expected,actual))
  }
 }
@@ -86,6 +86,6 @@ for(i in seq_len(100L)) {
  positions <- list(sample(-250:250, 20L), sample(c(NA,TRUE,FALSE), 300L, TRUE),
                    sample(c(NA_real_, NaN, Inf, -Inf, runif(30L,-250,250)), 25L), c('a', NA_character_),
                    matrix(c(1L,2L,NA_integer_,400L),2L))
- for(index in positions) stopifnot(identical(capture(candidate$subset_tag_positions(tag,index)), capture(as.vector(tag)[index])))
+ for(index in positions) stopifnot(identical(capture(production$subset_tag_positions(tag,index)), capture(as.vector(tag)[index])))
 }
 cat('PASS: 500 randomized compressed-vector indexing cases\n')

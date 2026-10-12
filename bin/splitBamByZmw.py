@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch binary BAM records to the legacy ordered ZMW ID partitions.
+"""Dispatch binary BAM records to ordered ZMW ID partitions.
 
 Requires pysam in the Python environment used to run this script. Input decompression uses
 --threads; each output compresses synchronously so writer count does not multiply
@@ -34,7 +34,7 @@ def assignments(ids_path, chunks):
                 raise ValueError("ZMW ID outside nonnegative int32 range")
             ids.append(value)
     if len(ids) < chunks:
-        raise ValueError("ID count is smaller than chunk count; legacy chunks would be empty")
+        raise ValueError("ID count is smaller than chunk count; chunks would be empty")
     quotient, remainder = divmod(len(ids), chunks)
     destinations = {}
     offset = 0

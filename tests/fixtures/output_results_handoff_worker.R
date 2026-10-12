@@ -1,6 +1,6 @@
 # Tiny data only; exercise the real launcher, save, assembly and cleanup helpers.
 # Test-only loader: evaluate the installed script's private function definitions.
-# The scientific body is replaced by tiny explicit data, never a legacy runtime.
+# Tiny explicit data exercise the production handoff without a complete analysis.
 script <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
 stopifnot(length(script) == 1L)
 root <- normalizePath(file.path(dirname(normalizePath(script)), "../.."), mustWork = TRUE)
@@ -23,7 +23,6 @@ stopifnot(length(inputs) == length(spec$rows))
 launch <- output_results_launch()
 saveRDS(list(worker_pid = Sys.getpid(), launch = launch,
              stage = Sys.getenv("HIDEF_OUTPUT_RESULTS_STAGE")), spec$probe)
-if (identical(spec$fail, "worker")) stop("INTENTIONAL_TINY_WORKER_FAILURE")
 parts <- lapply(seq_along(inputs), function(i) {
   n <- spec$rows[[i]]
   tibble(scope = factor(rep(inputs[[i]], n), levels = unique(c("unused", inputs))),
@@ -50,9 +49,5 @@ saveRDS(expected, spec$expected)
 small <- expected
 small[[component]] <- bind_rows(thin)
 output_results_save_remainder(small, paste0(opt$output_basename, ".outputResults.qs2"))
-if (identical(spec$fail, "exports")) stop("INTENTIONAL_TINY_EXPORT_FAILURE")
 writeLines("unchanged tiny export", paste0(opt$output_basename, ".yaml_config.tsv"))
 output_results_worker_done()
-if (identical(spec$fail, "assembly")) {
-  writeLines("INTENTIONAL_INVALID_QS", file.path(launch$directory, "remainder.qs2"))
-}

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run inside the pinned container; compare the dispatcher with zmwfilter.
+"""Run inside the pipeline container; compare the dispatcher with zmwfilter.
 
 The caller supplies splitBamByZmw.py, activates an environment with pysam and
 the PacBio tools, and provides a new output directory.
-Missing-tag/QNAME disagreement probes verify the observed legacy behavior:
+Missing-tag/QNAME disagreement probes verify the ZMW-filter selection behavior:
 missing zm is indexed as zero and an existing zm takes precedence over QNAME.
 """
 import argparse
@@ -71,21 +71,21 @@ def compare(args, directory, bam, header, ids, label, chunks, max_writers=16):
         offset += size
         include = directory / f"{label}.chunk{chunk}.include.txt"
         include.write_text("".join(str(item) + "\n" for item in selected))
-        legacy = directory / f"{label}.chunk{chunk}.legacy.bam"
-        candidate = directory / f"{label}.chunk{chunk}.bam"
-        run([args.zmwfilter, "--include", include, bam, legacy])
-        expected = run([args.samtools, "view", "--no-PG", legacy]).stdout
-        actual = run([args.samtools, "view", "--no-PG", candidate]).stdout
+        reference_model = directory / f"{label}.chunk{chunk}.reference_model.bam"
+        production = directory / f"{label}.chunk{chunk}.bam"
+        run([args.zmwfilter, "--include", include, bam, reference_model])
+        expected = run([args.samtools, "view", "--no-PG", reference_model]).stdout
+        actual = run([args.samtools, "view", "--no-PG", production]).stdout
         if actual != expected:
             raise AssertionError(f"{label} chunk {chunk}: SAM records/tags/order differ")
-        if binary_records(candidate) != binary_records(legacy):
+        if binary_records(production) != binary_records(reference_model):
             raise AssertionError(f"{label} chunk {chunk}: exact binary BAM records differ")
-        actual_header = run([args.samtools, "view", "--no-PG", "-H", candidate]).stdout.splitlines()
+        actual_header = run([args.samtools, "view", "--no-PG", "-H", production]).stdout.splitlines()
         if actual_header != header:
             raise AssertionError(f"{label} chunk {chunk}: original header changed")
-        run([args.samtools, "quickcheck", candidate])
-        run([args.samtools, "index", candidate])
-        run([args.pbindex, candidate])
+        run([args.samtools, "quickcheck", production])
+        run([args.samtools, "index", production])
+        run([args.pbindex, production])
         counts.append(len(actual.splitlines()))
     return {"chunks": chunks, "records_per_chunk": counts, "dispatcher_stdout": result.stdout}
 
@@ -134,9 +134,9 @@ def main():
         record("movieA", 13, 20), record("movieB", 22, 0, 4)])
     run([args.pbindex, bam])
     observed = run([args.zmwfilter, "--show-all", bam]).stdout
-    (directory / "legacy-show-all.txt").write_text(observed)
+    (directory / "reference_model-show-all.txt").write_text(observed)
     ids = [int(item) for item in observed.splitlines()]
-    results = {"legacy_enumeration": ids}
+    results = {"reference_model_enumeration": ids}
     results["enumerated"] = compare(args, directory, bam, header, ids, "enumerated", min(3, len(ids)))
     results["duplicate_ids_cross_chunks"] = compare(args, directory, bam, header,
                                                      [11, 7, 11, 13, 22], "duplicate_ids", 3)
@@ -177,19 +177,19 @@ def main():
                         ("tag_qname_disagree", record("movieA", 11, 1, qname_hole=44))]:
         probe_bam, probe_header = fixture(args.samtools, directory, label, [item])
         run([args.pbindex, probe_bam])
-        legacy = subprocess.run([args.zmwfilter, "--show-all", str(probe_bam)],
+        reference_model = subprocess.run([args.zmwfilter, "--show-all", str(probe_bam)],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        probe = {"show_all_status": legacy.returncode, "show_all_stdout": legacy.stdout,
-                 "show_all_stderr": legacy.stderr}
-        if legacy.returncode == 0:
+        probe = {"show_all_status": reference_model.returncode, "show_all_stdout": reference_model.stdout,
+                 "show_all_stderr": reference_model.stderr}
+        if reference_model.returncode == 0:
             try:
                 probe["comparison"] = compare(args, directory, probe_bam, probe_header,
-                                               [int(line) for line in legacy.stdout.splitlines()], label + "_compare", 1)
+                                               [int(line) for line in reference_model.stdout.splitlines()], label + "_compare", 1)
             except subprocess.CalledProcessError as error:
-                probe["candidate_failure"] = {"status": error.returncode, "stderr": error.stderr}
+                probe["production_failure"] = {"status": error.returncode, "stderr": error.stderr}
                 compatibility_failures.append(label)
             except AssertionError as error:
-                probe["candidate_mismatch"] = str(error)
+                probe["production_mismatch"] = str(error)
                 compatibility_failures.append(label)
         results[label] = probe
     # An invalid writer limit must fail before creating any output stream.
@@ -229,7 +229,7 @@ def main():
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
     if compatibility_failures:
-        raise AssertionError("Legacy-compatible probe failed: " + ", ".join(compatibility_failures))
+        raise AssertionError("Tool-compatible probe failed: " + ", ".join(compatibility_failures))
 
 
 if __name__ == "__main__":

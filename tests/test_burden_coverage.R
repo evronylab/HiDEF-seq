@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 #Run inside the pipeline R environment on a compute node:
-#Rscript tests/test_burden_coverage_optimization.R [repository root] [installed BSgenome package directory]
+#Rscript tests/test_burden_coverage.R [repository root] [installed BSgenome package directory]
 suppressPackageStartupMessages({
   library(GenomicRanges)
   library(plyranges)
@@ -67,8 +67,8 @@ make_molecule <- function(round1, round2 = NULL, id = 1L, reverse = FALSE) {
 }
 tracks <- function(gr) mutate(keys, bam.gr.filtertrack = rep(list(gr), nrow(keys)))
 
-#Independent baseline: compute every observed orientation, as before optimization.
-legacy_tracks <- function(gr) {
+#Independent reference: compute coverage for every observed orientation.
+reference_model_tracks <- function(gr) {
   orientations <- as_tibble(gr) %>% distinct(bc_orientation, strand)
   orientations$bam.gr.filtertrack.coverage <- map2(
     orientations$bc_orientation, orientations$strand,
@@ -112,40 +112,40 @@ for(scenario_name in names(scenarios)) {
                              list(make_molecule("X-X", NULL, 3L), make_molecule("E-F", NULL, 4L))))
   for(variant in variants) {
     combined <- do.call(c, variant)
-    baseline <- legacy_tracks(combined)
+    reference_model <- reference_model_tracks(combined)
     for(requested in requested_sets) {
-      optimized <- sum_bam.gr.filtertracks(tracks(variant[[1]]), orientation_call_types = requested)
+      selected_coverage <- sum_bam.gr.filtertracks(tracks(variant[[1]]), orientation_call_types = requested)
       for(gr in variant[-1]) {
-        optimized <- sum_bam.gr.filtertracks(optimized, tracks(gr), orientation_call_types = requested)
+        selected_coverage <- sum_bam.gr.filtertracks(selected_coverage, tracks(gr), orientation_call_types = requested)
       }
-      stopifnot(identical(optimized$bam.gr.filtertrack.coverage, baseline$bam.gr.filtertrack.coverage))
-      stopifnot(identical(consumer_rows(optimized, requested), consumer_rows(baseline, requested)))
+      stopifnot(identical(selected_coverage$bam.gr.filtertrack.coverage, reference_model$bam.gr.filtertrack.coverage))
+      stopifnot(identical(consumer_rows(selected_coverage, requested), consumer_rows(reference_model, requested)))
       eligible <- keys %>% mutate(row = row_number()) %>%
         filter(SBSindel_call_type != "mutation") %>% semi_join(requested, by = names(keys)) %>% pull(row)
       for(i in seq_len(nrow(keys))) {
-        observed <- optimized$bam.gr.filtertrack.by_bc_orientation_strand.coverage[[i]]
+        observed <- selected_coverage$bam.gr.filtertrack.by_bc_orientation_strand.coverage[[i]]
         if(!i %in% eligible) stopifnot(nrow(observed) == 0L)
         stopifnot(all(bc_orientation_is_asymmetric(observed$bc_orientation)))
       }
     }
     sensitivity <- sum_bam.gr.filtertracks(tracks(variant[[1]]))
     for(gr in variant[-1]) sensitivity <- sum_bam.gr.filtertracks(sensitivity, tracks(gr))
-    stopifnot(identical(sensitivity$bam.gr.filtertrack.coverage, baseline$bam.gr.filtertrack.coverage),
+    stopifnot(identical(sensitivity$bam.gr.filtertrack.coverage, reference_model$bam.gr.filtertrack.coverage),
               all(map_int(sensitivity$bam.gr.filtertrack.by_bc_orientation_strand.coverage, nrow) == 0L))
   }
   cat("PASS:", scenario_name, "(pure/mixed, empty chunks, requested categories, sensitivity)\n")
 }
 
 
-#Compare the real persistent accumulator with the previous whole-table helper.
-#No table alias is materialized from the candidate until all chunks finish.
-legacy_env <- new.env(parent = globalenv())
-sys.source(file.path(repo, "tests", "fixtures", "sum_filtertrack_coverage_before_accumulator.R"), envir = legacy_env)
+# Compare accumulated chunks with an independent whole-table result.
+# Read accumulated coverage only after all chunks finish.
+reference_model_env <- new.env(parent = globalenv())
+sys.source(file.path(repo, "tests", "fixtures", "coverage_reference.R"), envir = reference_model_env)
 chunks <- list(tracks(make_molecule("A-A", id = 1L)),
                tracks(make_molecule("C-D", id = 2L, reverse = TRUE)),
                tracks(make_molecule("A-A", id = 3L)[0]),
                tracks(make_molecule("E-F", id = 4L)))
-#Reordered rows and factor-level growth must have the former join semantics.
+# Reordered rows and factor-level growth must preserve left-join semantics.
 chunks[[1]]$filtergroup <- factor(chunks[[1]]$filtergroup, levels = c("test", "other"))
 for(i in 2:length(chunks)) {
   chunks[[i]] <- chunks[[i]][rev(seq_len(nrow(keys))),]
@@ -155,19 +155,19 @@ state <- new.env(parent = emptyenv())
 old <- NULL
 for(chunk in chunks) {
   accumulate_bam.gr.filtertracks(state, chunk, requested_sets$all)
-  old <- if(is.null(old)) legacy_env$sum_bam.gr.filtertracks(chunk, orientation_call_types = requested_sets$all) else
-    legacy_env$sum_bam.gr.filtertracks(old, chunk, orientation_call_types = requested_sets$all)
+  old <- if(is.null(old)) reference_model_env$sum_bam.gr.filtertracks(chunk, orientation_call_types = requested_sets$all) else
+    reference_model_env$sum_bam.gr.filtertracks(old, chunk, orientation_call_types = requested_sets$all)
 }
 stopifnot(identical(filtertrack_coverage_result(state), old))
-#A one-to-many metadata match preserves legacy row expansion, too.
+#A one-to-many metadata match preserves metadata row expansion, too.
 state <- new.env(parent = emptyenv())
 one <- chunks[[1]][1,,drop = FALSE]
 two <- chunks[[2]][c(nrow(chunks[[2]]), nrow(chunks[[2]])),,drop = FALSE]
 accumulate_bam.gr.filtertracks(state, one)
 accumulate_bam.gr.filtertracks(state, two)
-old <- legacy_env$sum_bam.gr.filtertracks(legacy_env$sum_bam.gr.filtertracks(one), two)
+old <- reference_model_env$sum_bam.gr.filtertracks(reference_model_env$sum_bam.gr.filtertracks(one), two)
 stopifnot(identical(filtertrack_coverage_result(state), old))
-cat("PASS: persistent category accumulator, metadata order/factors, orientation growth and legacy row expansion\n")
+cat("PASS: persistent category accumulator, metadata order/factors, orientation growth and metadata row expansion\n")
 
 expect_error <- function(expr, pattern) {
   message <- tryCatch({ force(expr); NA_character_ }, error = function(e) conditionMessage(e))
@@ -241,15 +241,15 @@ if(length(args) >= 2L) {
   genome <- get(package_name)
   scalar <- getSeq(genome, names = "chrM")
   stopifnot(is(scalar, "DNAString"), !is(scalar, "DNAStringSet"))
-  legacy_reference <- getSeq(genome, names = c("chrM", "chrY"))
-  stopifnot(is(legacy_reference, "DNAStringSet"),
-            identical(names(legacy_reference), c("chrM", "chrY")))
+  reference_model_reference <- getSeq(genome, names = c("chrM", "chrY"))
+  stopifnot(is(reference_model_reference, "DNAStringSet"),
+            identical(names(reference_model_reference), c("chrM", "chrY")))
   for(chroms in list("chrM", "chrY", c("chrY", "chrM"), character())) {
     env <- new.env(parent = globalenv())
     env$BSgenome_name <- package_name
     env$indel_spectrum_chroms <- chroms
     eval(assignment(expressions, "BSgenome_for_indel.spectrum"), env)
-    expected <- if(length(chroms)) legacy_reference[chroms] else DNAStringSet()
+    expected <- if(length(chroms)) reference_model_reference[chroms] else DNAStringSet()
     observed <- env$BSgenome_for_indel.spectrum
     #XStringSet subsets can retain the unused backing sequence pool. Compare
     #the exact ordered bases, names, widths and class, not pool allocation.

@@ -669,10 +669,9 @@ for(i in chromgroups){
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
 				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
 			) %>%
-			filter(is_germline_filter==TRUE) %>%
-			pull(region_filter_threshold_file) %>%
-			basename %>%
-			str_c("region_read_filter_",.,".passfilter")
+			{
+				region_filter_labels(., "read_filters")[which(.$is_germline_filter)]
+			}
 		
 		region_genome_filters_cols_keep <- region_filter_config(yaml.config, "genome_filters") %>%
 			mutate(region_filter_threshold_file = cache_file(str_c(yaml.config$cache_dir,"/",basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
@@ -680,10 +679,9 @@ for(i in chromgroups){
 				applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!i %in% .x)),
 				applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!j %in% .x))
 			) %>%
-			filter(is_germline_filter==TRUE) %>%
-			pull(region_filter_threshold_file) %>%
-			basename %>%
-			str_c("region_genome_filter_",.,".passfilter")
+			{
+				region_filter_labels(., "genome_filters")[which(.$is_germline_filter)]
+			}
 		
 		germline_filter_cols_keep <- c( #not including germline_vcf.passfilter, since FALSE for all calls, and not including germline_vcf_indel_region_filter, max_germlineBAM_VariantReads.passfilter, max_germlineBAM_VAF.passfilter, since these are not relevant annotation to output for germline calls themselves (only relevant for somatic calls that are filtered based on germline calls).
 			region_read_filters_cols_keep,

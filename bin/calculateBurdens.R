@@ -516,8 +516,9 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 	, yaml.config)) %>%
 		as_tibble %>%
 
-		#Separate genotypes of each allele
-		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), cols_remove = FALSE) %>%
+		#Keep haploid/missing genotypes through whole-VCF quality quantiles;
+		#sex and mitochondrial chromosomes are excluded below.
+		separate_wider_delim(GT, regex("[^[:digit:].]"), names=c("GT1","GT2"), too_few = "align_start", cols_remove = FALSE) %>%
 
 		#Group by germline_vcf_file so that filters are calculated separately for each germline VCF.
 		group_by(germline_vcf_file) %>%
@@ -750,16 +751,12 @@ for(i in seq_along(filterCallsFiles)){
 			filterCallsFile %>% pluck("calls") %>% colnames %>% str_subset("germline_vcf_indel_region_filter"),
 			"max_germlineBAM_VariantReads.passfilter",
 			"max_germlineBAM_VAF.passfilter",
-			region_read_filters_config %>%
-				filter(is_germline_filter==TRUE) %>%
-				pull(region_filter_threshold_file) %>%
-				basename %>%
-				str_c("region_read_filter_",.,".passfilter"),
-			region_genome_filters_config %>%
-				filter(is_germline_filter==TRUE) %>%
-				pull(region_filter_threshold_file) %>%
-				basename %>%
-				str_c("region_genome_filter_",.,".passfilter")
+			region_filter_labels(region_read_filters_config, "read_filters")[
+				which(region_read_filters_config$is_germline_filter)
+			],
+			region_filter_labels(region_genome_filters_config, "genome_filters")[
+				which(region_genome_filters_config$is_germline_filter)
+			]
 		)
 		
 		#region_genome_filter_stats

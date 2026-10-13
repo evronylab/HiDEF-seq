@@ -646,7 +646,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
         filter(
           (
             call_class == "SBS" &
-              FILTER %in% (filters$SBS_FILTERS %>% unlist) &
+              vcf_filter_matches(FILTER, filters$SBS_FILTERS %>% unlist) &
               Depth >= filters$SBS_min_Depth &
               GQ >= filters$SBS_min_GQ &
               VAF >= filters$SBS_min_VAF &
@@ -654,7 +654,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
           ) |
           (
             call_class == "indel" &
-              FILTER %in% (filters$indel_FILTERS %>% unlist) &
+              vcf_filter_matches(FILTER, filters$indel_FILTERS %>% unlist) &
               Depth >= filters$indel_min_Depth &
               GQ >= filters$indel_min_GQ &
               VAF >= filters$indel_min_VAF &
@@ -1775,10 +1775,7 @@ cat("## Applying region-based molecule filters...")
 for(i in seq_len(nrow(region_read_filters_config))){
 	
 	#Construct label for the newly created filter column
-	passfilter_label <- region_read_filters_config %>%
-		pluck("region_filter_threshold_file",i) %>%
-		basename %>%
-		str_c("region_read_filter_",.,".passfilter")
+	passfilter_label <- region_filter_labels(region_read_filters_config, "read_filters")[[i]]
 	
 	#Extract read threshold
 	read_threshold_type <- region_read_filters_config %>%
@@ -1969,10 +1966,7 @@ cat("## Applying genome region filters...")
 for(i in seq_len(nrow(region_genome_filters_config))){
 	
 	#Construct label for the newly created filter column
-	passfilter_label <- region_genome_filters_config %>%
-		pluck("region_filter_threshold_file",i) %>%
-		basename %>%
-		str_c("region_genome_filter_",.,".passfilter")
+	passfilter_label <- region_filter_labels(region_genome_filters_config, "genome_filters")[[i]]
 	
 	#Load region read filter bigwig
 	region_genome_filter <- region_genome_filters_config %>%

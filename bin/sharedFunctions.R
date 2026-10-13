@@ -313,6 +313,14 @@ region_filter_config <- function(yaml.config, type = c("read_filters", "genome_f
   result
 }
 
+# Independent rules can share a prepared score file. Assign labels before any
+# germline-only subset so every consumer uses the same applied-rule order.
+region_filter_labels <- function(filters, type = c("read_filters", "genome_filters")){
+  type <- match.arg(type)
+  prefix <- if(type == "read_filters") "region_read_filter_" else "region_genome_filter_"
+  str_c(prefix, make.unique(basename(filters$region_filter_threshold_file)), ".passfilter")
+}
+
 #Function to derive the BSgenome package name created from the configured FASTA
 get_bsgenome_name <- function(yaml.config){
 	genome_suffix <- yaml.config$genome_fasta %>%
@@ -320,6 +328,16 @@ get_bsgenome_name <- function(yaml.config){
 		str_replace_all(pattern = "[^0-9a-zA-Z.]", replacement = "")
 
 	str_c("BSgenome", yaml.config$genome_organism, "user", genome_suffix, sep=".")
+}
+
+# VCF FILTER fields may contain several semicolon-separated values. Split
+# distinct fields only, keeping the common single-value case inexpensive.
+vcf_filter_matches <- function(values, allowed){
+  fields <- unique(values)
+  keep <- fields %in% allowed
+  compound <- which(!keep & str_detect(fields, fixed(";")))
+  keep[compound] <- map_lgl(str_split(fields[compound], fixed(";")), ~ any(.x %in% allowed))
+  values %in% fields[keep]
 }
 
 #Function to load and format VCF

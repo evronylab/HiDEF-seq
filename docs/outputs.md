@@ -218,6 +218,8 @@ The pipeline produces two files:
   - Germline filter information: `region_read_filter_*.passfilter` and `region_genome_filter_*.passfilter` columns (TRUE/FALSE) for each region filter configured with `is_germline_filter: true` in the YAML, plus `germline_vcf_types_detected` and `germline_vcf_files_detected` columns annotating in which germline VCF types and files the calls were detected.
 - `germlineVariantCalls.vcf.bgz`—  Bgzipped VCF containing the same calls as `.germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
+For region rules sharing a prepared filename within a chromosome group and filter group, later rules receive `.1`, `.2`, … before `.passfilter` in YAML order; unique filenames keep their existing column names.
+
 ### Final-call spectra
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.

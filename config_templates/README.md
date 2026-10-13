@@ -72,9 +72,9 @@ Barcode uniqueness rules within a run:
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `analysis_output_dir` | path | yes | Root directory for final output folders. |
-| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources), stored under `prepared/<kind>/<identity>/`. Separate workflow runs can safely share prepared products; keep each run's work and output directories separate. |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources), stored under `<kind>/<identity>/`. Separate workflow runs can safely share prepared products; keep each run's work and output directories separate. |
 
-Existing entries under `prepared/v1/` are not reused or automatically migrated.
+Existing entries under `prepared/`, including `prepared/v1/`, are not reused or automatically migrated.
 
 ## Container and tool paths
 

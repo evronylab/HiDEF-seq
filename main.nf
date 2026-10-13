@@ -318,7 +318,7 @@ workflow {
   // Scoped prepared artifacts: changing one individual's VCF inputs does not
   // invalidate the reference, other individuals, or independent region tracks.
   params.cache_helper = "${workflow.projectDir}/bin/artifactCache.R".toString()
-  params.prepared_cache_root = "${file(params.cache_dir).toAbsolutePath()}/prepared".toString()
+  params.prepared_cache_root = file(params.cache_dir).toAbsolutePath().toString()
   inputIdentities = [:]
   identifyInput = { source ->
     def name = source.toString()

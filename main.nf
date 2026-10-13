@@ -1735,28 +1735,26 @@ process prepareRegionFilters {
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
     script:
+    def thresholdText = threshold.toString()
+    def thresholdOp = thresholdText.find(/^(gte|lte|gt|lt)/)
+    if (!thresholdOp) {
+      error "Unknown threshold type: ${threshold}"
+    }
+    // Compare bin sums directly to avoid rounding the average through a reciprocal.
+    def thresholdCutoff = new BigDecimal(thresholdText.substring(thresholdOp.length()))
+      .multiply(new BigDecimal(binsize.toString())).toPlainString()
+    def binCommand = binsize.toString().toInteger() == 1 ? "" : "bin ${binsize}"
     def buildCommand = """
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
     awk '{print \$1 "\t0\t" \$2}' ${params.genome_fai} | sort -k1,1 -k2,2n > chromsizes.bed
 
-    if [[ ${binsize} -eq 1 ]]; then
-      scale_command=""
-    else
-      scale_command=\$(awk "BEGIN { printf \\"scale %.17g bin %d\\", 1/${binsize}, ${binsize} }")
-    fi
+    bin_command="${binCommand}"
+    threshold_command="${thresholdOp} ${thresholdCutoff}"
 
-    echo "scale command: \$scale_command"
-
-    if [[ ${threshold} == gt* || ${threshold} == lt* ]]; then
-      threshold_command=\$(echo ${threshold} | sed -E 's/^(gt|gte|lt|lte)([0-9.]+)/\\1 \\2/')
-    else
-      echo "ERROR: Unknown threshold type: ${threshold}"
-      exit 1
-    fi
-
+    echo "bin command: \$bin_command"
     echo "threshold command: \$threshold_command"
     
-    ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
+    ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$bin_command ${region_filter_file} \
       | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
     """
     cachedBuild(params.prepared_cache.regions["${region_filter_file}.bin${binsize}.${threshold}.bw".toString()], ["${region_filter_file}.bin${binsize}.${threshold}.bw"], buildCommand)

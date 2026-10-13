@@ -743,6 +743,7 @@ is_output_object <- function(x){
 }
 
 sum_spectrum_objects <- function(x){
+	if(!length(x)){return(list(NULL))}
 	reduce(
 		x,
 		function(a,b){
@@ -753,6 +754,7 @@ sum_spectrum_objects <- function(x){
 }
 
 sum_sigfit_objects <- function(x){
+	if(!length(x)){return(list(NULL))}
 	x %>%
 		reduce(`+`) %>%
 		list %>%

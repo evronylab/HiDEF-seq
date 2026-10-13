@@ -1783,7 +1783,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 	#Extract read threshold
 	read_threshold_type <- region_read_filters_config %>%
 		pluck("read_threshold",i) %>%
-		str_extract("^(gt|gte|lt|lte)")
+		str_extract("^(gte|gt|lte|lt)")
 	
 	read_threshold_value <- region_read_filters_config %>%
 		pluck("read_threshold",i) %>%

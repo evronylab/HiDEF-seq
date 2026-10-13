@@ -961,12 +961,19 @@ coverage_annotation_rows %>%
 		}
 	)
 
+# The extra SBS/mismatch-ss category only needs counts when it is not configured.
+write_sbs_mismatch_ss_bed <- call_types_toanalyze %>%
+	filter(call_class == "SBS", SBSindel_call_type == "mismatch-ss") %>%
+	nrow > 0L
+
 # Prepare compressed references once, then annotate every coverage row through
 # the same bounded-window reader. Only aggregate rows emit indexed BED files.
 with_coverage_annotation_reference(yaml.config$genome_fasta, yaml.config$genome_fai, function(reference){
 	coverage_annotation_rows %>% pwalk(function(...){
 		x <- list(...)
-		output <- if(x$bc_orientation == "all_bc_orientations"){
+		output <- if(x$bc_orientation == "all_bc_orientations" &&
+			(write_sbs_mismatch_ss_bed || x$call_class != "SBS" ||
+			 x$call_type != "SBS" || x$SBSindel_call_type != "mismatch-ss")){
 			get_coverage_reftnc_output_file(x$call_class, x$call_type, x$SBSindel_call_type)
 		}else NULL
 		annotate_coverage_row(
@@ -976,29 +983,6 @@ with_coverage_annotation_reference(yaml.config$genome_fasta, yaml.config$genome_
 			output, yaml.config$bgzip_bin, yaml.config$tabix_bin, reference = reference)
 	})
 })
-
-#Remove coverage_reftnc.bed.gz and coverage_reftnc.bed.gz.tbi files for SBS/mismatch-ss if it is not in call_types_toanalyze, since the data is only being retained for calculation of SBS mutation error probability.
-if(
-	call_types_toanalyze %>%
-		filter(call_class=="SBS", SBSindel_call_type=="mismatch-ss") %>%
-		nrow == 0
-	){
-	cov_output_file <- str_c(
-		yaml.config$analysis_id,
-		individual_id,
-		sample_id_toanalyze,
-		chromgroup_toanalyze,
-		filtergroup_toanalyze,
-		"SBS",
-		"SBS",
-		"mismatch-ss",
-		"coverage_reftnc",
-		"bed.gz",
-		sep="."
-	)
-	
-	file.remove(cov_output_file, str_c(cov_output_file,".tbi")) %>% invisible
-}
 
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 reftnc_plus_strand_by_annotation_row <- list.files(pattern="*.reftnc_plus_strand.tsv", full.names=TRUE) %>%

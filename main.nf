@@ -341,7 +341,9 @@ workflow {
     settings.findAll { name, value -> name in ['seqkit', 'bgzip', 'tabix', 'bcftools', 'samtools', 'bedGraphToBigWig', 'wiggletools', 'wigToBigWig'] }.each { name, executable ->
       toolIdentities[name] = file(executable).exists() ? identifyInput.call(executable) : [kind: 'container-command', command: executable]
     }
-    def identity = canonicalCacheValue([schema: 1, namespace: namespace, settings: settings,
+    // Product names are part of the contract: canonical input paths can hide
+    // symlink aliases, and VCF product names also depend on the BAM basename.
+    def identity = canonicalCacheValue([schema: 1, namespace: namespace, settings: settings, products: products,
       inputs: inputs.collectEntries { name, source -> [(name): identifyInput.call(source)] },
       scripts: scriptHashes, tools: toolIdentities])
     def serialized = groovy.json.JsonOutput.toJson(identity)
@@ -1185,13 +1187,15 @@ process limaDemux {
     tag { "limaDemux: ${bamFile.baseName}" }
     container "${params.hidefseq_container}"
 
-    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.summary"
-    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.counts"
+    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.summary",
+      saveAs: { filename -> barcode_ids_round2 ? "${barcode_ids_round2}.${filename}" : filename }
+    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.counts",
+      saveAs: { filename -> barcode_ids_round2 ? "${barcode_ids_round2}.${filename}" : filename }
 
     afterScript {
       generateAfterScript(
         sharedLogsDir(),
-        "${task.process}.${params.analysis_id}.${bamFile.baseName}.command.log"
+        "${task.process}.${params.analysis_id}.${bamFile.baseName}${barcode_ids_round2 ? '.' + barcode_ids_round2 : ''}.command.log"
       )
     }
 

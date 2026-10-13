@@ -256,7 +256,13 @@ run_metadata <- bamFile %>%
         }
       )
   ) %>%
-  type_convert %>%
+  {
+    # Preserve configured identifiers while retaining inference for BAM metadata.
+    configured_run_ids <- .$run_id
+    select(., -run_id) %>%
+      type_convert %>%
+      mutate(run_id = .env$configured_run_ids)
+  } %>%
   suppressMessages
 
 #Load BAM file reads

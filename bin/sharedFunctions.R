@@ -357,28 +357,17 @@ coalesce_vcf_regions <- function(regions, max_gap = 1000) {
 
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
 
-  #Check if AD, GT, and GQ tags exist
-	AD_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=AD' | wc -l"
-	)
-	)), intern=TRUE) != "0"
+  #Read FORMAT declarations once and reserve unused names for private totals.
+  vcf_header <- system(paste("/bin/bash -c",shQuote(paste(
+    bcftools_bin,"view -h",vcf_file
+  ))), intern=TRUE)
+  format_ids <- str_match(vcf_header, "^##FORMAT=<ID=([^,>]+)")[,2]
+  format_ids <- format_ids[!is.na(format_ids)]
+  AD_exists <- "AD" %in% format_ids
+  GT_exists <- "GT" %in% format_ids
+  GQ_exists <- "GQ" %in% format_ids
+  private_AD_tags <- tail(make.unique(c(format_ids, "HIDEF_AD_DEPTH", "HIDEF_AD_MISSING")), 2L)
 
-	GT_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=GT' | wc -l"
-		)
-	 )), intern=TRUE) != "0"
-	
-	GQ_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=GQ' | wc -l"
-	)
-	)), intern=TRUE) != "0"
-	
 	if(!is.null(regions) && nrow(regions) == 0){
 		return(
 			GRanges(
@@ -423,6 +412,16 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
         paste("-R",tmp_lookup_regions,"-T",tmpregions,"--targets-overlap 1")
     },
     vcf_file,"|",
+    #Preserve total per-sample allele depth before either normalization step.
+    #The missing flag distinguishes unknown original counts from missing AD
+    #values introduced later for overlapping-deletion star alleles.
+    if(AD_exists){paste(
+      bcftools_bin, "+fill-tags -Ou -- -t",
+      shQuote(paste0(
+        "FORMAT/",private_AD_tags[[1]],":1=int(smpl_sum(FORMAT/AD)),",
+        "FORMAT/",private_AD_tags[[2]],":1=int(FORMAT/AD=\".\")"
+      )), "|"
+    )},
     bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
     bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
     if(GT_exists){paste("|",bcftools_bin,"view -i 'GT=\"alt\"'")},
@@ -437,7 +436,7 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 
   #Load vcf file
    #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry; seen in germline VCF files) and ALT = "<*>" alleles that are non-variant gVCF blocks (seen in bcftools mpileup files).
-   #If the AD tag exists, annotate with allele depths (AD1, AD2), Depth (AD1+AD2) and VAF (AD2 / Depth).
+   #If the AD tag exists, retain reference/selected-alternate depths (AD1, AD2), original all-allele Depth, and VAF (AD2 / Depth).
    #Annotate SBS vs insertions vs deletions
    #For deletions, change ranges to reflect position of deletion. For insertions: change start position to the base on the right of the insertion position and end to the base on the left of the insertion position.
    #For deletions, change to: REF = deleted bases and ALT = "". For insertions, change to: REF = "" and ALT = inserted bases
@@ -462,7 +461,9 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   		if(AD_exists){
 	  			mutate(
 	  				.,
-	  				AD = as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE))
+            AD = as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE)),
+            .original_AD_depth = as.integer(extract.gt(vcf,element=private_AD_tags[[1]],as.numeric=TRUE,IDtoRowNames=FALSE)),
+            .original_AD_missing = as.integer(extract.gt(vcf,element=private_AD_tags[[2]],as.numeric=TRUE,IDtoRowNames=FALSE))
 					)
   		}else{
   			.
@@ -471,8 +472,13 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   	filter(! ALT %in% c("*","<*>")) %>%
   	{
   		if(AD_exists){
-  				separate(.,AD,c("AD1","AD2"),",",convert=TRUE) %>%
-  				mutate(Depth=AD1+AD2, VAF=AD2/Depth)
+          separate(.,AD,c("AD1","AD2"),",",fill="right") %>%
+          mutate(
+            across(c(AD1,AD2), ~ type.convert(.x, as.is=TRUE, na.strings=c(".","NA"))),
+            Depth = if_else(.original_AD_missing == 0L, .original_AD_depth, NA_integer_),
+            VAF = AD2 / Depth
+          ) %>%
+          select(-.original_AD_depth, -.original_AD_missing)
   		}else{
   			.
   		}

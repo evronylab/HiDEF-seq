@@ -476,8 +476,10 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 	#Count number of germline VCFs for the analyzed individual
 	num_germline_vcf_files <- yaml.config$individuals %>%
 		keep(~ as.character(.x$individual_id) == individual_id) %>%
-		map_int(~ length(.x$germline_vcf_files)) %>%
-		sum
+		map(~ .x$germline_vcf_files) %>%
+		flatten() %>%
+		map_chr(~ as.character(.x$germline_vcf_file)) %>%
+		n_distinct()
 
 	#Without germline VCFs there are no sensitivity sites. The minimum
 	#detection/coverage checks below retain the default sensitivity of 1.
@@ -525,8 +527,8 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 
 		#Filter per sensitivity_threshold settings
 		filter(
-			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile) & call_class == "SBS") |
-				(Depth >= quantile(Depth, sensitivity_parameters$indel_min_Depth_quantile) & call_class == "indel"),
+			(Depth >= quantile(Depth, sensitivity_parameters$SBS_min_Depth_quantile, na.rm = TRUE) & call_class == "SBS") |
+				(Depth >= quantile(Depth, sensitivity_parameters$indel_min_Depth_quantile, na.rm = TRUE) & call_class == "indel"),
 			(VAF >= sensitivity_parameters$SBS_min_VAF & call_class == "SBS") |
 				(VAF >= sensitivity_parameters$indel_min_VAF & call_class == "indel"),
 			(VAF <= sensitivity_parameters$SBS_max_VAF & call_class == "SBS") |
@@ -539,6 +541,10 @@ prepare_high_confidence_germline_vcf_variants <- function(yaml.config, individua
 				(sensitivity_parameters$genotype == "homozygous" & (GT1 == "1" & GT2 == "1"))
 		) %>%
 		ungroup %>%
+
+		#Count each supporting VCF once, even when multiple original records
+		#normalize to the same allele with different all-allele depths.
+		distinct(germline_vcf_file, seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%
 
 		#Keep variants detected in all germline vcfs
 		count(seqnames, start, end, ref_plus_strand, alt_plus_strand, call_class, call_type, SBSindel_call_type) %>%

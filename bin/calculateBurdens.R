@@ -1313,14 +1313,7 @@ finalCalls.bytype <- call_types_toanalyze %>%
 	
 	#Nest join finalCalls
 	nest_join(
-		call_store$project_final() %>%
-			#Reformat list columns to be comma-delimited.
-			mutate(
-				across(
-					where(is.list),
-					function(x){x %>% map_chr(function(v){str_c(v, collapse = ",")})}
-				)
-			),
+		call_store$project_final(),
 		by = join_by(call_class, call_type, SBSindel_call_type),
 		name = "finalCalls"
 	) %>%
@@ -1330,6 +1323,10 @@ finalCalls.bytype <- call_types_toanalyze %>%
 		finalCalls = map2(
 			call_class, finalCalls,
 			function(x,y){
+				#Format list columns only for calls in the requested categories.
+				y <- y %>% mutate(across(where(is.list),
+					function(z){z %>% map_chr(function(v){str_c(v, collapse = ",")})}
+				))
 				if(x == "SBS"){
 					y %>% select(-all_of(c(alltypes_cols_discard, sbs_indel_cols_discard, sbs_mdb_cols_discard)))
 				}else if(x == "indel"){
@@ -1345,10 +1342,11 @@ finalCalls.bytype <- call_types_toanalyze %>%
 	mutate(
 		
 		#Calls for tsv output
-		finalCalls_for_tsv = if_else(
+		finalCalls_for_tsv = map2(
+			finalCalls,
 			call_class %in% c("SBS","indel") & SBSindel_call_type == "mutation",
-			finalCalls %>% map(
-				function(x){
+			function(x, collapse_strands){
+				if(collapse_strands){
 					x %>%
 						
 						#Change strand levels so that new column names after pivot_wider have suffixes ref_strand_(plus/minus)_read instead of +/-.
@@ -1368,20 +1366,22 @@ finalCalls.bytype <- call_types_toanalyze %>%
               names_glue = "{.value}_{strand}",
               names_expand = TRUE
 						)
+				}else{
+					x
 				}
-			),
-			finalCalls
+			}
 		),
 		
 		#Unique calls for tsv output
-		finalCalls_unique_for_tsv = if_else(
-			SBSindel_call_type == "mutation",
-			finalCalls_for_tsv %>% map(
-				function(x){
+		finalCalls_unique_for_tsv = map2(
+			finalCalls_for_tsv, SBSindel_call_type,
+			function(x, call_type){
+				if(call_type == "mutation"){
 					x %>% distinct(across(any_of(strand_identical_cols_keep)))
+				}else{
+					NULL
 				}
-			),
-			NA
+			}
 		),
 		
 		#Calls for vcf output

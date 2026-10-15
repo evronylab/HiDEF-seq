@@ -1151,7 +1151,7 @@ process mergeCCSchunks {
 process filterAdapter {
     cpus 8
     memory '4 GB'
-    time '4h'
+    time '1h'
     tag "filterAdapter"
     container "${params.hidefseq_container}"
 
@@ -1310,7 +1310,7 @@ workflow mergeDemuxBamsRound2 {
 process pbmm2Align {
     cpus 8
     memory '32 GB'
-    time '6h'
+    time '2h'
     tag { "pbmm2Align: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
 
@@ -1342,7 +1342,7 @@ process pbmm2Align {
 process verifyBAMID {
     cpus 2
     memory '32 GB'
-    time '8h'
+    time '2h'
     tag { "verifyBAMID: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
 
@@ -1479,7 +1479,7 @@ process countAnalysisZMWs {
 process splitBAM {
     cpus 2
     memory '8 GB'
-    time '4h'
+    time '2h'
     tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
 
@@ -1531,7 +1531,7 @@ process splitBAM {
 process installBSgenome {
     cpus 1
     memory '16 GB'
-    time '8h'
+    time '4h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
     cache false // Validate the complete immutable cache bundle on every launch.
@@ -1563,7 +1563,7 @@ process installBSgenome {
 process prepareReferenceSummary {
     cpus 1
     memory '8 GB'
-    time '2h'
+    time '30m'
     tag { "prepareReferenceSummary" }
     container "${params.hidefseq_container}"
     cache false // Validate the immutable summary bundle on each workflow launch.
@@ -1591,7 +1591,7 @@ process prepareReferenceSummary {
 process processGermlineVCFs {
     cpus 1
     memory '16 GB'
-    time '4h'
+    time '1h'
     tag { "processGermlineVCFs: ${individual_id}" }
     container "${params.hidefseq_container}"
     cache false // Validate bundle integrity even when external cache files changed.
@@ -1623,7 +1623,7 @@ process processGermlineVCFs {
 process processGermlineBAMs {
     cpus 2
     memory '16 GB'
-    time '24h'
+    time '12h'
     tag { "processGermlineBAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
     cache false // Validate bundle integrity even when external cache files changed.
@@ -1687,7 +1687,7 @@ process processGermlineBAMs {
 process prepareGermlineCoverageFilters {
     cpus 2
     memory '16 GB'
-    time '4h'
+    time '30m'
     tag { "prepareGermlineCoverageFilters: ${individual_id} ${threshold}" }
     container "${params.hidefseq_container}"
     cache false
@@ -1714,8 +1714,8 @@ process prepareGermlineCoverageFilters {
 */
 process prepareRegionFilters {
     cpus 2
-    memory '64 GB'
-    time '24h'
+    memory '16 GB'
+    time '1h'
     tag { "prepareRegionFilters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
     container "${params.hidefseq_container}"
     cache false // Validate bundle integrity even when external cache files changed.

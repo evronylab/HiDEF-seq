@@ -101,17 +101,17 @@ pbmm2_supplemental_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
 
 analysis_chunks: 60 # for splitBAMs, extractCalls, and filterCalls
 
-mem_extractCallsChunk: 32GB # each retry will increase by half of this amount
+mem_extractCallsChunk: 16GB # each retry will increase by half of this amount
 time_extractCallsChunk: 1h # each retry will increase by this same amount
 maxRetries_extractCallsChunk: 3
-mem_filterCallsChunkChromgroupFiltergroup: 48GB # each retry will increase by half of this amount
+mem_filterCallsChunkChromgroupFiltergroup: 40GB # each retry will increase by half of this amount
 time_filterCallsChunkChromgroupFiltergroup: 2h # each retry will increase by this same amount
 maxRetries_filterCallsChunkChromgroupFiltergroup: 3
-mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
+mem_calculateBurdensChromgroupFiltergroup: 192GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
 maxRetries_calculateBurdensChromgroupFiltergroup: 3
 mem_outputResultsSample: 64GB #each retry will increase by half of this amount
-time_outputResultsSample: 4h #each retry will increase by this same amount
+time_outputResultsSample: 2h #each retry will increase by this same amount
 maxRetries_outputResultsSample: 3
 
 output_intermediate_files: true  # true or false

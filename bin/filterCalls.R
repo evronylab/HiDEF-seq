@@ -479,6 +479,31 @@ bam <- bam %>%
 	select(-num_softclipbases) %>%
 	ungroup
 
+#Complete strand and call classes only within observed molecules. For negative
+#maximum-count thresholds, also retain real BAM molecules whose zero counts
+#were previously supplied by expanding the run and ZMW columns separately.
+count_filters_allow_zero <- filtergroup_toanalyze_config %>%
+	keep(names(.) %>% str_detect("^max_num_(SBS|indel)(calls|mutations)")) %>%
+	unlist %>%
+	{all(. >= 0 | is.na(.))}
+
+complete_molecule_call_counts <- function(counts){
+	if(count_filters_allow_zero){
+		complete(counts,nesting(run_id,zm),strand,call_class,fill = list(n=0))
+	}else{
+		zero_pairs <- bam %>%
+			distinct(run_id,zm) %>%
+			semi_join(expand(counts,run_id),by = join_by(run_id)) %>%
+			semi_join(expand(counts,zm),by = join_by(zm))
+		pairs <- bind_rows(counts %>% select(run_id,zm),zero_pairs)
+		complete(
+			counts,
+			nesting(run_id = pairs$run_id,zm = pairs$zm),
+			strand,call_class,fill = list(n=0)
+		)
+	}
+}
+
 #Annotate reads for filters: max_num_SBScalls_eachstrand, max_num_SBScalls_stranddiff, max_num_indelcalls_eachstrand, max_num_indelcalls_stranddiff
 bam <- bam %>%
 	left_join(
@@ -494,7 +519,7 @@ bam <- bam %>%
 				
 				#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
 				count(run_id,zm,strand,call_class) %>%
-			  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+			  complete_molecule_call_counts %>%
 				pivot_wider(
 					names_from = call_class,
 					values_from = n,
@@ -552,7 +577,7 @@ bam <- bam %>%
 		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly.
 		  mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
 		  count(run_id,zm,strand,call_class) %>%
-		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+		  complete_molecule_call_counts %>%
 			pivot_wider(
 				names_from=call_class,
 				values_from=n,
@@ -728,7 +753,7 @@ bam <- bam %>%
         strand = strand %>% factor(levels=c("+","-"))
       ) %>% 
       count(run_id,zm,strand,call_class) %>%
-      complete(run_id, zm, strand, call_class, fill = list(n=0)) %>%
+      complete_molecule_call_counts %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,
@@ -771,7 +796,7 @@ bam <- bam %>%
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
       mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
       count(run_id,zm,strand,call_class) %>%
-      complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+      complete_molecule_call_counts %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,

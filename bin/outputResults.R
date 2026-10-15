@@ -923,11 +923,9 @@ invisible(gc())
 cat("## Released private-QS-only payload before exports\n")
 
 ######################
-### Output configuration parameters
+### Output run metadata
 ######################
-cat("## Outputting configuration parameters...")
-
-opt$config %>% file.copy(str_c(output_basename,".yaml_config.tsv")) %>% invisible
+cat("## Outputting run metadata...")
 
 run_metadata %>% write_tsv(str_c(output_basename,".run_metadata.tsv"))
 

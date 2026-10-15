@@ -989,14 +989,13 @@ with_coverage_annotation_reference(yaml.config$genome_fasta, yaml.config$genome_
 
 #Add reftnc_plus_strand results to bam.gr.filtertrack.bytype and annotate reftnc_minus_strand
 reftnc_plus_strand_by_annotation_row <- list.files(pattern="*.reftnc_plus_strand.tsv", full.names=TRUE) %>%
-	read_tsv(col_names = c("annotation_row_id", "reftnc", "count"), col_types="ici") %>%
+	read_tsv(col_names = c("annotation_row_id", "reftnc", "count"), col_types="icd") %>%
 	mutate(reftnc = reftnc %>% factor(levels = trinucleotides_64)) %>%
 	group_by(annotation_row_id) %>%
 	complete(reftnc, fill = list(count = 0)) %>%
 	arrange(reftnc) %>%
 	filter(!is.na(reftnc)) %>% #This filters any reftnc's (such as '.' from contig edges) that are not in trinucleotides_64, as setting levels = trinucleotides_64 makes anything not in trinucleotides_64 become NA
 	mutate(
-		count = count %>% as.integer,
 		fraction = count / sum(count)
 	) %>%
 	ungroup
@@ -1032,7 +1031,6 @@ reftnc_template_strand_by_row <- reftnc_plus_strand_by_annotation_row %>%
 	arrange(reftnc) %>%
 	filter(!is.na(reftnc)) %>%
 	mutate(
-		count = count %>% as.integer,
 		fraction = count / sum(count)
 	) %>%
 	ungroup
@@ -2126,9 +2124,9 @@ if(sensitivity_enabled_for_chromgroup){
 	sensitivity <- sensitivity %>%
 		mutate(
 			high_confidence_germline_vcf_variants_sum_zm_detected = high_confidence_germline_vcf_variants %>%
-				map_int( function(x){x$num_zm_detected %>% sum} ),
+				map_dbl( function(x){x$num_zm_detected %>% sum} ),
 			high_confidence_germline_vcf_variants_sum_duplex_coverage = high_confidence_germline_vcf_variants %>%
-				map_int( function(x){x$duplex_coverage %>% sum} )
+				map_dbl( function(x){x$duplex_coverage %>% sum} )
 		) %>% 
 		select(-high_confidence_germline_vcf_variants)
 	

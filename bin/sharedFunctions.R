@@ -26,14 +26,14 @@ reference_trinucleotide_counts <- function(genome) {
 reference_counts_for_chromosomes <- function(counts, chromosomes) {
   chromosomes <- as.character(chromosomes)
   if (!length(chromosomes)) {
-    return(trinucleotideFrequency(DNAStringSet(), simplify.as = "collapsed"))
+    return(trinucleotideFrequency(DNAStringSet(), simplify.as = "collapsed") + 0)
   }
   if (anyNA(chromosomes) || any(!chromosomes %in% names(counts))) {
     stop("Requested chromosome is absent from the prepared reference summary", call. = FALSE)
   }
-  # Preserve requested order and repeated chromosomes. Counts retain their
-  # integer types and channel names.
-  Reduce(`+`, counts[chromosomes])
+  # Preserve requested order, repeated chromosomes and channel names while
+  # accumulating as doubles so totals can exceed the 32-bit integer limit.
+  Reduce(`+`, counts[chromosomes], init = 0)
 }
 
 # Both preparation tasks and standalone consumers use these builders. A
@@ -269,7 +269,7 @@ annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
   if(!is.null(destination)){
     status <- suppressWarnings(close(destination)); destination <- NULL
     if(!is.null(status) && status != 0L) stop("Coverage annotation compressor failed for row ", row_id)
-    status <- suppressWarnings(system2(tabix, c("-@2", "-s1", "-b2", "-e3", shQuote(output))))
+    status <- suppressWarnings(system2(tabix, c("-@2", "-p", "bed", shQuote(output))))
     if(status != 0L) stop("Coverage annotation indexer failed for row ", row_id)
   }
   if(any(seen)){
@@ -358,9 +358,12 @@ coalesce_vcf_regions <- function(regions, max_gap = 1000) {
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
 
   #Read FORMAT declarations once and reserve unused names for private totals.
-  vcf_header <- system(paste("/bin/bash -c",shQuote(paste(
-    bcftools_bin,"view -h",vcf_file
-  ))), intern=TRUE)
+  vcf_header <- suppressWarnings(system(paste("/bin/bash -o pipefail -c",shQuote(paste(
+    shQuote(bcftools_bin),"view -h",shQuote(vcf_file)
+  ))), intern=TRUE))
+  status <- attr(vcf_header, "status")
+  if(!is.null(status) && status != 0L)
+    stop("bcftools header read failed (status ", status, ") for ", vcf_file, call. = FALSE)
   format_ids <- str_match(vcf_header, "^##FORMAT=<ID=([^,>]+)")[,2]
   format_ids <- format_ids[!is.na(format_ids)]
   AD_exists <- "AD" %in% format_ids
@@ -388,6 +391,8 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 		)
 	}
 	
+  tmpregions <- tmp_lookup_regions <- tmpvcf <- NULL
+  on.exit(unlink(c(tmpregions, tmp_lookup_regions, tmpvcf)), add = TRUE)
 	#Create regions files if specified
 	if(!is.null(regions)){
 		tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
@@ -405,30 +410,32 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 	#Atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref]), and filter for records containing ALT alleles.
   tmpvcf <- tempfile(tmpdir=getwd(),pattern=".")
   
-  system(paste("/bin/bash -c",shQuote(paste(
-    bcftools_bin,"view",
+  status <- system(paste("/bin/bash -o pipefail -c",shQuote(paste(
+    shQuote(bcftools_bin),"view",
     if(!is.null(regions)){
-      if(is.null(tmp_lookup_regions)) paste("-R",tmpregions) else
-        paste("-R",tmp_lookup_regions,"-T",tmpregions,"--targets-overlap 1")
+      if(is.null(tmp_lookup_regions)) paste("-R",shQuote(tmpregions)) else
+        paste("-R",shQuote(tmp_lookup_regions),"-T",shQuote(tmpregions),"--targets-overlap 1")
     },
-    vcf_file,"|",
+    shQuote(vcf_file),"|",
     #Preserve total per-sample allele depth before either normalization step.
     #The missing flag distinguishes unknown original counts from missing AD
     #values introduced later for overlapping-deletion star alleles.
     if(AD_exists){paste(
-      bcftools_bin, "+fill-tags -Ou -- -t",
+      shQuote(bcftools_bin), "+fill-tags -Ou -- -t",
       shQuote(paste0(
         "FORMAT/",private_AD_tags[[1]],":1=int(smpl_sum(FORMAT/AD)),",
         "FORMAT/",private_AD_tags[[2]],":1=int(FORMAT/AD=\".\")"
       )), "|"
     )},
-    bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
-    bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
-    if(GT_exists){paste("|",bcftools_bin,"view -i 'GT=\"alt\"'")},
+    shQuote(bcftools_bin),"norm -a -f",shQuote(genome_fasta),"|",
+    shQuote(bcftools_bin),"norm -m -both -f",shQuote(genome_fasta),
+    if(GT_exists){paste("|",shQuote(bcftools_bin),"view -i 'GT=\"alt\"'")},
     ">",
-    tmpvcf
+    shQuote(tmpvcf)
     )
    )))
+  if(status != 0L)
+    stop("bcftools normalization failed (status ", status, ") for ", vcf_file, call. = FALSE)
   
   if(!is.null(regions)){
     file.remove(c(tmpregions, tmp_lookup_regions)) %>% invisible

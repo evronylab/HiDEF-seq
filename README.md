@@ -76,6 +76,10 @@ Linux `flock`, `stat` and `sync`, already available in the 3.0 environment.
 Burden calculation additionally requires the R packages `DBI` and `duckdb` in
 the container.
 
+The updated Torch `hidef-seq_3.0.sif` includes bcftools 1.22 with an atomization
+bug fix: `atom->plen = 0;` was added at two sites in `abuf.c` (patched lines 169
+and 197) to reset reused atom state. Older container copies may lack this fix.
+
 ## Reference genome
 The pipeline requires reference genome files and multiple derivative files, which can be prepared per below.
 

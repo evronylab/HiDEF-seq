@@ -53,8 +53,8 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
 
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
-- `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
-- `effectiveParams.<sha256>.yaml`, the immutable effective configuration passed to R tasks. It includes runtime overrides and prepared-cache paths; its filename hashes its exact contents.
+- `<input-basename>.input.*.yaml`, an exact copy of the original input YAML, and `runParams.*.yaml` and `runInfo.*.txt` launch snapshots. Each `runParams` snapshot contains the resolved configuration, including runtime overrides and prepared-cache paths.
+- `<input-basename>.resolved.yaml`, the resolved configuration passed to R tasks, where `<input-basename>` is the input filename without its `.yaml` or `.yml` extension. It is updated on each launch; earlier launch snapshots are retained. Simultaneous analyses must use distinct analysis IDs or output directories.
 - `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).  Each log name begins with the process name followed by identifiers that scope the task (for example `makeBarcodesFasta.${analysis_id}.${run_id}.command.log`, `ccsChunk.${analysis_id}.${run_id}.chunk003.command.log`, `processGermlineVCFs.${individual_id}.command.log`, `prepareRegionFilters.${region_filter_file}.bin${binsize}.${threshold}.command.log`, or simply `installBSgenome.command.log`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
 - CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
@@ -73,7 +73,6 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
 
 | File | Description |
 | --- | --- |
-| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
 | `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | `analysis_id`, `individual_id`, `sample_id` identifier columns and sequencing run and read group metadata derived from BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
 | `${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
@@ -312,7 +311,7 @@ The pipeline produces several files per below, and each table contains metadata 
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
-The effective configuration passed to R, stored as nested lists. It retains the original analysis keys documented in [`config_templates/`](../config_templates), with intentional runtime overrides and the prepared-cache fields `reference_cache_dir`, `reference_summary_file`, `cache_artifacts`, and `germline_coverage_filters`. The matching `effectiveParams.<sha256>.yaml` is retained in the shared logs.
+The resolved configuration passed to R, stored as nested lists. It retains the original analysis keys documented in [`config_templates/`](../config_templates), with intentional runtime overrides and the prepared-cache fields `reference_cache_dir`, `reference_summary_file`, `cache_artifacts`, and `germline_coverage_filters`. The matching `runParams.*.yaml` launch snapshot is retained in the shared logs.
 
 #### run_metadata
 Columns as per `run_metadata.tsv` described above. 

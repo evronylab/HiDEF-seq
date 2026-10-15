@@ -160,40 +160,30 @@ def plainConfigurationValue(value) {
 }
 
 def originalParamsFile(commandLine) {
-  def matches = commandLine =~ /(?:^|\s)-params-file(?:\s+|=)("[^"]*"|'[^']*'|\S+)/
+  def matches = commandLine =~ /(?:^|\s)-params-file(?:\s+|=)("[^"]*"|'[^']*'|(?:\\.|[^\s\\])+)/
   if (!matches.find()) throw new IllegalArgumentException('An original -params-file YAML is required')
   def value = matches.group(1)
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     value = value.substring(1, value.length() - 1)
+  } else {
+    value = value.replaceAll(/\\(.)/, '$1')
   }
   return file(value).toAbsolutePath()
 }
 
-def writeImmutableConfiguration(path, text) {
+def writeResolvedConfiguration(path, text) {
   def destination = file(path).toAbsolutePath()
   def expected = text.getBytes('UTF-8')
-  def verifyExisting = {
-    if (!java.util.Arrays.equals(java.nio.file.Files.readAllBytes(destination), expected)) {
-      throw new IllegalStateException("Existing immutable configuration differs: ${destination}")
-    }
-  }
-  if (java.nio.file.Files.exists(destination)) {
-    verifyExisting.call()
-    return
-  }
-  def temporary = java.nio.file.Files.createTempFile(destination.parent, '.effective-params-', '.tmp')
+  if (java.nio.file.Files.exists(destination) &&
+      java.util.Arrays.equals(java.nio.file.Files.readAllBytes(destination), expected)) return
+  def temporary = java.nio.file.Files.createTempFile(destination.parent, '.resolved-params-', '.tmp')
   try {
     java.nio.file.Files.write(temporary, expected)
     java.nio.channels.FileChannel.open(temporary, java.nio.file.StandardOpenOption.WRITE).withCloseable { channel ->
       channel.force(true)
     }
-    try {
-      // Publish one complete sibling file atomically without ever replacing an
-      // existing name. Unlike ATOMIC_MOVE, createLink has no replace ambiguity.
-      java.nio.file.Files.createLink(destination, temporary)
-    } catch (java.nio.file.FileAlreadyExistsException ignored) {
-      verifyExisting.call()
-    }
+    java.nio.file.Files.move(temporary, destination,
+      java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
   } catch (Exception failure) {
     java.nio.file.Files.deleteIfExists(temporary)
     throw failure
@@ -276,7 +266,7 @@ workflow {
   originalConfiguration = yaml.load(originalParametersFile.text)
   if (!(originalConfiguration instanceof Map)) error 'The original parameters YAML must contain a mapping'
   if (params.containsKey('paramsFileName')) {
-    error 'paramsFileName is reserved for the generated effective YAML; use the original input configuration'
+    error 'paramsFileName is reserved for the generated resolved YAML; use the original input configuration'
   }
   // Apply intentional command-line/config overrides to original keys, without
   // leaking unrelated injected defaults into R's scientific configuration.
@@ -285,7 +275,8 @@ workflow {
     scientificConfiguration[name.toString()] = plainConfigurationValue(params.containsKey(name) ? params[name] : value)
   }
   timestamp = "${new Date().format('yyyy_MMdd_HHmmss_SSS')}.${workflow.sessionId}".toString()
-  file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(scientificConfiguration)
+  parametersStem = originalParametersFile.name.replaceFirst(/(?i)\.ya?ml$/, '')
+  java.nio.file.Files.copy(originalParametersFile, file("${logsDir}/${parametersStem}.input.${timestamp}.yaml"))
 
   // Save copy of run information
   file("${logsDir}/runInfo.${timestamp}.txt").text = """
@@ -303,17 +294,6 @@ workflow {
   """.stripIndent()
 
   // paramsFileName is assigned once below, after resolving prepared artifacts.
-
-  // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
-  signature_params = params + [sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")]
-  config_signatures = [
-    installBSgenome: configHash(signature_params + [installBSgenomeScriptHash: fileSha256("${workflow.projectDir}/bin/installBSgenome.R")], ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes', 'installBSgenomeScriptHash']),
-    processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
-    extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
-    filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
-    outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
-  ]
 
   // Scoped prepared artifacts: changing one individual's VCF inputs does not
   // invalidate the reference, other individuals, or independent region tracks.
@@ -409,18 +389,45 @@ workflow {
   params.reference_cache_dir = "${referenceEntry.directory}/library".toString()
   params.reference_summary_file = "${referenceSummaryEntry.directory}/referenceSummary.qs2".toString()
   params.cache_artifacts = cacheArtifacts
-  // Keep the user's original YAML untouched; R consumers receive the resolved
-  // immutable product paths through an effective configuration for this run.
+  // Keep the user's original YAML untouched. Independent analyses use distinct
+  // output locations; sequential resumes reuse this stable command-line path.
   def effectiveConfiguration = new LinkedHashMap(scientificConfiguration)
   ['germline_coverage_filters', 'reference_cache_dir', 'reference_summary_file', 'cache_artifacts'].each { name ->
     effectiveConfiguration[name] = plainConfigurationValue(params[name])
   }
   def effectiveYaml = yaml.dump(effectiveConfiguration)
-  def effectiveDigest = java.security.MessageDigest.getInstance('SHA-256').digest(effectiveYaml.getBytes('UTF-8')).encodeHex().toString()
-  def effectiveParametersFile = "${logsDir}/effectiveParams.${effectiveDigest}.yaml".toString()
+  def effectiveParametersFile = "${logsDir}/${parametersStem}.resolved.yaml".toString()
   if (file(effectiveParametersFile).toAbsolutePath() == originalParametersFile) error 'Effective YAML must not replace its input'
-  writeImmutableConfiguration(effectiveParametersFile, effectiveYaml)
+  file("${logsDir}/runParams.${timestamp}.yaml").text = effectiveYaml
+  writeResolvedConfiguration(effectiveParametersFile, effectiveYaml)
   params.paramsFileName = effectiveParametersFile
+
+  // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
+  // Include prepared input identities even when a source changes at the same
+  // path. Cache paths alone are no longer part of every task command.
+  signature_params = params + [
+    sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R"),
+    referenceCacheKey: referenceEntry.key,
+    referenceSummaryCacheKey: referenceSummaryEntry.key,
+    vcfCacheKeys: vcfEntries.collectEntries { name, entry -> [(name): entry.key] },
+    bamCacheKeys: bamEntries.collectEntries { name, entry -> [(name): entry.key] },
+    regionCacheKeys: regionEntries.collectEntries { name, entry -> [(name): entry.key] },
+    coverageCacheKeys: coverageEntries.collectEntries { name, entry -> [(name): entry.key] },
+    genomeFaiIdentity: identifyInput.call(params.genome_fai),
+    sensitivityVcfIdentity: params.individuals.any { it.germline_vcf_files } &&
+      params.chromgroups.any { it.chromgroup == params.sensitivity_parameters?.use_chromgroup } ?
+      identifyInput.call(params.sensitivity_parameters.sensitivity_vcf) : null,
+    resolvedConfiguration: effectiveConfiguration
+  ]
+  config_signatures = [
+    installBSgenome: configHash(signature_params + [installBSgenomeScriptHash: fileSha256("${workflow.projectDir}/bin/installBSgenome.R")], ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes', 'installBSgenomeScriptHash', 'referenceCacheKey']),
+    processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'vcfCacheKeys']),
+    extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey']),
+    filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'referenceSummaryCacheKey', 'vcfCacheKeys', 'bamCacheKeys', 'regionCacheKeys', 'coverageCacheKeys']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'referenceSummaryCacheKey', 'vcfCacheKeys', 'sensitivityVcfIdentity', 'genomeFaiIdentity']),
+    outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'regionCacheKeys', 'resolvedConfiguration'])
+  ]
+
 
 
   // Validate barcodes section and build barcode map
@@ -1552,7 +1559,7 @@ process installBSgenome {
     script:
     def buildCommand = """
     export HIDEF_REFERENCE_BUILD_DIR="\$PWD/library"
-    installBSgenome.R -c ${params.paramsFileName}
+    installBSgenome.R -c ${shellQuote(params.paramsFileName)}
     """
     cachedBuild(params.prepared_cache.reference, ['library', 'BSgenome_name.txt'], buildCommand)
 }
@@ -1612,7 +1619,7 @@ process processGermlineVCFs {
 
     script:
     def buildCommand = """
-    processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
+    processGermlineVCFs.R -c ${shellQuote(params.paramsFileName)} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
     """
     cachedBuild(params.prepared_cache.vcfs[individual_id], ["${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"], buildCommand)
 }
@@ -1797,7 +1804,7 @@ process extractCallsChunk {
 
     script:
     """
-    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -s ${sample_id} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
+    extractCalls.R -c ${shellQuote(params.paramsFileName)} -b ${bamFile} -s ${sample_id} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -1838,7 +1845,7 @@ process filterCallsChunkChromgroupFiltergroup {
 
     script:
     """
-    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
+    filterCalls.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -1886,7 +1893,7 @@ process calculateBurdensChromgroupFiltergroup {
 
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    calculateBurdens.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 
@@ -1924,12 +1931,11 @@ process outputResultsSample {
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
       path("${params.analysis_id}.${individual_id}.${sample_id}.outputResults.qs2")
-      path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
+    outputResults.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
     """
 }

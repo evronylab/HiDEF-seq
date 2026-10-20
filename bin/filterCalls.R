@@ -11,6 +11,8 @@ cat("#### Running filterCalls ####\n")
 ######################
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
+# Keep data.table aggregation within the task's one-CPU allocation.
+setDTthreads(1L)
 suppressPackageStartupMessages(library(GenomicAlignments))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(vcfR))
@@ -66,7 +68,7 @@ outputFile <- opt$output
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #Load miscellaneous configuration parameters
  #chromosomes to analyze
@@ -120,23 +122,15 @@ filtergroup_toanalyze_config <- yaml.config$filtergroups %>%
 	filter(filtergroup == filtergroup_toanalyze)
   
  #region filter parameters (restrict to selected chromgroup_toanalyze and filtergroup_toanalyze)
-region_read_filters_config <- yaml.config$region_filters %>%
-  map("read_filters") %>%
-  flatten %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+region_read_filters_config <- region_filter_config(yaml.config, "read_filters") %>%
+  mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
 	)
 
-region_genome_filters_config <- yaml.config$region_filters %>%
-  map("genome_filters") %>%
-  flatten %>%
-  enframe(name=NULL) %>%
-  unnest_wider(value) %>%
-  mutate(region_filter_threshold_file = str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw")) %>%
+region_genome_filters_config <- region_filter_config(yaml.config, "genome_filters") %>%
+  mutate(region_filter_threshold_file = cache_file(str_c(cache_dir,basename(region_filter_file),".bin",binsize,".",threshold,".bw"), yaml.config)) %>%
 	filter(
 	  applyto_chromgroups == "all" | (applyto_chromgroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!chromgroup_toanalyze %in% .x)),
 	  applyto_filtergroups == "all" | (applyto_filtergroups %>% str_split(",") %>% map(str_trim) %>% map_lgl(~ !!filtergroup_toanalyze %in% .x))
@@ -257,13 +251,13 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 			as_tibble %>%
 			select(all_of(join_mcols)) %>%
 			as.list %>%
-			interaction(drop = TRUE)
+			observed_allele_interaction()
 		
 		key_s <- subject %>%
 			as_tibble %>%
 			select(all_of(join_mcols)) %>%
 			as.list %>%
-			interaction(drop = TRUE)
+			observed_allele_interaction()
 		
 		keys_all <- factor(c(key_q,key_s))
 		id_q <- as.integer(keys_all)[seq_len(nq)]
@@ -326,63 +320,53 @@ overlapsAny_bymcols <- function(query, subject, join_mcols = character(), ignore
 #Convert positions of bases from query space to reference space, while retaining run_id and zm info
 #iranges.input: IRangesList with query space positions, with the IRangesList length the same as the number of rows in bam.input
 convert_query_to_refspace <- function(irangeslist.input, bam.input, BSgenome_name.input){
-	
-	#Format irangeslist.input to GRanges of positions failing subreads filters in query space, with annotated bam read id
-	irangeslist.input <- irangeslist.input %>%
-		setNames(bam.input %>% pull(seqnames)) %>%
-		as.data.frame %>%
-		as_tibble %>%
-		makeGRangesFromDataFrame(
-			seqnames = "group_name",
-			keep.extra.columns=TRUE
-		) %>%
-		setNames(.$group) %>%
-		select(-group)
-	
-	if(length(irangeslist.input) == 0){
-		return(
-			GRanges(run_id=factor(), zm=integer())
-		)
-	}
-	
-	mapFromAlignments( #Main function
-		
-		irangeslist.input,
-		
-		#GAlignments of reads in reference space
-		bam.input %>%
-			select(seqnames, start, end, cigar) %>% 
-			makeGRangesFromDataFrame(
-				keep.extra.columns=TRUE,
-				seqinfo=BSgenome_name.input %>% get %>% seqinfo
-			) %>%
-			as("GAlignments") %>%
-			setNames(1:nrow(bam.input))
-	) %>%
-		
-		#Annotate result with run_id, zm, and strand
-		as_tibble %>%
-		left_join(
-			bam.input %>%
-				select(run_id, zm, strand) %>%
-				mutate(row_id = row_number()),
-			by = join_by(alignmentsHits == row_id)
-		) %>%
-		select(-c(width, xHits, alignmentsHits, strand.x)) %>%
-		rename(strand = strand.y) %>%
-		makeGRangesFromDataFrame(
-			keep.extra.columns=TRUE,
-			seqinfo=BSgenome_name.input %>% get %>% seqinfo
-		)
+	# Each row identifier directly indexes bam.input, preserving input order
+	# and keeping its GRanges intact during query-to-reference mapping.
+	group <- rep.int(seq_along(irangeslist.input), elementNROWS(irangeslist.input))
+	if(!length(group)) return(GRanges(run_id=factor(), zm=integer()))
+	query <- GRanges(
+		seqnames = bam.input$seqnames[group],
+		ranges = unlist(irangeslist.input, use.names=FALSE)
+	)
+	names(query) <- as.character(group)
+	reference_info <- seqinfo(get(BSgenome_name.input))
+	alignments <- GRanges(
+		seqnames = bam.input$seqnames,
+		ranges = IRanges(start=bam.input$start, end=bam.input$end),
+		cigar = bam.input$cigar,
+		seqinfo = reference_info
+	)
+	alignments <- as(alignments, "GAlignments")
+	names(alignments) <- as.character(seq_len(nrow(bam.input)))
+	mapped <- mapFromAlignments(query, alignments)
+	read_id <- mcols(mapped)$alignmentsHits
+	GRanges(
+		seqnames = seqnames(mapped),
+		ranges = unname(ranges(mapped)),
+		strand = bam.input$strand[read_id],
+		run_id = bam.input$run_id[read_id],
+		zm = bam.input$zm[read_id],
+		seqinfo = reference_info
+	)
 }
 
 #Function to check a parameter on both strands (x and y), per a specified minimum threshold and method (mean, all, any)
 min_threshold_eachstrand <- function(x, y, threshold, mode = c("mean","all","any")){
 	chosenmode <- switch(
 		mode,
-		mean = function(v) (mean(v) %>% replace_na(0)) >= threshold,
-		all = function(v) all(v >= threshold) %>% replace_na(0),
-		any = function(v) any(v >= threshold) %>% replace_na(0)
+		mean = function(v){
+			value <- mean(v)
+			if(is.na(value)) value <- 0
+			value >= threshold
+		},
+		all = function(v){
+			value <- all(v >= threshold)
+			if(is.na(value)) FALSE else value
+		},
+		any = function(v){
+			value <- any(v >= threshold)
+			if(is.na(value)) FALSE else value
+		}
 	)
 
 	chosenmode(x) && chosenmode(y) && !any(is.na(y))
@@ -409,6 +393,7 @@ bam <- extractedCalls %>%
 # b. call_class = SBS or indel (needed for later max calls/mutations postVCF, read indel region filters, and downstream sensitivity and estimated SBS mutation error calculations).
 calls <- extractedCalls %>%
 	pluck("calls") %>%
+	filter(seqnames %in% chroms_toanalyze) %>%
 	left_join(
 		call_types_toanalyze %>%
 			distinct(call_type,call_class,SBSindel_call_type) %>%
@@ -417,7 +402,6 @@ calls <- extractedCalls %>%
 	) %>%
   mutate(call_toanalyze = call_toanalyze %>% replace_na(FALSE)) %>%
 	filter(
-	  seqnames %in% chroms_toanalyze,
 	  call_toanalyze == TRUE | call_class %in% c("SBS","indel")
 		)
 
@@ -495,6 +479,31 @@ bam <- bam %>%
 	select(-num_softclipbases) %>%
 	ungroup
 
+#Complete strand and call classes within observed molecules. For negative
+#maximum-count thresholds, also include zero-count BAM molecules whose run
+#and ZMW IDs each occur in the call counts.
+count_filters_allow_zero <- filtergroup_toanalyze_config %>%
+	keep(names(.) %>% str_detect("^max_num_(SBS|indel)(calls|mutations)")) %>%
+	unlist %>%
+	{all(. >= 0 | is.na(.))}
+
+complete_molecule_call_counts <- function(counts){
+	if(count_filters_allow_zero){
+		complete(counts,nesting(run_id,zm),strand,call_class,fill = list(n=0))
+	}else{
+		zero_pairs <- bam %>%
+			distinct(run_id,zm) %>%
+			semi_join(expand(counts,run_id),by = join_by(run_id)) %>%
+			semi_join(expand(counts,zm),by = join_by(zm))
+		pairs <- bind_rows(counts %>% select(run_id,zm),zero_pairs)
+		complete(
+			counts,
+			nesting(run_id = pairs$run_id,zm = pairs$zm),
+			strand,call_class,fill = list(n=0)
+		)
+	}
+}
+
 #Annotate reads for filters: max_num_SBScalls_eachstrand, max_num_SBScalls_stranddiff, max_num_indelcalls_eachstrand, max_num_indelcalls_stranddiff
 bam <- bam %>%
 	left_join(
@@ -510,7 +519,7 @@ bam <- bam %>%
 				
 				#Count number of SBS and indel calls per strand while completing missing strand and SBS/indel values for each molecule so that num_{call_class}calls are calculated correctly
 				count(run_id,zm,strand,call_class) %>%
-			  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+			  complete_molecule_call_counts %>%
 				pivot_wider(
 					names_from = call_class,
 					values_from = n,
@@ -568,7 +577,7 @@ bam <- bam %>%
 		  #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly.
 		  mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
 		  count(run_id,zm,strand,call_class) %>%
-		  complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+		  complete_molecule_call_counts %>%
 			pivot_wider(
 				names_from=call_class,
 				values_from=n,
@@ -631,11 +640,12 @@ cat("DONE\n")
 cat("## Applying germline VCF variant filters...")
 
 #Load germline VCF filter data
-germline_vcf_variants <- qs_read(
+germline_vcf_variants <- qs_read(cache_file(
 	str_c(
 		cache_dir,
 		individual_id_toanalyze,".",
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -644,7 +654,7 @@ germline_vcf_variants <- qs_read(
 			basename,
 		".germline_vcf_variants.qs2"
 		)
-	) %>%
+	, yaml.config)) %>%
   as_tibble
   
 #Filter to keep germline VCF variants that pass configured germline VCF filters and keep only columns necessary for downstream filtering
@@ -661,7 +671,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
         filter(
           (
             call_class == "SBS" &
-              FILTER %in% (filters$SBS_FILTERS %>% unlist) &
+              vcf_filter_matches(FILTER, filters$SBS_FILTERS %>% unlist) &
               Depth >= filters$SBS_min_Depth &
               GQ >= filters$SBS_min_GQ &
               VAF >= filters$SBS_min_VAF &
@@ -669,7 +679,7 @@ germline_vcf_variants <- germline_vcf_variants  %>%
           ) |
           (
             call_class == "indel" &
-              FILTER %in% (filters$indel_FILTERS %>% unlist) &
+              vcf_filter_matches(FILTER, filters$indel_FILTERS %>% unlist) &
               Depth >= filters$indel_min_Depth &
               GQ >= filters$indel_min_GQ &
               VAF >= filters$indel_min_VAF &
@@ -699,6 +709,12 @@ germline_vcf_variants <- germline_vcf_variants  %>%
 calls <- calls %>%
   left_join(
     germline_vcf_variants %>%
+      # Only summarize variants matching this chunk's calls. Keep the full table
+      # above for later per-file indel filters and whole-genome statistics.
+      semi_join(
+        calls %>% select(seqnames,start,end,ref_plus_strand,alt_plus_strand),
+        by = join_by(seqnames,start,end,ref_plus_strand,alt_plus_strand)
+      ) %>%
       group_by(seqnames,start,end,ref_plus_strand,alt_plus_strand) %>%
       summarize(
         germline_vcf_types_detected = str_c(germline_vcf_type,collapse=","),
@@ -737,7 +753,7 @@ bam <- bam %>%
         strand = strand %>% factor(levels=c("+","-"))
       ) %>% 
       count(run_id,zm,strand,call_class) %>%
-      complete(run_id, zm, strand, call_class, fill = list(n=0)) %>%
+      complete_molecule_call_counts %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,
@@ -780,7 +796,7 @@ bam <- bam %>%
       #Count number of SBS and indel mutations per molecule while completing missing SBS/indel values for each molecule so that num_{call_class}mutations are calculated correctly
       mutate(call_class = call_class %>% factor(levels=c("SBS","indel"))) %>% 
       count(run_id,zm,strand,call_class) %>%
-      complete(run_id,zm,strand,call_class,fill = list(n=0)) %>%
+      complete_molecule_call_counts %>%
       pivot_wider(
         names_from=call_class,
         values_from=n,
@@ -874,11 +890,10 @@ cat("## Applying genome 'N' base sequence filter...")
 
 passfilter_label <- "region_genome_filter_Nbases.passfilter"
 
-#Extract 'N' base sequence ranges
-region_genome_filter <- BSgenome_name %>%
-	get %>%
-	vmatchPattern("N",.) %>%
-	GenomicRanges::reduce(ignore.strand=TRUE)
+#Count N bases across the full reference for whole-genome filtering statistics,
+#including tasks that analyze only one chromosome group.
+region_genome_filter <- load_reference_summary(
+  yaml.config, get(BSgenome_name), "n_ranges")$n_ranges
 
 #Subtract regions from filter trackers
 bam.gr.filtertrack <- bam.gr.filtertrack %>%
@@ -976,6 +991,7 @@ molecule_stats <- molecule_stats %>%
 		)
 	)
 
+bam$qual <- NULL
 rm(min_qual.fail.gr)
 invisible(gc())
 
@@ -1065,6 +1081,7 @@ if(!is.na(ccs_sbs_flank)){
 			suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 			trim
 	) %>%
+		normalize_exclusion_masks %>%
 		select(run_id, zm)
 }else{
 	read_sbs_region_filter <- calls.gr %>%
@@ -1123,6 +1140,7 @@ if(!is.na(ccs_ins_pad)){
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
+		normalize_exclusion_masks %>%
 		select(run_id, zm)
 	
 }else{
@@ -1147,6 +1165,7 @@ if(!is.na(ccs_del_pad)){
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
+		normalize_exclusion_masks %>%
 		select(run_id, zm)
 	
 }else{
@@ -1208,6 +1227,7 @@ passfilter_label <- "min_germlineBAM_TotalReads.passfilter"
 germline_bam_samtools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -1215,39 +1235,16 @@ germline_bam_samtools_mpileup_file <- cache_dir %>%
 			unique %>%
 			basename,
 		".bw"
-	)
+	) %>% cache_file(yaml.config)
 
-tmpchromsizes <- tempfile(tmpdir=getwd(),pattern=".",fileext=".bed")
-system(paste("/bin/bash -c",shQuote(paste(
-	"awk '{print $1 \"\t0\t\" $2}'", yaml.config$genome_fai,
-	"| sort -k1,1 -k2,2n >",
-	tmpchromsizes
-)
-)))
+germline_bam_samtools_mpileup_filter <- load_germline_coverage_filter(
+  yaml.config, individual_id_toanalyze,
+  filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
+  germline_bam_samtools_mpileup_file)
 
-tmpbw <- tempfile(tmpdir=getwd(),pattern=".")
-
-system(paste("/bin/bash -c",shQuote(paste(
-	yaml.config$wiggletools_bin, "lt",
-	filtergroup_toanalyze_config$min_germlineBAM_TotalReads,
-	"trim", tmpchromsizes, "fillIn", tmpchromsizes,
-	germline_bam_samtools_mpileup_file, "|",
-	yaml.config$wigToBigWig_bin, "stdin <(cut -f 1,2",
-	yaml.config$genome_fai,")",
-	tmpbw
-	)
-)))
-
-germline_bam_samtools_mpileup_filter <- tmpbw %>%
-	import(format = "bigWig") %>%
-	{
-		seqlevels(.) <- seqlevels(genome_chromgroup.gr)
-		seqinfo(.) <- seqinfo(genome_chromgroup.gr)
-		.
-	} %>%
-	select(-score)
-
-invisible(file.remove(tmpchromsizes, tmpbw))
+# Assign full-reference Seqinfo to the prepared intervals.
+seqlevels(germline_bam_samtools_mpileup_filter) <- seqlevels(genome_chromgroup.gr)
+seqinfo(germline_bam_samtools_mpileup_filter) <- seqinfo(genome_chromgroup.gr)
 
 #Subtract filtered regions from filter trackers
 bam.gr.filtertrack.indelanalysis <- bam.gr.filtertrack.indelanalysis %>%
@@ -1327,6 +1324,7 @@ variant_regions_bcftools_mpileup <- calls %>%
 germline_bam_bcftools_mpileup_file <- cache_dir %>%
 	str_c(
 		yaml.config$individuals %>%
+			map(~ .x[c("individual_id", "germline_bam_file")]) %>%
 			modify_tree(leaf = as.character) %>%
 			bind_rows %>%
 			filter(individual_id == individual_id_toanalyze) %>%
@@ -1334,7 +1332,7 @@ germline_bam_bcftools_mpileup_file <- cache_dir %>%
 			unique %>%
 			basename,
 		".vcf.gz"
-	)
+	) %>% cache_file(yaml.config)
 
 germline_bam_bcftools_mpileup_filter <- load_vcf(
 	vcf_file = germline_bam_bcftools_mpileup_file,
@@ -1364,7 +1362,7 @@ calls[["max_germlineBAM_VAF.passfilter"]] <- ! overlapsAny_bymcols(
 	ignore.strand = TRUE
 )
 
-rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter)
+rm(variant_regions_bcftools_mpileup, germline_bam_bcftools_mpileup_filter, germline_bam_bcftools_mpileup_BAMVariantReads_filter, germline_bam_bcftools_mpileup_BAMVAF_filter)
 invisible(gc())
 
 cat("DONE\n")
@@ -1574,6 +1572,9 @@ calls <- calls %>%
 	) %>%
 	select(-c(frac_subreads_match,frac_subreads_match.opposite_strand))
 	
+bam$sa <- NULL
+bam$sm <- NULL
+bam$sx <- NULL
 rm(frac_subreads_cvg.fail.gr, num_subreads_match.fail.gr, frac_subreads_match.fail.gr)
 invisible(gc())
 
@@ -1737,6 +1738,7 @@ for(i in names(germline_vcf_variants)){
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
+		normalize_exclusion_masks %>%
 		GenomicRanges::reduce(ignore.strand=TRUE)
 	
 	#Subtract filtered regions from filter trackers
@@ -1787,7 +1789,7 @@ molecule_stats <- molecule_stats %>%
 	)
 
 rm(list = intersect(
-	c("germline_vcf_ins_region_filter", "germline_vcf_del_region_filter", "germline_vcf_indel_region_filter"),
+	c("germline_vcf_variants", "germline_vcf_ins_region_filter", "germline_vcf_del_region_filter", "germline_vcf_indel_region_filter"),
 	ls()
 ))
 invisible(gc())
@@ -1802,15 +1804,12 @@ cat("## Applying region-based molecule filters...")
 for(i in seq_len(nrow(region_read_filters_config))){
 	
 	#Construct label for the newly created filter column
-	passfilter_label <- region_read_filters_config %>%
-		pluck("region_filter_threshold_file",i) %>%
-		basename %>%
-		str_c("region_read_filter_",.,".passfilter")
+	passfilter_label <- region_filter_labels(region_read_filters_config, "read_filters")[[i]]
 	
 	#Extract read threshold
 	read_threshold_type <- region_read_filters_config %>%
 		pluck("read_threshold",i) %>%
-		str_extract("^(gt|gte|lt|lte)")
+		str_extract("^(gte|gt|lte|lt)")
 	
 	read_threshold_value <- region_read_filters_config %>%
 		pluck("read_threshold",i) %>%
@@ -1834,6 +1833,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
+		normalize_exclusion_masks %>%
 		GenomicRanges::reduce(ignore.strand=TRUE) %>%
 		
 		#Create a logical TRUE/FALSE RLE of genomic bases covered so that the below binnedAverage function calculates, for each read, the fraction covered by the region_read_filter
@@ -1856,16 +1856,20 @@ for(i in seq_len(nrow(region_read_filters_config))){
 				
 				#Annotate which molecules have a fraction of their length filtered by the above bigwig (averaged across plus and minus strands) that is either greater than (gt), greater than or equal (gte), less than (lt), or less than or equal (lte) to a read_threshold_value
 				as_tibble %>%
+				dtplyr::lazy_dt(immutable = TRUE) %>%
 				group_by(run_id, zm) %>%
-				summarize(
+				summarize(mean_frac = base::mean(frac), .groups = "drop") %>%
+				as_tibble %>%
+				arrange(run_id, zm) %>%
+				mutate(
 					!!passfilter_label := ! case_when(
-						!!read_threshold_type == "gt" ~ mean(frac) > read_threshold_value,
-						!!read_threshold_type == "gte" ~ mean(frac) >= read_threshold_value,
-						!!read_threshold_type == "lt" ~ mean(frac) < read_threshold_value,
-						!!read_threshold_type == "lte" ~ mean(frac) <= read_threshold_value
-					),
-					.groups = "drop"
-				),
+						!!read_threshold_type == "gt" ~ mean_frac > read_threshold_value,
+						!!read_threshold_type == "gte" ~ mean_frac >= read_threshold_value,
+						!!read_threshold_type == "lt" ~ mean_frac < read_threshold_value,
+						!!read_threshold_type == "lte" ~ mean_frac <= read_threshold_value
+					)
+				) %>%
+				select(-mean_frac),
 			by = join_by(run_id,zm)
 		)
 	
@@ -1939,6 +1943,7 @@ for(i in seq_len(nrow(region_read_filters_config))){
 }
 
 #Update molecule stats of each filter applied individually regardless of any prior filters. This is possible in this case since these are molecule-level filters. Note, all_filter_suffix = NULL, because can't calculate all_filter stats from bam at this point since non-molecule filters have already been applied upstream.
+if(nrow(region_read_filters_config) > 0L){
 molecule_stats <- molecule_stats %>%
 	bind_rows(
 		calculate_molecule_stats_frombam(
@@ -1950,6 +1955,7 @@ molecule_stats <- molecule_stats %>%
 			extractCallsFile.input = extractCallsFile
 		)
 	)
+}
 
 #Update molecule stats of remaining molecules and bases after all region read filters are applied
 molecule_stats <- molecule_stats %>%
@@ -1976,6 +1982,9 @@ calls <- calls %>%
 		,by = join_by(run_id,zm)
 	)
 
+rm(bam)
+invisible(gc())
+
 cat("DONE\n")
 
 ######################
@@ -1987,10 +1996,7 @@ cat("## Applying genome region filters...")
 for(i in seq_len(nrow(region_genome_filters_config))){
 	
 	#Construct label for the newly created filter column
-	passfilter_label <- region_genome_filters_config %>%
-		pluck("region_filter_threshold_file",i) %>%
-		basename %>%
-		str_c("region_genome_filter_",.,".passfilter")
+	passfilter_label <- region_filter_labels(region_genome_filters_config, "genome_filters")[[i]]
 	
 	#Load region read filter bigwig
 	region_genome_filter <- region_genome_filters_config %>%
@@ -2009,6 +2015,7 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 		) %>%
 		suppressWarnings %>% #remove warnings of out of bounds regions due to resize
 		trim %>%
+		normalize_exclusion_masks %>%
 		GenomicRanges::reduce(ignore.strand=TRUE)
 	
 	#Subtract genome region filters from filter trackers
@@ -2070,6 +2077,9 @@ for(i in seq_len(nrow(region_genome_filters_config))){
 	rm(region_genome_filter)
 	invisible(gc())
 }
+
+rm(calls.gr)
+invisible(gc())
 
 #Record number of molecule reference space bases remaining after all genome region filters
 molecule_stats <- molecule_stats %>%

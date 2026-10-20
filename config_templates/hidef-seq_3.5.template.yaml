@@ -70,7 +70,7 @@ cache_dir:  # cannot be under the /home folder to ensure mounting by container.
 ###
 ### HiDEF-seq container
 ###
-hidefseq_container: # HiDEF-seq v3 docker path or singularity sif file
+hidefseq_container: # HiDEF-seq v3.5 docker path or singularity sif file
 
 # Tool paths inside HiDEF-seq container
 conda_base_script: /hidef/miniconda3/etc/profile.d/conda.sh
@@ -85,8 +85,6 @@ bcftools_bin: bcftools
 bedGraphToBigWig_bin: /hidef/bin/bedGraphToBigWig
 wiggletools_bin: /hidef/bin/WiggleTools/bin/wiggletools
 wigToBigWig_bin: /hidef/bin/wigToBigWig
-seqkit_bin: /hidef/bin/seqkit
-bedtools_bin: bedtools
 bgzip_bin: bgzip
 tabix_bin: tabix
 
@@ -103,17 +101,17 @@ pbmm2_supplemental_settings: -o 5 -O 56 -e 4 -E 1 -A 2 -B 5
 
 analysis_chunks: 60 # for splitBAMs, extractCalls, and filterCalls
 
-mem_extractCallsChunk: 32GB # each retry will increase by half of this amount
+mem_extractCallsChunk: 16GB # each retry will increase by half of this amount
 time_extractCallsChunk: 1h # each retry will increase by this same amount
 maxRetries_extractCallsChunk: 3
-mem_filterCallsChunkChromgroupFiltergroup: 48GB # each retry will increase by half of this amount
+mem_filterCallsChunkChromgroupFiltergroup: 40GB # each retry will increase by half of this amount
 time_filterCallsChunkChromgroupFiltergroup: 2h # each retry will increase by this same amount
 maxRetries_filterCallsChunkChromgroupFiltergroup: 3
-mem_calculateBurdensChromgroupFiltergroup: 64GB # each retry will increase by half of this amount
+mem_calculateBurdensChromgroupFiltergroup: 192GB # each retry will increase by half of this amount
 time_calculateBurdensChromgroupFiltergroup: 12h # each retry will increase by this same amount
 maxRetries_calculateBurdensChromgroupFiltergroup: 3
 mem_outputResultsSample: 64GB #each retry will increase by half of this amount
-time_outputResultsSample: 4h #each retry will increase by this same amount
+time_outputResultsSample: 2h #each retry will increase by this same amount
 maxRetries_outputResultsSample: 3
 
 output_intermediate_files: true  # true or false
@@ -121,18 +119,18 @@ output_intermediate_files: true  # true or false
 ###
 ### Genome reference
 ###
-genome_fasta: hg38.fa
-genome_fai: hg38.fa.fai
-genome_mmi: hg38.mmi
-genome_organism: Hsapiens
-sex_chromosomes: chrX,chrY # comma-delimited
-mitochondrial_chromosome: chrM
-circular_chromosomes: chrM
+genome_fasta: 
+genome_fai: 
+genome_mmi: 
+genome_organism: # single-word token used in the package name of the created BSgenome package
+sex_chromosomes: # comma-delimited
+mitochondrial_chromosome: 
+circular_chromosomes: # comma-delimited
 chromgroups: 
-  - chromgroup: 1-22X
-    chroms: chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX #comma-delimited
-  - chromgroup: mito
-    chroms: chrM
+  - chromgroup: 
+    chroms:  #comma-delimited
+  - chromgroup: 
+    chroms: 
 
 ###
 ### extractCalls workflow
@@ -288,97 +286,22 @@ filtergroups:
 ###
 region_filters:
   - read_filters: # define any number of read filters
-    - region_filter_file: hg38.segdups.bw # bigWig file
-      binsize: 1
-      threshold: gte0.1 # lt (<), lte (<=), gt (>), gte (>=) followed by a number (no space between)
-      padding: 0
-      read_threshold: gte0.00001
-      applyto_chromgroups: 1-22X # comma-separated list, or 'all'
-      applyto_filtergroups: all # comma-separated list, or 'all'
-      is_germline_filter: false # true/false if this filter specifically removes germline variants, such as a gnomAD variant filter. This prevents this filter from being applied in sensitivity calculations that analyze germline variants.
-    - region_filter_file: hg38.telomeres.bw
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      read_threshold: gte0.00001
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: hg38.centromeres.bw
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      read_threshold: gte0.00001
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: hg38.satellites.bw
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      read_threshold: gte0.2
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: [mappability filter, such as k50 UMAP]
-      binsize: 20
-      threshold: lt0.4
-      padding: 0
-      read_threshold: gte0.3
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: [blacklist regions such as the ENCODE blacklist]
-      binsize: 20
-      threshold: gte0.1
-      padding: 0
-      read_threshold: gte0.3
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
+    - region_filter_file: # bigWig file
+      binsize: 
+      threshold: # lt (<), lte (<=), gt (>), gte (>=) followed by a number (no space between)
+      padding: 
+      read_threshold: 
+      applyto_chromgroups:  # comma-separated list, or 'all'
+      applyto_filtergroups:  # comma-separated list, or 'all'
+      is_germline_filter:  # true/false if this filter specifically removes germline variants, such as a gnomAD variant filter. This prevents this filter from being applied in sensitivity calculations that analyze germline variants.
   - genome_filters: # define any number of genome filters
-    - region_filter_file: [mappability filter, such as k50 UMAP]
-      binsize: 1
-      threshold: lt0.95
-      padding: 0
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: [blacklist regions such as the ENCODE blacklist]
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: hg38.satellites.bw
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: false
-    - region_filter_file: [gnomAD genomes PASS SNVs AF >= 0.001 bigWig]
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: true
-    - region_filter_file: [gnomAD genomes PASS indels AF >= 0.001 bigWig]
-      binsize: 1
-      threshold: gte0.1
-      padding: 1
-      applyto_chromgroups: all
-      applyto_filtergroups: strict
-      is_germline_filter: true
-    - region_filter_file: [gnomAD genomes non-PASS SNVs AF >= 0.001 bigWig]
-      binsize: 1
-      threshold: gte0.1
-      padding: 0
-      applyto_chromgroups: all
-      applyto_filtergroups: all
-      is_germline_filter: true
+    - region_filter_file: 
+      binsize: 
+      threshold: 
+      padding: 
+      applyto_chromgroups: 
+      applyto_filtergroups: 
+      is_germline_filter: 
 
 ###
 ### Sensitivity calculation
@@ -388,8 +311,8 @@ region_filters:
 # must pass in all germline VCF files. Note: MDB sensitivities are set in the
 # call_types section. 
 sensitivity_parameters:
-  use_chromgroup: 1-22X # chromgroup to use for calculating sensitivity that is used for all chromgroups. If blank, sensitivity calculation is skipped and sensitivity for all SBS and indel call types is set to 1. Sex chromosomes and mitochondrial chromosome are always excluded from sensitivity analysis, due to complication of pseudo-autosomal regions.
-  sensitivity_vcf: [gnomAD genomes SNVs and indels AF >= 0.001 vcf]
+  use_chromgroup: # chromgroup to use for calculating sensitivity that is used for all chromgroups. If blank, sensitivity calculation is skipped and sensitivity for all SBS and indel call types is set to 1. Sex chromosomes and mitochondrial chromosome are always excluded from sensitivity analysis, due to complication of pseudo-autosomal regions.
+  sensitivity_vcf: 
   genotype: heterozygous #heterozygous or homozygous
   SBS_min_Depth_quantile: 0.5
   SBS_min_VAF: 0.3

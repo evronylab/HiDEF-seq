@@ -26,6 +26,27 @@ suppressPackageStartupMessages(library(tidyverse))
 ######################
 source(Sys.which("sharedFunctions.R"))
 
+#Parse generated pairs once, then insert their columns at the source position.
+#Reconstruction follows tidyr's data-frame contract: row names survive, grouped
+#tibbles retain remaining groups, and non-tibble subclasses become data frames.
+separate_generated_pair <- function(data, col, into) {
+  source <- tidyselect::vars_pull(names(data), !!enquo(col))
+  parsed <- separate_wider_delim(
+    tibble(value = as.character(data[[source]])), value, delim = "_", names = into
+  )
+  position <- match(source, names(data))
+  before <- setdiff(names(data)[seq_len(position - 1L)], into)
+  after <- setdiff(names(data)[seq.int(position, ncol(data))][-1L], into)
+  result <- vctrs::new_data_frame(c(as.list(data)[before], as.list(parsed), as.list(data)[after]),
+                                  n = nrow(data), row.names = .row_names_info(data, type = 0L))
+  if(inherits(data, "grouped_df")) {
+    groups <- intersect(setdiff(group_vars(data), source), names(result))
+    return(grouped_df(result, groups, drop = group_by_drop_default(data)))
+  }
+  if(inherits(data, "tbl_df")) as_tibble(result, .name_repair = "minimal") else result
+}
+
+
 ######################
 ### Load configuration
 ######################
@@ -59,7 +80,7 @@ outputFile <- opt$output
 BSgenome_name <- get_bsgenome_name(yaml.config)
 
 #Load the BSgenome reference
-suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=yaml.config$cache_dir))
+suppressPackageStartupMessages(library(BSgenome_name,character.only=TRUE,lib.loc=reference_cache_dir(yaml.config)))
 
 #General parameters
 strand_levels <- c("+","-")
@@ -137,6 +158,32 @@ cat("DONE\n")
 ######################
 ### Define custom functions
 ######################
+#Decode alternating sa length/value pairs in run space. Fractional repeat counts
+#follow rep.int's truncation rule; malformed or negative counts are rejected
+#before constructing the Rle, without allocating the expanded read.
+decode_sa_rle <- function(tag){
+  lengths <- tag[c(TRUE, FALSE)]
+  values <- tag[c(FALSE, TRUE)]
+  if(is.null(lengths) || is.null(values) || length(lengths) != length(values)) {
+    stop("invalid 'rle' structure")
+  }
+  if(!is.numeric(lengths)) lengths <- as.numeric(lengths)
+  if(!is.integer(lengths)) lengths <- trunc(lengths)
+  if(anyNA(lengths) || any(!is.finite(lengths) | lengths < 0)) stop("invalid 'times' value")
+  if(!is.integer(lengths) && all(lengths <= .Machine$integer.max)) lengths <- as.integer(lengths)
+  Rle(values = values, lengths = lengths)
+}
+
+#Normalize indexing with base's compact integer sequence, then resolve only the
+#requested Rle runs. This handles negative, logical, missing, fractional and
+#out-of-range indices without expanding the tag's values. sm/sx remain vectors.
+subset_tag_positions <- function(tag, positions){
+  if(!inherits(tag, "Rle")){return(tag[positions])}
+  positions <- seq_len(length(tag))[positions]
+  ends <- cumsum(as.double(runLength(tag)))
+  as.vector(runValue(tag))[findInterval(positions - 1, ends) + 1L]
+}
+
 #Function to count number of remaining molecules and molecule query space and reference space bases per run, and also per run x chromgroup
 calculate_molecule_stats <- function(bam.gr.input, chroms_toanalyze.input, stat_label_suffix){
 	chroms_toanalyze.input %>%
@@ -209,7 +256,13 @@ run_metadata <- bamFile %>%
         }
       )
   ) %>%
-  type_convert %>%
+  {
+    # Preserve configured identifiers while retaining inference for BAM metadata.
+    configured_run_ids <- .$run_id
+    select(., -run_id) %>%
+      type_convert %>%
+      mutate(run_id = .env$configured_run_ids)
+  } %>%
   suppressMessages
 
 #Load BAM file reads
@@ -256,23 +309,11 @@ for(i in c("flag","bc_orientation","RG","movie_id","run_id","ccs_strand")){
 bam.df$isize <- cigarWidthAlongReferenceSpace(bam.df$cigar)
 
 #Reformat sa, sm, sx tags
- #sa: the number of subread alignments that span each CCS read position. sa is run-length encoded (rle) in the BAM file as length, value pairs. We inverse the rle encoding back to standard per-position values, then reverse the value orders for reads aligned to genome minus strand, then convert back to rle (as a list of rles instead of RleList as the former is much faster to convert to tibble).
-sa.lengths <- lapply(bam.df$sa,function(x){x[c(TRUE, FALSE)]})
-sa.values <- lapply(bam.df$sa,function(x){x[c(FALSE, TRUE)]})
-bam.df$sa <- mapply(
-		function(x,y){inverse.rle(list(lengths=x,values=y))},
-		x=sa.lengths,
-		y=sa.values,
-		SIMPLIFY=FALSE,
-		USE.NAMES=FALSE
-	)
-
-rm(sa.lengths,sa.values)
-invisible(gc())
-
+ #sa: the number of subread alignments spanning each CCS read position,
+ #encoded as length/value pairs. Keep it compressed, including strand reversal.
+bam.df$sa <- unname(lapply(bam.df$sa, decode_sa_rle))
 bam.df$sa[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sa[bam.df$strand %>% as.vector == "-"], rev)
-
-bam.df$sa <- bam.df$sa %>% lapply(Rle)
+invisible(gc())
 
  #sm: the number of subreads that align as a match to each CCS read position. Reverse the value orders for reads aligned to genome minus strand
 bam.df$sm[bam.df$strand %>% as.vector == "-"] <- lapply(bam.df$sm[bam.df$strand %>% as.vector == "-"], rev)
@@ -460,7 +501,7 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   var_queryspace <- cigar.queryspace.var %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
     as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
+    separate_generated_pair(group_name,into=c("zm","strand")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels)
@@ -502,8 +543,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     relist(.,cigar.refspace.var) %>%
     setNames(str_c(bam.gr.input$zm,strand(bam.gr.input) %>% as.character,sep="_")) %>%
     as.data.frame %>%
-    separate(group_name,sep="_",into=c("zm","strand")) %>%
-    separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(group_name,into=c("zm","strand")) %>%
+    separate_generated_pair(names,into=c("start_queryspace","end_queryspace")) %>%
     rename(
       start_refspace = start,
       end_refspace = end
@@ -562,8 +603,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="alt_plus_strand") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -605,8 +646,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -707,8 +748,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     as.list %>%
     enframe %>%
     unnest_longer(col=value,indices_to="start_end_queryspace",values_to="qual.opposite_strand") %>%
-    separate(name,sep="_",into=c("zm","strand")) %>%
-    separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+    separate_generated_pair(name,into=c("zm","strand")) %>%
+    separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
     mutate(
       zm = as.integer(zm),
       strand = factor(strand,levels=strand_levels),
@@ -732,7 +773,6 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
   
   #Format sa, sm, sx inputs
   sa.input <- bam.gr.input$sa %>%
-  	lapply(as.vector) %>%
   	setNames(str_c(bam.gr.input$zm, strand(bam.gr.input) %>% as.character,sep="_"))
   
   sm.input <- bam.gr.input$sm %>%
@@ -761,8 +801,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
       as.data.table %>%
       as_tibble %>%
       filter(start==end) %>%
-      separate(seqnames,sep="_",into=c("zm","strand")) %>%
-      separate(names,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(seqnames,into=c("zm","strand")) %>%
+      separate_generated_pair(names,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),
@@ -773,9 +813,9 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     
     #Define extraction function
     extract_sasmsx <- function(tag.input, tagdata.input, var_queryspace.list.input, vars_queryspace.coordconversion.input=NULL){
-      result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ .x[.y] %>% set_names(.y)) %>%
+      result <- map2(tagdata.input[var_queryspace.list.input %>% names], var_queryspace.list.input, ~ subset_tag_positions(.x, .y) %>% set_names(.y)) %>%
         enframe %>%
-        separate(name,sep="_",into=c("zm","strand")) %>%
+        separate_generated_pair(name,into=c("zm","strand")) %>%
         unnest_longer(col=value, values_to=tag.input, indices_to="start_queryspace") %>%
           mutate(
             zm = as.integer(zm),
@@ -886,17 +926,25 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     setkey(indels_queryspace_pos.opposite_strand, zm_strand, start_end_queryspace)
     
     #Extract data
-    indels_queryspace_pos[, sa_val := sa.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos[, sm_val := sm.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos[, sx_val := sx.input[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    # Resolve read names once; repeated named-list [[ lookups scan the tag list.
+    indels_queryspace_pos[, tag_index := match(zm_strand, names(sa.input))]
+    indels_queryspace_pos[is.na(zm_strand) | zm_strand == "", tag_index := NA_integer_]
+    indels_queryspace_pos[, sa_val := subset_tag_positions(sa.input[[tag_index[1]]], pos_queryspace), by = zm_strand]
+    indels_queryspace_pos[, sm_val := sm.input[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, sx_val := sx.input[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos[, tag_index := NULL]
     
     sa.input.opposite_strand <- sa.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sm.input.opposite_strand <- sm.input %>% setNames(names(.) %>% chartr("+-","-+",.))
     sx.input.opposite_strand <- sx.input %>% setNames(names(.) %>% chartr("+-","-+",.))
 
-    indels_queryspace_pos.opposite_strand[, sa_val := sa.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
-    indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[zm_strand[1]]][pos_queryspace], by = zm_strand]
+    # Resolve read names once; repeated named-list [[ lookups scan the tag list.
+    indels_queryspace_pos.opposite_strand[, tag_index := match(zm_strand, names(sa.input.opposite_strand))]
+    indels_queryspace_pos.opposite_strand[is.na(zm_strand) | zm_strand == "", tag_index := NA_integer_]
+    indels_queryspace_pos.opposite_strand[, sa_val := subset_tag_positions(sa.input.opposite_strand[[tag_index[1]]], pos_queryspace), by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sm_val := sm.input.opposite_strand[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, sx_val := sx.input.opposite_strand[[tag_index[1]]][pos_queryspace], by = zm_strand]
+    indels_queryspace_pos.opposite_strand[, tag_index := NULL]
     
     rm(cigar.queryspace.var.forqualdata, vars_queryspace.opposite_strand)
     invisible(gc())
@@ -904,8 +952,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     #Aggregate back into a list-of-vectors per (name, start_end_queryspace), and reformat columns for later joining
     indels_queryspace_pos <- indels_queryspace_pos[, .(sa = list(sa_val), sm = list(sm_val), sx = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
-      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
-      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(zm_strand,into=c("zm","strand")) %>%
+      separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),
@@ -915,8 +963,8 @@ extract_calls <- function(bam.gr.input, call_class.input, call_type.input, cigar
     
     indels_queryspace_pos.opposite_strand <- indels_queryspace_pos.opposite_strand[, .(sa.opposite_strand = list(sa_val), sm.opposite_strand = list(sm_val), sx.opposite_strand = list(sx_val)), by = .(zm_strand, start_end_queryspace)] %>%
       as_tibble %>%
-      separate(zm_strand,sep="_",into=c("zm","strand")) %>%
-      separate(start_end_queryspace,sep="_",into=c("start_queryspace","end_queryspace")) %>%
+      separate_generated_pair(zm_strand,into=c("zm","strand")) %>%
+      separate_generated_pair(start_end_queryspace,into=c("start_queryspace","end_queryspace")) %>%
       mutate(
         zm = as.integer(zm),
         strand = factor(strand,levels=strand_levels),

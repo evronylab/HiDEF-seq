@@ -53,7 +53,8 @@ For each sample (`sample_id`) belonging to an individual (`individual_id`), HiDE
 
 ### Shared logs
 Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].sharedLogs/`. Key contents include:
-- `runParams.*.yaml` and `runInfo.*.txt` snapshots written at pipeline launch.
+- `<input-basename>.input.*.yaml`, an exact copy of the original input YAML, and `runParams.*.yaml` and `runInfo.*.txt` launch snapshots. Each `runParams` snapshot contains the resolved configuration, including runtime overrides and prepared-cache paths.
+- `<input-basename>.resolved.yaml`, the resolved configuration passed to R tasks, where `<input-basename>` is the input filename without its `.yaml` or `.yml` extension. It includes the input settings, any launch-time overrides, and resolved cache paths. It is updated on each launch; earlier launch snapshots are retained. Simultaneous analyses must use distinct analysis IDs or output directories.
 - `.command.log` files for pipeline-wide tasks such as `makeBarcodesFasta`, `countZMWs`, `combineCCSChunks`, `prepareFilters`, `calculateBurdens`, and `outputResults` (see `publishDir "${sharedLogsDir}"` statements in `main.nf`).  Each log name begins with the process name followed by identifiers that scope the task (for example `makeBarcodesFasta.${analysis_id}.${run_id}.command.log`, `ccsChunk.${analysis_id}.${run_id}.chunk003.command.log`, `processGermlineVCFs.${individual_id}.command.log`, `prepareRegionFilters.${region_filter_file}.bin${binsize}.${threshold}.command.log`, or simply `installBSgenome.command.log`).
 - Molecule-count summaries from `countZMWs` (`*.zmwcount.txt`).
 - CCS QC files copied from PacBio outputs (for example `statistics/*.ccs_report.json`, `statistics/*.summary.json`) and Lima demultiplexing summaries (`*.lima.summary`, `*.lima.counts`).
@@ -63,7 +64,7 @@ Global logs and run metadata are saved in `[analysis_output_dir]/[analysis_id].s
 Each sample root directory contains a `logs/` subfolder: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/logs/`. This folder stores `.command.log` transcripts for sample-scoped processes (`pbmm2Align`, `verifyBAMID`, `mergeAlignedSampleBAMs`, `splitBAMs`, `filterCallsChunkChromgroupFiltergroup`, `calculateBurdensChromgroupFiltergroup`, `outputResultsSample`, etc.). Logs are renamed to start with the process name followed by the sample identifiers and any additional context keys needed by that process:
 
 - Core sample scope: `processName.${analysis_id}.${individual_id}.${sample_id}.command.log` (for example `mergeAlignedSampleBAMs.A123.I456.S789.command.log`).
-- Chunked tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `splitBAM.A123.I456.S789.chunk04.command.log`).
+- Chunked extraction and filtering tasks append the chunk identifier: `...chunk${chunkID}.command.log` (for example `extractCallsChunk.A123.I456.S789.chunk4.command.log`). BAM splitting produces one log per sample: `splitBAM.${analysis_id}.${individual_id}.${sample_id}.command.log`.
 - Chromgroup/filtergroup-aware tasks insert those fields before any chunk suffix: `...${chromgroup}.${filtergroup}[.chunk${chunkID}].command.log`.
 - Per-barcode alignments append the run and barcode identifiers (for example `pbmm2Align.A123.Run123.I456.S789.bc2009.command.log` for one demultiplexing round, or `pbmm2Align.A123.Run123.I456.S789.bc2009.bc2010-bc2011.command.log` when two rounds are configured; analogous naming applies to `verifyBAMID` logs).
 
@@ -72,7 +73,6 @@ Location: `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/`
 
 | File | Description |
 | --- | --- |
-| `${analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv` | Snapshot of the YAML parameter file used for the run. |
 | `${analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv` | `analysis_id`, `individual_id`, `sample_id` identifier columns and sequencing run and read group metadata derived from BAM header fields (`rg_id`, `movie_id`, `SM`, `PM`, `PL`, `DS`, `PU`, etc.). |
 | `${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2` | Serialized object enabling analysis of all outputs in R. Contents described in [Serialized object (.qs2)](#serialized-object-qs2). |
 
@@ -217,6 +217,8 @@ The pipeline produces two files:
   - Germline filter information: `region_read_filter_*.passfilter` and `region_genome_filter_*.passfilter` columns (TRUE/FALSE) for each region filter configured with `is_germline_filter: true` in the YAML, plus `germline_vcf_types_detected` and `germline_vcf_files_detected` columns annotating in which germline VCF types and files the calls were detected.
 - `germlineVariantCalls.vcf.bgz`—  Bgzipped VCF containing the same calls as `.germlineVariantCalls.tsv`; INFO fields mirror TSV columns except those mapped to CHROM, POS, REF, and ALT. Indexed with `.tbi`.
 
+For region rules sharing a prepared filename within a chromosome group and filter group, later rules receive `.1`, `.2`, … before `.passfilter` in YAML order; unique filenames keep their existing column names.
+
 ### Final-call spectra
 Trinucleotide distributions and call spectra of final calls are output to `finalCalls.spectra/[chromgroup]/` and are named:
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].[call_class].[call_type].[SBSindel_call_type].*`.
@@ -270,9 +272,9 @@ Summaries of sensitivity analyses are output to `sensitivity/[chromgroup]/` and 
 `[analysis_id].[individual_id].[sample_id].[chromgroup].[filtergroup].sensitivity.tsv` with columns:
 
 - Shared identifiers: `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type`.
-- Number of molecules detecting high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_zm_detected`.
-- Duplex coverage of interrogated base pairs at sites of high-confidence germline variants: `high_confidence_germline_vcf_variants_sum_duplex_coverage`.
-- `sensitivity`, : Sensitivity estimate, calculated as `high_confidence_germline_vcf_variants_sum_zm_detected` /  `high_confidence_germline_vcf_variants_sum_duplex_coverage` for homozygous variants, and 2 * this value for heterozygous variants.
+- Number of eligible molecule–variant detections: `high_confidence_germline_vcf_variants_sum_zm_detected`.
+- Number of eligible duplex molecule–variant opportunities: `high_confidence_germline_vcf_variants_sum_duplex_coverage`. Both counts use each category's non-germline filters and deduplicate by variant and `(run_id, zm)` across chunks; indel opportunities require both flanks on the same duplex molecule.
+- `sensitivity`: Germline detection count divided by eligible duplex coverage for homozygous variants, or twice this ratio for heterozygous variants, capped at 1. Only `mismatch-ss` takes its square root; `mismatch-ds` uses duplex sensitivity directly.
 - `sensitivity_source`: Provenance of the sensitivity value. Possible values are:
   - `calculated` — sensitivity derived from high-confidence germline variants detected in the current chromgroup/filtergroup.
   - `default` — sensitivity left at the default value of 1 because thresholds were not met or sensitivity analysis was not configured for that call type.
@@ -291,10 +293,12 @@ Final calls are output to `finalCalls.burdens/[chromgroup]/` and are named:
   - Baseline used for trinucleotide correction when `reftnc_corrected` is TRUE: `reftnc_corrected_reference` (`genome` for whole-genome corrections, `genome_chromgroup` for chromgroup-restricted corrections, NA otherwise).
   - Corrected for sensitivity: `sensitivity_corrected` (boolean TRUE/FALSE).
 - Sensitivity estimate and source (from the sensitivity summary table, annotated when `sensitivity_corrected` is TRUE, NA otherwise): `sensitivity`, `sensitivity_source`.
-- Number of interrogated bases (single-strand calls) or base pairs (double-strand calls): `interrogated_bases_or_bp`.
-- Number of calls corrected for above selected correction methods, and Poisson 95% lower (lci) and upper (uci) confidence intervals: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
+- Number of interrogated bases (mismatches/MDB) or base pairs (mutations): `interrogated_bases_or_bp`.
+- Number of calls corrected for above selected correction methods, and 95% lower (lci) and upper (uci) confidence limits: `num_calls`,  `num_calls_lci`, `num_calls_uci`.
 - Pre-correction call counts retained alongside corrected values (only populated for trinucleotide- and sensitivity-corrected rows): `num_calls_noncorrected`.
-- Burden (`num_calls` / `interrogated_bases_or_bp`) and Poisson 95% lower (lci) and upper (uci) confidence intervals: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.
+- Burden (`num_calls` / `interrogated_bases_or_bp`) and 95% lower (lci) and upper (uci) confidence limits: `burden_calls`, `burden_calls_lci`, `burden_calls_uci`.
+
+Intervals use exact Poisson limits for unweighted independent calls and the [Fay–Feuer weighted-Poisson gamma approximation](https://wonder.cdc.gov/controller/pdf/FayFeuerConfidenceIntervals.pdf) otherwise. `mismatch-ds` contributions are grouped by molecule, with possible contribution sizes bounded by `max_finalcalls_eachstrand`; this can be conservative when independent events share a molecule. Limits treat exposure, weights and sensitivity as fixed, and are `NA` for unavailable exposure (including missing reference contexts) or an unavailable positive finite double-mismatch cap.
 
 ### Estimated SBS mutation error probability
 Estimated SBS mutation error probabilities are output to `estimatedSBSMutationErrorProbability/[chromgroup]/` and are named:
@@ -309,7 +313,7 @@ The pipeline produces several files per below, and each table contains metadata 
 For each sample, a `.qs2` file is stored in `[analysis_output_dir]/[analysis_id].[individual_id].[sample_id]/${analysis_id}.${individual_id}.${sample_id}.outputResults.qs2`. It contains all the final data structures required for downstream analyses in R in a more convenient bundle than the many separate files described above. It is saved with the <a href="https://github.com/qsbase/qs2" target="_blank" rel="noopener noreferrer">qs2 R package</a> format and can be loaded with `qs2::qs_read`. Each component of the object is listed below with its schema.
 
 #### yaml.config
-Top-level configuration loaded from the analysis YAML, stored as nested lists per the structure and parameters documented in [`config_templates/`](../config_templates).
+The configuration used by the R scripts, stored as nested lists. Includes the analysis settings, any launch-time overrides, and resolved cache paths. A matching `runParams.*.yaml` snapshot is retained in the shared logs.
 
 #### run_metadata
 Columns as per `run_metadata.tsv` described above. 
@@ -403,7 +407,7 @@ Table containing genome coverage tracks and trinucleotide distributions, split i
 | --- | --- |
 | `analysis_id`, `individual_id`, `sample_id`, `chromgroup`, `filtergroup`, `call_class`, `call_type`, `SBSindel_call_type` | Identifiers. |
 | `sensitivity`, `sensitivity_source` | Estimated detection rate and provenance (`calculated`, `calculated_other_chromgroup`, `default_other_chromgroup`, or YAML overrides such as `use_chromgroup`). When the provenance is `default_other_chromgroup`, the sensitivity value is `1`. |
-| `high_confidence_germline_vcf_variants_sum_zm_detected`, `high_confidence_germline_vcf_variants_sum_duplex_coverage` | Counts of germline variants supporting the estimate. |
+| `high_confidence_germline_vcf_variants_sum_zm_detected`, `high_confidence_germline_vcf_variants_sum_duplex_coverage` | Eligible molecule–variant detections and opportunities. |
 
 #### finalCalls.burdens
 

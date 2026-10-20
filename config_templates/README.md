@@ -2,7 +2,7 @@
 
 Here, we describe the HiDEF-seq pipeline's parameters, which are configured in a [YAML-format](https://en.wikipedia.org/wiki/YAML) parameters file.
 
-We provide example template YAML files in this directory: a generic template (`analysis.template.yaml`) and an hg38-focused template (`analysis.hg38.template.yaml`) that capture commonly used settings for the hg38 reference genome.
+We provide example template YAML files in this directory: a generic template (`hidef-seq_3.5.template.yaml`) and an hg38-focused template (`hidef-seq_3.5.template.hg38.yaml`) that capture commonly used settings for the hg38 reference genome.
 
 Below, the `parameter[].subparameter` notation indicates that `parameter` is a list that can contain multiple `subparameter` items.
 
@@ -72,16 +72,16 @@ Barcode uniqueness rules within a run:
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `analysis_output_dir` | path | yes | Root directory for final output folders. |
-| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources). Populate a shared cache with a single Nextflow run at a time (or point concurrent runs to distinct caches) so that parallel executions do not overwrite the same files while they are being written. |
+| `cache_dir` | path | yes | Shared cache for reference-dependent intermediates (BSgenome installation, region filters, processed germline variant resources), stored under `<kind>/<identity>/`. Separate workflow runs can safely share prepared products; keep each run's work and output directories separate. |
 
 ## Container and tool paths
 
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `hidefseq_container` | string | yes | Docker image reference (`docker://…`) or Singularity `.sif` path used for all processes. |
+| `hidefseq_container` | string | yes | Docker image reference (`docker://gevrony/hidef-seq:3.5`) or corresponding Singularity `.sif` path used for all processes. |
 | `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating conda environment in the docker image. |
 | `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools in the docker image. |
-| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `seqkit_bin`, `bedtools_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
+| `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
 | `verifybamid_bin` | string | optional | Absolute path to the VerifyBamID2 binary inside the container. Leave blank to skip the `verifyBAMID` task. |
 | `verifybamid_resource_UD`, `verifybamid_resource_Bed`, `verifybamid_resource_Mean` | string | required if `verifybamid_bin` is set | Paths to VerifyBamID2 resource files (UD, BED, and mean tables). Resource downloads are available from the [VerifyBamID2 repository](https://github.com/Griffan/VerifyBamID). The `verifyBAMID` task is skipped if any of these parameters are not set. |
 | `ccs_ld_preload` | path | optional | Shared library path exported via `LD_PRELOAD` before invoking the PacBio `ccs` binary, mitigating thread-affinity issues described in <a href="https://github.com/microsoft/onnxruntime/issues/10736" target="_blank" rel="noopener noreferrer">onnxruntime issue #10736</a>. Leave blank to disable. |
@@ -95,7 +95,7 @@ Barcode uniqueness rules within a run:
 | `lima_round2_supplemental_settings` | string | yes | Supplemental lima settings appended to optional second-round demultiplexing command. See [lima documentation](https://lima.how) for details. |
 | `pbmm2_supplemental_settings` | string | optional | Settings added when running pbmm2 to supplement/override the [default --preset CCS settings](https://github.com/PacificBiosciences/pbmm2). For example, the supplied templates define settings that mimic pbmm2 versions < 1.13 that bias more towards indels than substitutions when both alignments are valid. This removes residual clustered SBS mismatches near homopolymers at the cost of more indels, though note that this could potentially be mitigated in the absence of these custom pbmm2 settings using the `ccs_sbs_flank` setting. |
 | `analysis_chunks` | integer | yes | Maximum number of chunks to split each processed sample BAM into for subsequent `extractCalls` and `filterCalls` workflows. The effective chunk count for each sample is `min(analysis_chunks, number of ZMWs)`, so samples with fewer ZMWs automatically use fewer non-empty chunks. Higher values increase parallelism for samples with enough ZMWs. |
-| `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry will increase the memory and time limit by one half of the baseline. |
+| `mem_extractCallsChunk`, `time_extractCallsChunk`, `maxRetries_extractCallsChunk` | string/integer | optional | Baseline memory, time limit, and retry count for `extractCallsChunk` processes. Each retry adds 50% of the baseline memory and 100% of the baseline time limit. |
 | `mem_filterCallsChunkChromgroupFiltergroup`, `time_filterCallsChunkChromgroupFiltergroup`, `maxRetries_filterCallsChunkChromgroupFiltergroup` | string/integer | optional | Analogous settings for `filterCallsChunkChromgroupFiltergroup` processes. |
 | `mem_calculateBurdensChromgroupFiltergroup`, `time_calculateBurdensChromgroupFiltergroup`, `maxRetries_calculateBurdensChromgroupFiltergroup` | string/integer | optional | Analogous settings for `calculateBurdensChromgroupFiltergroup` processes. |
 | `mem_outputResultsSample`, `time_outputResultsSample`, `maxRetries_outputResultsSample` | string/integer | optional | Analogous settings for `outputResultsSample` processes. |
@@ -108,7 +108,7 @@ Barcode uniqueness rules within a run:
 | --- | --- | --- | --- |
 | `genome_fasta` | path | yes | Reference FASTA. |
 | `genome_fai` | path | yes | FASTA index produced by `samtools faidx`. |
-| `genome_mmi` | path | yes | pbmm2 index produced by `pbmm2 index`. |
+| `genome_mmi` | path | yes | pbmm2 index produced from `genome_fasta` by `pbmm2 index --preset CCS`, including runs starting from subreads. Rebuild it when the reference sequence changes. The pipeline tracks index replacements on resume and checks the alignment reference names/lengths against `genome_fai`; this check cannot establish nucleotide identity for references with identical names/lengths. |
 | `genome_organism` | string | yes | Single-word token used in the package name of the BSgenome package created from `genome_fasta`. |
 | `sex_chromosomes` | comma-separated string | yes | Names of sex chromosomes. Used to exclude them from sensitivity analysis. |
 | `mitochondrial_chromosome` | string | yes | Name of the mitochondrial chromosome. Used to exclude it from sensitivity analysis. |
@@ -210,9 +210,9 @@ Processed region filter bigWig files are prepared by the `prepareFilters` workfl
 
 ## Sensitivity estimation settings
 
-Settings for estimating sensitivity for SBS and indels. Sensitivity is estimated separated for SBS and indels first for mutations (double-strand events) by counting the number of a set of high-confidence germline variants that are detected per the number of opportunities to detect them in the final interrogated bases (while including interrogated bases that were only filtered by germline-related filters), and correcting for zygosity of the germline variant.
+Settings for estimating sensitivity separately for each SBS/indel call category. The same high-confidence germline variants are evaluated against each category's eligible duplex molecules, excluding germline-related filters. Sensitivity is detections divided by molecule–variant opportunities, doubled for heterozygous controls; indels require both flanks on the same duplex molecule.
 
-After calculating sensitivity for mutations, sensitivity estimates are assigned to SBSindel_call_types `mismatch-ss` and `mismatch-ds` (single-strand events) as the square-root of the respective call type's estimated sensitivity for mutations. MDB sensitivities for all SBSindel_call_types, including `mismatch-os` and `match` calls, are not calculated and instead set manually in the `call_types` section.
+Each category's duplex estimate is capped at 1; `mismatch-ss` then takes its square root, while `mismatch-ds` uses it directly because detection requires both strands. MDB sensitivities for all SBSindel_call_types, including `mismatch-os` and `match` calls, are not calculated and instead set manually in the `call_types` section.
 
 Below also are filter settings to select high-confidence germline variants used for sensitivity analysis. These filters are calculated and applied separately for each `germline_vcf_file` and all filters must pass for the variant in all germline VCF files in order for the variant to be used for sensitivity estimation.
 

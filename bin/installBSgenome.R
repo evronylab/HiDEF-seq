@@ -43,7 +43,7 @@ if(is.null(opt$config)){
 
 yaml.config <- suppressWarnings(read.config(opt$config))
 
-cache_dir <- yaml.config$cache_dir
+cache_dir <- Sys.getenv("HIDEF_REFERENCE_BUILD_DIR", unset=reference_cache_dir(yaml.config))
 BSgenome_name <- get_bsgenome_name(yaml.config)
 writeLines(BSgenome_name, "BSgenome_name.txt")
 
@@ -81,13 +81,13 @@ if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
 	twobit_path <- tempfile(tmpdir=getwd(), pattern=str_c(genome_part, "."), fileext=".2bit")
 	# Allow fastaTo2bit to warn, rather than stop, when it replaces unsupported bases with N's.
 	options(warn=1)
-	BSgenomeForge::fastaTo2bit(
+	fastaTo2bit(
 		origfile = yaml.config$genome_fasta,
 		destfile = twobit_path
 	)
 	options(warn=2)
 
-	pkg_dir <- BSgenomeForge::forgeBSgenomeDataPkgFromTwobitFile(
+	pkg_dir <- forgeBSgenomeDataPkgFromTwobitFile(
 		filepath = twobit_path,
 		organism = yaml.config$genome_organism,
 		provider = "user",
@@ -108,12 +108,12 @@ if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
 	}
 
 	cat("> Building BSgenome package\n")
-	pkg_tarball <- devtools::build(pkg_dir, path=getwd(), vignettes=FALSE, manual=FALSE, quiet=FALSE)
+	pkg_tarball <- build(pkg_dir, path=getwd(), vignettes=FALSE, manual=FALSE, quiet=FALSE)
 	cat("> Checking BSgenome package\n")
-	devtools::check_built(pkg_tarball, cran=FALSE, force_suggests=FALSE, manual=FALSE, error_on="error", quiet=FALSE)
+	check_built(pkg_tarball, cran=FALSE, force_suggests=FALSE, manual=FALSE, error_on="error", quiet=FALSE)
 
 	cat("> Installing BSgenome package:", cache_dir, "\n")
-	devtools::install_local(pkg_tarball, dependencies=FALSE, upgrade="never", build=FALSE, quiet=FALSE)
+	install_local(pkg_tarball, dependencies=FALSE, upgrade="never", build=FALSE, quiet=FALSE)
 
 	if(length(find.package(BSgenome_name, lib.loc=cache_dir, quiet=TRUE)) == 0){
 		stop(str_c("ERROR: ", BSgenome_name, " was not installed into cache_dir: ", cache_dir), call.=FALSE)

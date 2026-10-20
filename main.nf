@@ -43,6 +43,25 @@ def dirCoverage_Reftnc(individual_id, sample_id) {
   return "${sampleBaseDir(individual_id, sample_id)}/coverage_reftnc"
 }
 
+// Build the seven-field downstream tuples by exact basename, never
+// glob/list order (chunk10 sorts before chunk2, and one chunk is a scalar path).
+def expandAnalysisChunks(individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks) {
+  def bams = bamFiles instanceof List ? bamFiles : [bamFiles]
+  def pbis = pbiFiles instanceof List ? pbiFiles : [pbiFiles]
+  def bais = baiFiles instanceof List ? baiFiles : [baiFiles]
+  def byName = (bams + pbis + bais).collectEntries { item -> [(item.name): item] }
+  if (bams.size() != effectiveChunks || pbis.size() != effectiveChunks || bais.size() != effectiveChunks || byName.size() != 3 * effectiveChunks) {
+    throw new IllegalStateException("Unexpected splitBAM output set for ${individual_id}/${sample_id}")
+  }
+  (1..effectiveChunks).collect { chunkID ->
+    def basename = "${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam".toString()
+    if (!byName.containsKey(basename) || !byName.containsKey(basename + '.pbi') || !byName.containsKey(basename + '.bai')) {
+      throw new IllegalStateException("Missing splitBAM chunk ${chunkID} for ${individual_id}/${sample_id}")
+    }
+    tuple(individual_id, sample_id, byName[basename], byName[basename + '.pbi'], byName[basename + '.bai'], chunkID, effectiveChunks)
+  }
+}
+
 //Function to save nextflow process logs upon completion of each process
 def generateAfterScript(logDir, logName) {
   // Strip workflow prefixes like "processReads:" from the log name
@@ -85,6 +104,112 @@ def fileSha256(path) {
     .digest(file(path).bytes)
     .encodeHex()
     .toString()
+}
+
+// Metadata identities avoid reading large BAMs or references on the
+// orchestration node. They are intentionally not described as content hashes.
+def preparedInputIdentity(rawPath) {
+  def source = file(rawPath).toRealPath()
+  def attrs = java.nio.file.Files.readAttributes(source, java.nio.file.attribute.BasicFileAttributes)
+  def changed = null
+  def inode = null
+  try {
+    changed = java.nio.file.Files.getAttribute(source, 'unix:ctime').toString()
+  } catch (UnsupportedOperationException ignored) {
+    changed = null
+  }
+  try {
+    // UnixFileKey includes st_dev, which is local to a node's mount table.
+    // The same shared file can therefore have different fileKeys across nodes.
+    inode = java.nio.file.Files.getAttribute(source, 'unix:ino').toString()
+  } catch (UnsupportedOperationException ignored) {
+    inode = null
+  }
+  return [kind: 'canonical-path-size-mtime-ctime-inode', path: source.toString(),
+          bytes: attrs.size(), modified: attrs.lastModifiedTime().toString(),
+          changed: changed, inode: inode]
+}
+
+def canonicalCacheValue(value) {
+  if (value instanceof Map) {
+    def result = new TreeMap()
+    value.each { key, item -> result[key.toString()] = canonicalCacheValue(item) }
+    return result
+  }
+  if (value instanceof Collection) {
+    return value.collect { canonicalCacheValue(it) }
+  }
+  return value instanceof GString ? value.toString() : value
+}
+
+// Emit ordinary YAML scalars/collections, never tagged Nextflow/Groovy runtime
+// objects such as MemoryUnit. Only original configuration keys and explicitly
+// added artifact fields are passed through this conversion.
+def plainConfigurationValue(value) {
+  if (value == null) return null
+  if (value instanceof CharSequence || value instanceof java.nio.file.Path ||
+      value instanceof nextflow.util.MemoryUnit || value instanceof nextflow.util.Duration) return value.toString()
+  if (value instanceof Number || value instanceof Boolean) return value
+  if (value instanceof Map) {
+    def result = new LinkedHashMap()
+    value.each { key, item -> result[key.toString()] = plainConfigurationValue(item) }
+    return result
+  }
+  if (value instanceof Collection) return value.collect { plainConfigurationValue(it) }
+  throw new IllegalArgumentException("Unsupported configuration value type: ${value.getClass().name}")
+}
+
+def originalParamsFile(commandLine) {
+  def matches = commandLine =~ /(?:^|\s)-params-file(?:\s+|=)("[^"]*"|'[^']*'|(?:\\.|[^\s\\])+)/
+  if (!matches.find()) throw new IllegalArgumentException('An original -params-file YAML is required')
+  def value = matches.group(1)
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.substring(1, value.length() - 1)
+  } else {
+    value = value.replaceAll(/\\(.)/, '$1')
+  }
+  return file(value).toAbsolutePath()
+}
+
+def writeResolvedConfiguration(path, text) {
+  def destination = file(path).toAbsolutePath()
+  def expected = text.getBytes('UTF-8')
+  if (java.nio.file.Files.exists(destination) &&
+      java.util.Arrays.equals(java.nio.file.Files.readAllBytes(destination), expected)) return
+  def temporary = java.nio.file.Files.createTempFile(destination.parent, '.resolved-params-', '.tmp')
+  try {
+    java.nio.file.Files.write(temporary, expected)
+    java.nio.channels.FileChannel.open(temporary, java.nio.file.StandardOpenOption.WRITE).withCloseable { channel ->
+      channel.force(true)
+    }
+    java.nio.file.Files.move(temporary, destination,
+      java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+  } catch (Exception failure) {
+    java.nio.file.Files.deleteIfExists(temporary)
+    throw failure
+  }
+  java.nio.file.Files.deleteIfExists(temporary)
+}
+
+def shellQuote(value) {
+  return "'" + value.toString().replace("'", "'\"'\"'") + "'"
+}
+
+params.python_bin = params.containsKey('python_bin') && params.python_bin ? params.python_bin : 'python3'
+
+def cachedBuild(entry, products, command) {
+  def productOptions = products.collect { '--product ' + shellQuote(it) }.join(' ')
+  return """
+  set -euo pipefail
+  cat > .cache.identity.json <<'HIDEF_CACHE_IDENTITY'
+  ${entry.json}
+  HIDEF_CACHE_IDENTITY
+  cat > .cache.build.sh <<'HIDEF_CACHE_BUILD'
+  set -euo pipefail
+  ${command}
+  HIDEF_CACHE_BUILD
+  Rscript --vanilla ${shellQuote(params.cache_helper)} run --root ${shellQuote(params.prepared_cache_root)} --identity .cache.identity.json ${productOptions} -- bash .cache.build.sh
+  """.stripIndent()
 }
 
 def canonicalBarcodePair(barcodeA, barcodeB) {
@@ -137,8 +262,21 @@ workflow {
   options.setIndent(2)
 
   yaml = new org.yaml.snakeyaml.Yaml(options)
-  timestamp = new Date().format('yyyy_MMdd_HHmm')
-  file("${logsDir}/runParams.${timestamp}.yaml").text = yaml.dump(params)
+  originalParametersFile = originalParamsFile(workflow.commandLine)
+  originalConfiguration = yaml.load(originalParametersFile.text)
+  if (!(originalConfiguration instanceof Map)) error 'The original parameters YAML must contain a mapping'
+  if (params.containsKey('paramsFileName')) {
+    error 'paramsFileName is reserved for the generated resolved YAML; use the original input configuration'
+  }
+  // Apply intentional command-line/config overrides to original keys, without
+  // leaking unrelated injected defaults into R's scientific configuration.
+  scientificConfiguration = new LinkedHashMap()
+  originalConfiguration.each { name, value ->
+    scientificConfiguration[name.toString()] = plainConfigurationValue(params.containsKey(name) ? params[name] : value)
+  }
+  timestamp = "${new Date().format('yyyy_MMdd_HHmmss_SSS')}.${workflow.sessionId}".toString()
+  parametersStem = originalParametersFile.name.replaceFirst(/(?i)\.ya?ml$/, '')
+  java.nio.file.Files.copy(originalParametersFile, file("${logsDir}/${parametersStem}.input.${timestamp}.yaml"))
 
   // Save copy of run information
   file("${logsDir}/runInfo.${timestamp}.txt").text = """
@@ -155,20 +293,142 @@ workflow {
   Nextflow Build: ${workflow.nextflow.build}
   """.stripIndent()
 
-  // Get path of parameters file
-  commandLineTokens = workflow.commandLine.tokenize()
-  params.paramsFileName = commandLineTokens[commandLineTokens.indexOf('-params-file') + 1]
+  // paramsFileName is assigned once below, after resolving prepared artifacts.
+
+  // Scoped prepared artifacts: changing one individual's VCF inputs does not
+  // invalidate the reference, other individuals, or independent region tracks.
+  params.cache_helper = "${workflow.projectDir}/bin/artifactCache.R".toString()
+  params.prepared_cache_root = file(params.cache_dir).toAbsolutePath().toString()
+  inputIdentities = [:]
+  identifyInput = { source ->
+    def name = source.toString()
+    if (!inputIdentities.containsKey(name)) {
+      inputIdentities[name] = preparedInputIdentity(source)
+    }
+    inputIdentities[name]
+  }
+  workflowSource = file("${workflow.projectDir}/main.nf").text
+  cacheArtifacts = [:]
+  makeCacheEntry = { namespace, processName, settings, inputs, scripts, products ->
+    def start = workflowSource.indexOf("\nprocess ${processName} {")
+    def end = workflowSource.indexOf('\nprocess ', start + 1)
+    def processSource = workflowSource.substring(start, end < 0 ? workflowSource.length() : end)
+    def scriptHashes = scripts.collectEntries { script -> [(script): fileSha256("${workflow.projectDir}/bin/${script}")] }
+    scriptHashes['process'] = java.security.MessageDigest.getInstance('SHA-256').digest(processSource.getBytes('UTF-8')).encodeHex().toString()
+    scriptHashes['artifactCache.R'] = fileSha256(params.cache_helper)
+    scriptHashes['sharedFunctions.R'] = fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")
+    def toolIdentities = [:]
+    settings.findAll { name, value -> name in ['seqkit', 'bgzip', 'tabix', 'bcftools', 'samtools', 'bedGraphToBigWig', 'wiggletools', 'wigToBigWig'] }.each { name, executable ->
+      toolIdentities[name] = file(executable).exists() ? identifyInput.call(executable) : [kind: 'container-command', command: executable]
+    }
+    // Product names are part of the contract: canonical input paths can hide
+    // symlink aliases, and VCF product names also depend on the BAM basename.
+    def identity = canonicalCacheValue([schema: 1, namespace: namespace, settings: settings, products: products,
+      inputs: inputs.collectEntries { name, source -> [(name): identifyInput.call(source)] },
+      scripts: scriptHashes, tools: toolIdentities])
+    def serialized = groovy.json.JsonOutput.toJson(identity)
+    def digest = java.security.MessageDigest.getInstance('SHA-256').digest(serialized.getBytes('UTF-8')).encodeHex().toString()
+    def directory = "${params.prepared_cache_root}/${namespace}/${digest}".toString()
+    products.each { product ->
+      def destination = "${directory}/${product}".toString()
+      if (cacheArtifacts.containsKey(product) && cacheArtifacts[product] != destination) {
+        error "Prepared cache filename collision for '${product}'. Use distinct input basenames."
+      }
+      cacheArtifacts[product] = destination
+    }
+    def envelope = [schema: 1, namespace: namespace, serialized_identity: serialized]
+    [json: groovy.json.JsonOutput.toJson(envelope), key: digest, directory: directory]
+  }
+  referenceEntry = makeCacheEntry.call('reference', 'installBSgenome',
+    [organism: params.genome_organism, circular: params.circular_chromosomes, fastaName: file(params.genome_fasta).name],
+    [fasta: params.genome_fasta], ['installBSgenome.R', 'sharedFunctions.R'], [])
+  referenceSummaryEntry = makeCacheEntry.call('reference-summary', 'prepareReferenceSummary',
+    [reference: referenceEntry.key], [:],
+    ['prepareReferenceSummary.R', 'sharedFunctions.R'], ['referenceSummary.qs2'])
+  vcfEntries = [:]
+  bamEntries = [:]
+  params.individuals.each { individual ->
+    def bamName = file(individual.germline_bam_file).name
+    def vcfInputs = [fasta: params.genome_fasta]
+    (individual.germline_vcf_files ?: []).eachWithIndex { vcf, i -> vcfInputs["vcf${i}"] = vcf.germline_vcf_file }
+    vcfEntries[individual.individual_id] = makeCacheEntry.call('germline-vcf', 'processGermlineVCFs',
+      [individual: individual.individual_id, vcfs: individual.germline_vcf_files, reference: referenceEntry.key, bcftools: params.bcftools_bin],
+      vcfInputs, ['processGermlineVCFs.R', 'sharedFunctions.R'], ["${individual.individual_id}.${bamName}.germline_vcf_variants.qs2".toString()])
+    bamEntries[bamName] = makeCacheEntry.call('germline-bam', 'processGermlineBAMs',
+      [type: individual.germline_bam_type, samtools: params.samtools_bin, bcftools: params.bcftools_bin, bedGraphToBigWig: params.bedGraphToBigWig_bin],
+      [bam: individual.germline_bam_file, fasta: params.genome_fasta, fai: params.genome_fai], [],
+      ["${bamName}.bw".toString(), "${bamName}.vcf.gz".toString(), "${bamName}.vcf.gz.tbi".toString()])
+  }
+  regionEntries = [:]
+  (params.region_filters ?: []).each { group ->
+    ((group.read_filters ?: []) + (group.genome_filters ?: [])).each { region ->
+      def product = "${file(region.region_filter_file).name}.bin${region.binsize}.${region.threshold}.bw".toString()
+      regionEntries[product] = makeCacheEntry.call('region-filter', 'prepareRegionFilters',
+        [binsize: region.binsize, threshold: region.threshold, wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
+        [region: region.region_filter_file, fai: params.genome_fai], [], [product])
+    }
+  }
+  coverageEntries = [:]
+  coverageConfigurations = []
+  coverageThresholds = params.filtergroups.collect { it.min_germlineBAM_TotalReads }.unique()
+  params.individuals.each { individual ->
+    def bamName = file(individual.germline_bam_file).name
+    coverageThresholds.each { threshold ->
+      def product = "${individual.individual_id}.${bamName}.minCoverage${threshold}.qs2".toString()
+      def entry = makeCacheEntry.call('germline-coverage-filter', 'prepareGermlineCoverageFilters',
+        [individual: individual.individual_id, threshold: threshold, rawCoverage: bamEntries[bamName].key,
+         wiggletools: params.wiggletools_bin, wigToBigWig: params.wigToBigWig_bin],
+        [fai: params.genome_fai], ['prepareGermlineCoverageFilters.R', 'sharedFunctions.R'], [product])
+      coverageEntries[product] = entry
+      coverageConfigurations << [individual_id: individual.individual_id, threshold: threshold,
+        bigwig_name: "${bamName}.bw".toString(), product: product, file: "${entry.directory}/${product}".toString()]
+    }
+  }
+  params.germline_coverage_filters = coverageConfigurations
+  params.prepared_cache = [reference: referenceEntry, reference_summary: referenceSummaryEntry, vcfs: vcfEntries, bams: bamEntries, regions: regionEntries, coverage: coverageEntries]
+  params.reference_cache_dir = "${referenceEntry.directory}/library".toString()
+  params.reference_summary_file = "${referenceSummaryEntry.directory}/referenceSummary.qs2".toString()
+  params.cache_artifacts = cacheArtifacts
+  // Keep the user's original YAML untouched. Independent analyses use distinct
+  // output locations; sequential resumes reuse this stable command-line path.
+  def effectiveConfiguration = new LinkedHashMap(scientificConfiguration)
+  ['germline_coverage_filters', 'reference_cache_dir', 'reference_summary_file', 'cache_artifacts'].each { name ->
+    effectiveConfiguration[name] = plainConfigurationValue(params[name])
+  }
+  def effectiveYaml = yaml.dump(effectiveConfiguration)
+  def effectiveParametersFile = "${logsDir}/${parametersStem}.resolved.yaml".toString()
+  if (file(effectiveParametersFile).toAbsolutePath() == originalParametersFile) error 'Effective YAML must not replace its input'
+  file("${logsDir}/runParams.${timestamp}.yaml").text = effectiveYaml
+  writeResolvedConfiguration(effectiveParametersFile, effectiveYaml)
+  params.paramsFileName = effectiveParametersFile
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
-  signature_params = params + [sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R")]
-  config_signatures = [
-    installBSgenome: configHash(signature_params + [installBSgenomeScriptHash: fileSha256("${workflow.projectDir}/bin/installBSgenome.R")], ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes', 'installBSgenomeScriptHash']),
-    processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash']),
-    extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash']),
-    filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash']),
-    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bedtools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash']),
-    outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash'])
+  // Include prepared input identities so changes at the same source path
+  // invalidate the affected process signatures.
+  signature_params = params + [
+    sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R"),
+    referenceCacheKey: referenceEntry.key,
+    referenceSummaryCacheKey: referenceSummaryEntry.key,
+    vcfCacheKeys: vcfEntries.collectEntries { name, entry -> [(name): entry.key] },
+    bamCacheKeys: bamEntries.collectEntries { name, entry -> [(name): entry.key] },
+    regionCacheKeys: regionEntries.collectEntries { name, entry -> [(name): entry.key] },
+    coverageCacheKeys: coverageEntries.collectEntries { name, entry -> [(name): entry.key] },
+    genomeFaiIdentity: identifyInput.call(params.genome_fai),
+    sensitivityVcfIdentity: params.individuals.any { it.germline_vcf_files } &&
+      params.chromgroups.any { it.chromgroup == params.sensitivity_parameters?.use_chromgroup } ?
+      identifyInput.call(params.sensitivity_parameters.sensitivity_vcf) : null,
+    resolvedConfiguration: effectiveConfiguration
   ]
+  config_signatures = [
+    installBSgenome: configHash(signature_params + [installBSgenomeScriptHash: fileSha256("${workflow.projectDir}/bin/installBSgenome.R")], ['cache_dir', 'genome_fasta', 'genome_organism', 'circular_chromosomes', 'installBSgenomeScriptHash', 'referenceCacheKey']),
+    processGermlineVCFs: configHash(signature_params + [processGermlineVCFsScriptHash: fileSha256("${workflow.projectDir}/bin/processGermlineVCFs.R")], ['cache_dir', 'circular_chromosomes', 'individuals', 'genome_fasta', 'genome_organism', 'bcftools_bin', 'processGermlineVCFsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'vcfCacheKeys']),
+    extractCallsChunk: configHash(signature_params + [extractCallsScriptHash: fileSha256("${workflow.projectDir}/bin/extractCalls.R")], ['cache_dir', 'circular_chromosomes', 'genome_fasta', 'genome_organism', 'call_types', 'chromgroups', 'runs', 'barcodes', 'min_strand_overlap', 'extractCallsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey']),
+    filterCallsChunkChromgroupFiltergroup: configHash(signature_params + [filterCallsScriptHash: fileSha256("${workflow.projectDir}/bin/filterCalls.R")], ['bcftools_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fai', 'genome_fasta', 'genome_organism', 'germline_vcf_types', 'individuals', 'region_filters', 'samples', 'wigToBigWig_bin', 'wiggletools_bin', 'filterCallsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'referenceSummaryCacheKey', 'vcfCacheKeys', 'bamCacheKeys', 'regionCacheKeys', 'coverageCacheKeys']),
+    calculateBurdensChromgroupFiltergroup: configHash(signature_params + [calculateBurdensScriptHash: fileSha256("${workflow.projectDir}/bin/calculateBurdens.R")], ['analysis_id', 'bcftools_bin', 'bgzip_bin', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'genome_fai', 'genome_fasta', 'genome_organism', 'individuals', 'mitochondrial_chromosome', 'samples', 'sensitivity_parameters', 'sex_chromosomes', 'tabix_bin', 'calculateBurdensScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'referenceSummaryCacheKey', 'vcfCacheKeys', 'sensitivityVcfIdentity', 'genomeFaiIdentity']),
+    outputResultsSample: configHash(signature_params + [outputResultsScriptHash: fileSha256("${workflow.projectDir}/bin/outputResults.R")], ['analysis_id', 'cache_dir', 'call_types', 'chromgroups', 'circular_chromosomes', 'filtergroups', 'genome_fasta', 'genome_organism', 'region_filters', 'samples', 'outputResultsScriptHash', 'sharedFunctionsHash', 'referenceCacheKey', 'regionCacheKeys', 'resolvedConfiguration'])
+  ]
+
+
 
   // Validate barcodes section and build barcode map
   if (!params.barcodes || params.barcodes.isEmpty()) {
@@ -432,11 +692,17 @@ workflow {
     .map { cfg ->
       tuple(cfg.run_id, cfg.barcode_ids_parsed.canonical, cfg.individual_id, cfg.sample_id, cfg.barcode_ids)
     }
-    .join(limaDemux_round1_map_ch, by: [0,1])
+    // A sample can reuse an outer pair with distinct inner pairs. Merge its
+    // outer BAMs once; every sample must receive both barcode orientations.
+    .unique()
+    .combine(limaDemux_round1_map_ch, by: [0,1])
     .map { run_id, barcode_pair_key, individual_id, sample_id, barcode_ids, bamFile ->
       tuple(run_id, individual_id, sample_id, barcode_ids, bamFile)
     }
     .groupTuple(by: [0,1,2,3])
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFiles ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFiles.sort(false) { it.name })
+    }
 
   mergeDemuxBams_round1 = mergeDemuxBamsRound1(mergeDemuxBams_round1_input_ch).out
 
@@ -445,7 +711,7 @@ workflow {
     .map { cfg -> tuple(cfg.run_id, cfg.individual_id, cfg.sample_id, cfg.barcode_ids, cfg.barcode_ids_round2, cfg.barcode_ids_round2_parsed.mode, cfg.barcode_ids_round2_parsed.canonical) }
 
   limaDemux_round2_input_ch = mergeDemuxBams_round1
-    .join(limaDemux_round2_samples_ch, by: [0,1,2,3])
+    .combine(limaDemux_round2_samples_ch, by: [0,1,2,3])
     .combine(round2_barcodes_fasta_ch, by: 0)
     .map { run_id, individual_id, sample_id, barcode_ids, mergedBam, mergedPbi, barcode_ids_round2, mode2, barcode_pair_key_round2, barcodesFasta ->
       tuple(run_id, individual_id, sample_id, barcode_ids, barcode_ids_round2, barcode_pair_key_round2, mergedBam, mergedPbi, barcodesFasta, mode2, params.lima_round2_supplemental_settings)
@@ -472,6 +738,9 @@ workflow {
   
   mergeDemuxBams_round2_input_ch = limaDemux_round2_map_ch
     .groupTuple(by: [0,1,2,3])
+    .map { run_id, individual_id, sample_id, barcode_ids, bamFiles ->
+      tuple(run_id, individual_id, sample_id, barcode_ids, bamFiles.sort(false) { it.name })
+    }
 
   mergeDemuxBams_round2 = mergeDemuxBamsRound2(mergeDemuxBams_round2_input_ch).out
 
@@ -492,8 +761,15 @@ workflow {
   pbmm2Align_input_ch = pbmm2_round1_final_ch
     .mix(pbmm2_round2_final_ch)
 
+  // Track the supplied index and its configured reference even with lenient
+  // Nextflow caching, which otherwise ignores changes to a file's timestamp.
+  alignmentReference = [mmi: identifyInput.call(params.genome_mmi),
+    fasta: identifyInput.call(params.genome_fasta), fai: identifyInput.call(params.genome_fai)]
+  alignment_reference_ch = channel.value(tuple(
+    file(params.genome_mmi), file(params.genome_fai), alignmentReference))
+
   // Run process
-  pbmm2Align(pbmm2Align_input_ch)
+  pbmm2Align(pbmm2Align_input_ch, alignment_reference_ch)
 
   //******************
   // verifyBAMID
@@ -528,22 +804,36 @@ workflow {
   // mergeAlignedSampleBAMs
   //******************
 
-  // Preserve run ordering from params.runs so merge order matches the YAML configuration
-  run_id_order = params.runs.withIndex().collectEntries { run, idx -> [(run.run_id): idx] }
+  // Preserve YAML run and sample-entry order, including multiple barcodes for
+  // the same sample within one run. Ordering keys never enter process inputs.
+  run_sample_order = [:]
+  params.runs.eachWithIndex { run, runIndex ->
+    run.samples.eachWithIndex { sample, sampleIndex ->
+      def barcode_id = sample.barcode_ids_round2 ? "${sample.barcode_ids}.${sample.barcode_ids_round2}".toString() : sample.barcode_ids
+      run_sample_order[[run.run_id, sample.sample_id, barcode_id]] = [runIndex, sampleIndex]
+    }
+  }
 
   // Create input channel
   mergeAlignedSampleBAMs_input_ch = pbmm2Align.out
     .map { run_id, individual_id, sample_id, barcode_id, bamFile, pbiFile ->
-        tuple(individual_id, sample_id, run_id_order[run_id], bamFile, pbiFile)
+        def order = run_sample_order[[run_id, sample_id, barcode_id.toString()]]
+        if (order == null) {
+          throw new IllegalStateException("Missing YAML merge order for ${run_id}/${sample_id}/${barcode_id}")
+        }
+        def (runOrder, sampleOrder) = order
+        tuple(individual_id, sample_id, runOrder, sampleOrder, bamFile, pbiFile)
     }
     .groupTuple(by: [0, 1]) // Group by individual_id, sample_id
-    .map { individual_id, sample_id, run_order, bamFiles, pbiFiles ->
-      def ordered = [run_order, bamFiles, pbiFiles].transpose().sort { row -> row[0] }
+    .map { individual_id, sample_id, run_order, sample_order, bamFiles, pbiFiles ->
+      def ordered = [run_order, sample_order, bamFiles, pbiFiles].transpose().sort { left, right ->
+        (left[0] <=> right[0]) ?: (left[1] <=> right[1])
+      }
       tuple(
         individual_id,
         sample_id,
-        ordered.collect { row -> row[1] },
-        ordered.collect { row -> row[2] }
+        ordered.collect { row -> row[2] },
+        ordered.collect { row -> row[3] }
       )
     }
 
@@ -555,35 +845,34 @@ workflow {
   //******************
 
   countAnalysisZMWs(mergeAlignedSampleBAMs.out)
+  bam_splitter_ch = channel.value(tuple(
+    file("${projectDir}/bin/splitBamByZmw.py", checkIfExists: true),
+    fileSha256("${projectDir}/bin/splitBamByZmw.py")))
 
-  // Create input channel
+  // Enumerate ZMW IDs once, preserving their order, then split the BAM into chunks.
   splitBAM_input_ch = mergeAlignedSampleBAMs.out
       .join(countAnalysisZMWs.out, by: [0, 1])
-      .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile ->
+      .flatMap { individual_id, sample_id, bamFile, pbiFile, baiFile, zmwCountFile, zmwIdsFile ->
         def total_zmws = zmwCountFile.text.trim() as int
         if (total_zmws == 0) {
           log.warn "Skipping sample '${sample_id}' because its merged analysis BAM contains zero ZMWs."
           return []
         }
         def effective_chunks = Math.min(params.analysis_chunks as int, total_zmws)
-        (1..effective_chunks).collect { chunkID ->
-          tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effective_chunks)
-        }
+        [tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, zmwIdsFile, effective_chunks)]
       }
 
-  // Run process
-  splitBAM(splitBAM_input_ch)
+  splitBAM(splitBAM_input_ch, bam_splitter_ch)
+  splitBAM_chunks_ch = splitBAM.out.flatMap { individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks ->
+    expandAnalysisChunks(individual_id, sample_id, bamFiles, pbiFiles, baiFiles, effectiveChunks)
+  }
 
   //******************
   // installBSgenome
   //******************
   installBSgenome(channel.value(config_signatures.installBSgenome))
   BSgenome_name_ch = installBSgenome.out.map { bsgenomeNameFile -> bsgenomeNameFile.text.trim() }
-
-  //******************
-  // extractGenomeTrinucleotides
-  //******************
-  extractGenomeTrinucleotides()
+  prepareReferenceSummary(BSgenome_name_ch)
 
   //******************
   // processGermlineVCFs
@@ -610,9 +899,18 @@ workflow {
     .map { run ->
       tuple( file(run.germline_bam_file), run.germline_bam_type )
     }
+    .unique() // Shared germline BAM/type inputs need only one preparation task.
 
   // Run process
   processGermlineBAMs(processGermlineBAMs_input_ch)
+
+  // Reuse identical thresholds across filtergroups, samples, and chunks.
+  prepareGermlineCoverageFilters_input_ch = processGermlineBAMs.out.coverage
+    .flatMap { coverageFile ->
+      params.germline_coverage_filters.findAll { entry -> entry.bigwig_name == coverageFile.name }
+        .collect { entry -> tuple(entry.individual_id, entry.threshold, coverageFile, entry.product) }
+    }
+  prepareGermlineCoverageFilters(prepareGermlineCoverageFilters_input_ch)
 
   //******************
   // processGermlineBAMs
@@ -645,16 +943,17 @@ workflow {
   // Create a completion signal for all filter-related processes by collecting all outputs
   prepareFilters_done = BSgenome_name_ch
     .mix(
-      extractGenomeTrinucleotides.out,
+      prepareReferenceSummary.out,
       processGermlineVCFs.out,
       processGermlineBAMs.out,
+      prepareGermlineCoverageFilters.out,
       prepareRegionFilters.out
     )
     .collect()
     .map { true }
 
   // Create input channel
-  extractCalls_input_ch = splitBAM.out
+  extractCalls_input_ch = splitBAM_chunks_ch
       .combine(prepareFilters_done)
       .map { individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, prepareFiltersReady ->
         tuple(individual_id, sample_id, bamFile, pbiFile, baiFile, chunkID, effectiveChunks, config_signatures.extractCallsChunk)
@@ -723,10 +1022,18 @@ workflow {
   // Create input channel
   outputResultsSample_input_ch = calculateBurdensChromgroupFiltergroup.out.tuple_qs2
       .map { individual_id, sample_id, chromgroup, filtergroup, calculateBurdensFile ->
-          tuple(individual_id, sample_id, calculateBurdensFile)
+          tuple(individual_id, sample_id, tuple(chromgroup, filtergroup, calculateBurdensFile))
       }
-      .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Group by individual_id, sample_id. Emit as soon as each sample's chromgroup/filtergroup analyses finish.
-      .map { individual_id, sample_id, calculateBurdensFiles ->
+      .groupTuple(by: [0, 1], size: chromgroups_filtergroups_list.size()) // Emit as soon as this sample is complete.
+      .map { individual_id, sample_id, burdenAnalyses ->
+          // Completion order varies between runs. Order the small list of input
+          // files before R loads them, preserving every row within each group.
+          def chromgroupOrder = params.chromgroups.collect { it.chromgroup }
+          def filtergroupOrder = params.filtergroups.collect { it.filtergroup }
+          def calculateBurdensFiles = burdenAnalyses.sort(false) { left, right ->
+              def chromgroupComparison = chromgroupOrder.indexOf(left[0]) <=> chromgroupOrder.indexOf(right[0])
+              chromgroupComparison ?: (filtergroupOrder.indexOf(left[1]) <=> filtergroupOrder.indexOf(right[1]))
+          }.collect { it[2] }
           tuple(individual_id, sample_id, calculateBurdensFiles, config_signatures.outputResultsSample)
       }
 
@@ -858,7 +1165,7 @@ process mergeCCSchunks {
 process filterAdapter {
     cpus 8
     memory '4 GB'
-    time '4h'
+    time '1h'
     tag "filterAdapter"
     container "${params.hidefseq_container}"
 
@@ -894,13 +1201,15 @@ process limaDemux {
     tag { "limaDemux: ${bamFile.baseName}" }
     container "${params.hidefseq_container}"
 
-    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.summary"
-    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.counts"
+    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.summary",
+      saveAs: { filename -> barcode_ids_round2 ? "${run_id}.${individual_id}.${sample_id}.${barcode_ids}.${barcode_ids_round2}.ccs.filtered.demux.lima.summary" : filename }
+    publishDir path: { sharedLogsDir() }, mode: "copy", pattern: "*.lima.counts",
+      saveAs: { filename -> barcode_ids_round2 ? "${run_id}.${individual_id}.${sample_id}.${barcode_ids}.${barcode_ids_round2}.ccs.filtered.demux.lima.counts" : filename }
 
     afterScript {
       generateAfterScript(
         sharedLogsDir(),
-        "${task.process}.${params.analysis_id}.${bamFile.baseName}.command.log"
+        "${task.process}.${params.analysis_id}.${bamFile.baseName}${barcode_ids_round2 ? '.' + barcode_ids_round2 : ''}.command.log"
       )
     }
 
@@ -1015,7 +1324,7 @@ workflow mergeDemuxBamsRound2 {
 process pbmm2Align {
     cpus 8
     memory '32 GB'
-    time '6h'
+    time '2h'
     tag { "pbmm2Align: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
 
@@ -1028,6 +1337,7 @@ process pbmm2Align {
 
     input:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path(bamFile)
+      tuple path(genomeIndex), path(genomeFai), val(alignmentReference)
 
     output:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.pbi")
@@ -1036,7 +1346,18 @@ process pbmm2Align {
     """
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_supplemental_settings} ${params.genome_mmi} ${bamFile} ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
+    pbmm2 align -j ${task.cpus} --preset CCS ${params.pbmm2_supplemental_settings} "${genomeIndex}" ${bamFile} ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
+    # The BAM dictionary comes from the MMI. Reject a different reference
+    # dictionary before using these alignments with the configured FASTA.
+    set -o pipefail
+    alignment_dictionary=\$(${params.samtools_bin} view -H ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam |
+      awk -F '\\t' '\$1 == "@SQ" {name=""; seqLength=""; for (i=2; i<=NF; i++) {if (\$i ~ /^SN:/) name=substr(\$i,4); if (\$i ~ /^LN:/) seqLength=substr(\$i,4)} print name "\\t" seqLength}' |
+      LC_ALL=C sort)
+    configured_dictionary=\$(cut -f 1,2 "${genomeFai}" | LC_ALL=C sort)
+    if ! diff -u <(printf '%s\\n' "\$configured_dictionary") <(printf '%s\\n' "\$alignment_dictionary"); then
+      echo 'genome_mmi reference names/lengths differ from genome_fai; rebuild both indexes from genome_fasta.' >&2
+      exit 1
+    fi
     pbindex ${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam
     """
 }
@@ -1047,7 +1368,7 @@ process pbmm2Align {
 process verifyBAMID {
     cpus 2
     memory '32 GB'
-    time '8h'
+    time '2h'
     tag { "verifyBAMID: ${run_id} ${sample_id} ${barcode_id}" }
     container "${params.hidefseq_container}"
 
@@ -1164,25 +1485,27 @@ process countAnalysisZMWs {
       tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile)
 
     output:
-      tuple val(individual_id), val(sample_id), path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt")
+      tuple val(individual_id), val(sample_id),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt")
 
     script:
     """
     set -euo pipefail
-    
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-    zmwfilter --show-all ${bamFile} | wc -l > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt
+    zmwfilter --show-all ${bamFile} > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt
+    wc -l < ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwIDs.txt > ${params.analysis_id}.${individual_id}.${sample_id}.analysis_zmwcount.txt
     """
 }
 
 /*
-  splitBAM: Splits BAM files into approximately equal non-empty chunks.
+  splitBAM: Split each sample BAM by ordered ZMW IDs, then index the chunks sequentially.
 */
 process splitBAM {
     cpus 2
     memory '8 GB'
-    time '4h'
+    time '2h'
     tag { "splitBAM: ${sample_id}" }
     container "${params.hidefseq_container}"
 
@@ -1194,60 +1517,37 @@ process splitBAM {
     afterScript {
       generateAfterScript(
         "${params.analysis_output_dir}/${dirSampleLogs(individual_id, sample_id)}",
-        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.chunk${chunkID}.command.log"
+        "${task.process}.${params.analysis_id}.${individual_id}.${sample_id}.command.log"
       )
     }
 
     input:
-      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), val(chunkID), val(effectiveChunks)
+      tuple val(individual_id), val(sample_id), path(bamFile), path(pbiFile), path(baiFile), path(zmwIdsFile), val(effectiveChunks)
+      tuple path(splitter), val(splitter_source_hash)
 
     output:
       tuple val(individual_id), val(sample_id),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam"),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.pbi"),
-      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk${chunkID}.bam.bai"),
-      val(chunkID), val(effectiveChunks)
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam.pbi"),
+      path("${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted.chunk*.bam.bai"),
+      val(effectiveChunks)
 
     script:
+    def prefix = "${params.analysis_id}.${individual_id}.${sample_id}.ccs.filtered.aligned.sorted"
     """
+    set -euo pipefail
+    ${shellQuote(params.python_bin)} ${shellQuote(splitter)} --input ${bamFile} --ids ${zmwIdsFile} --chunks ${effectiveChunks} \
+      --output-prefix ${prefix} --threads ${task.cpus} --max-open-writers 128
+
     source ${params.conda_base_script}
     conda activate ${params.conda_pbbioconda_env}
-
-    sample_basename=\$(basename ${bamFile} .bam)
-
-    ids_file=\${sample_basename}.zmwIDs.txt
-    chunk_ids=\${sample_basename}.chunk${chunkID}.zmwIDs.txt
-    chunk_bam=\${sample_basename}.chunk${chunkID}.bam
-    
-    zmwfilter --show-all ${bamFile} > \$ids_file
-
-    total_zmws=\$(wc -l < \$ids_file)
-
-    awk -v T=\$total_zmws -v N=${effectiveChunks} -v K=${chunkID} '
-      BEGIN{
-        base=int(T/N); rem=T%N
-      }
-
-      {
-        if(NR == 1){chunk=1; left = base + (chunk <= rem)}
-        if(chunk == K){print}
-        left--
-        if(left==0){chunk++; left=base+(chunk<=rem); if(chunk>K){exit} }
-      }
-    ' \$ids_file > \$chunk_ids
-
-    # Guard against unexpected empty chunks.
-    if [ ! -s \$chunk_ids ]; then
-      echo "ERROR: chunkID=${chunkID} produced no ZMW IDs with effectiveChunks=${effectiveChunks}" >&2
-      exit 1
-    fi
-
-    zmwfilter --include \$chunk_ids ${bamFile} \$chunk_bam
-    pbindex \$chunk_bam
-
+    for chunk_bam in ${prefix}.chunk*.bam; do
+      pbindex \$chunk_bam
+    done
     conda deactivate
-
-    ${params.samtools_bin} index -@ ${task.cpus} \$chunk_bam
+    for chunk_bam in ${prefix}.chunk*.bam; do
+      ${params.samtools_bin} index -@ ${task.cpus} \$chunk_bam
+    done
     """
 }
 
@@ -1257,10 +1557,10 @@ process splitBAM {
 process installBSgenome {
     cpus 1
     memory '16 GB'
-    time '8h'
+    time '4h'
     tag { "installBSgenome" }
     container "${params.hidefseq_container}"
-    cache false //Always run this process because the BSgenome could have been deleted outside nextflow and because the script itself checks if the BSgenome is already installed.
+    cache false // Validate the complete immutable cache bundle on every launch.
 
     afterScript {
       generateAfterScript(
@@ -1276,48 +1576,39 @@ process installBSgenome {
       path("BSgenome_name.txt")
 
     script:
+    def buildCommand = """
+    export HIDEF_REFERENCE_BUILD_DIR="\$PWD/library"
+    installBSgenome.R -c ${shellQuote(params.paramsFileName)}
     """
-    installBSgenome.R -c ${params.paramsFileName}
-    """
+    cachedBuild(params.prepared_cache.reference, ['library', 'BSgenome_name.txt'], buildCommand)
 }
 
 /*
-  extractGenomeTrinucleotides: Extracts trinucleotides for every base in the genome
+  prepareReferenceSummary: Reusable whole-reference N intervals and per-chromosome context counts.
 */
-process extractGenomeTrinucleotides {
-    cpus 2
+process prepareReferenceSummary {
+    cpus 1
     memory '8 GB'
-    time '6h'
-    tag { "extractGenomeTrinucleotides" }
+    time '30m'
+    tag { "prepareReferenceSummary" }
     container "${params.hidefseq_container}"
-
-    storeDir "${params.cache_dir}"
+    cache false // Validate the immutable summary bundle on each workflow launch.
 
     afterScript {
-      generateAfterScript(
-        sharedLogsDir(),
-        "${task.process}.command.log"
-      )
+      generateAfterScript(sharedLogsDir(), "${task.process}.command.log")
     }
 
+    input:
+      val(BSgenome_name)
+
     output:
-      path("${file(params.genome_fasta).name}.bed.gz")
-      path("${file(params.genome_fasta).name}.bed.gz.tbi")
+      path("referenceSummary.qs2")
 
     script:
+    def buildCommand = """
+    prepareReferenceSummary.R -c ${shellQuote(params.paramsFileName)} -o referenceSummary.qs2
     """
-    #Convert to upper case, replace unsupported bases with N's, extract sequences for all bases
-    #(except contig edges), convert to BED format (column 2 is start position of trinucleotide position),
-    #and bgzip + tabix index
-    ${params.seqkit_bin} seq -u ${params.genome_fasta} | \
-      ${params.seqkit_bin} replace -s -p '[^ACGTN]' -r N | \
-      ${params.seqkit_bin} sliding -S '' -s1 -W3 | \
-      ${params.seqkit_bin} fx2tab -Q | \
-      awk -F '[:\\-\\t]' 'BEGIN {OFS="\\t"}{print \$1, \$2, \$2+1, \$4}' | \
-      ${params.bgzip_bin} -c > ${file(params.genome_fasta).name}.bed.gz
-
-    ${params.tabix_bin} -@ ${task.cpus} -s 1 -b 2 -e 3 ${file(params.genome_fasta).name}.bed.gz
-    """
+    cachedBuild(params.prepared_cache.reference_summary, ['referenceSummary.qs2'], buildCommand)
 }
 
 /*
@@ -1326,11 +1617,11 @@ process extractGenomeTrinucleotides {
 process processGermlineVCFs {
     cpus 1
     memory '16 GB'
-    time '4h'
+    time '1h'
     tag { "processGermlineVCFs: ${individual_id}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1346,9 +1637,10 @@ process processGermlineVCFs {
       path "${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"
 
     script:
+    def buildCommand = """
+    processGermlineVCFs.R -c ${shellQuote(params.paramsFileName)} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
     """
-    processGermlineVCFs.R -c ${params.paramsFileName} -i ${individual_id} -o ${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2
-    """
+    cachedBuild(params.prepared_cache.vcfs[individual_id], ["${individual_id}.${germline_bam_file}.germline_vcf_variants.qs2"], buildCommand)
 }
 
 /*
@@ -1357,11 +1649,11 @@ process processGermlineVCFs {
 process processGermlineBAMs {
     cpus 2
     memory '16 GB'
-    time '24h'
+    time '12h'
     tag { "processGermlineBAMs: ${germline_bam_file}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1374,11 +1666,11 @@ process processGermlineBAMs {
       tuple path(germline_bam_file), val(germline_bam_type)
 
     output:
-      path("${germline_bam_file}.bw")
+      path("${germline_bam_file}.bw"), emit: coverage
       path("${germline_bam_file}.vcf.gz*")
 
     script:
-    """
+    def buildCommand = """
     #Output per-base coverage using samtools mpileup and direct BAM variant calls using bcftools mpileup
     #Use similar filters for both samtools and bcftools to ensure that samtools coverage data for calculating
     #the fraction of the genome that was filtered maintains correct calculation of the mutation rate.
@@ -1411,6 +1703,36 @@ process processGermlineBAMs {
 
     ${params.bedGraphToBigWig_bin} mpileup.sorted.bg <(cut -f 1,2 ${params.genome_fai}) ${germline_bam_file}.bw
     """
+    cachedBuild(params.prepared_cache.bams[germline_bam_file.name], ["${germline_bam_file}.bw", "${germline_bam_file}.vcf.gz", "${germline_bam_file}.vcf.gz.tbi"], buildCommand)
+}
+
+/*
+  prepareGermlineCoverageFilters: Prepare each individual's whole-genome
+  low-coverage intervals once per distinct threshold, independent of filtergroup.
+*/
+process prepareGermlineCoverageFilters {
+    cpus 2
+    memory '16 GB'
+    time '30m'
+    tag { "prepareGermlineCoverageFilters: ${individual_id} ${threshold}" }
+    container "${params.hidefseq_container}"
+    cache false
+
+    afterScript {
+      generateAfterScript(sharedLogsDir(), "${task.process}.${individual_id}.${threshold}.command.log")
+    }
+
+    input:
+      tuple val(individual_id), val(threshold), path(coverageFile), val(product)
+
+    output:
+      path("${product}")
+
+    script:
+    def buildCommand = """
+    prepareGermlineCoverageFilters.R --bigwig ${shellQuote(coverageFile)} --fai ${shellQuote(params.genome_fai)} --threshold ${shellQuote(threshold)} --wiggletools ${shellQuote(params.wiggletools_bin)} --wig_to_bigwig ${shellQuote(params.wigToBigWig_bin)} --output ${shellQuote(product)}
+    """
+    cachedBuild(params.prepared_cache.coverage[product], [product], buildCommand)
 }
 
 /*
@@ -1418,12 +1740,12 @@ process processGermlineBAMs {
 */
 process prepareRegionFilters {
     cpus 2
-    memory '64 GB'
-    time '24h'
+    memory '16 GB'
+    time '1h'
     tag { "prepareRegionFilters: ${region_filter_file}, bin ${binsize}, threshold ${threshold}" }
     container "${params.hidefseq_container}"
+    cache false // Validate bundle integrity even when external cache files changed.
 
-    storeDir "${params.cache_dir}"
 
     afterScript {
       generateAfterScript(
@@ -1439,30 +1761,29 @@ process prepareRegionFilters {
       path("${region_filter_file}.bin${binsize}.${threshold}.bw")
 
     script:
-    """
+    def thresholdText = threshold.toString()
+    def thresholdOp = thresholdText.find(/^(gte|lte|gt|lt)/)
+    if (!thresholdOp) {
+      error "Unknown threshold type: ${threshold}"
+    }
+    // Compare bin sums directly to avoid rounding the average through a reciprocal.
+    def thresholdCutoff = new BigDecimal(thresholdText.substring(thresholdOp.length()))
+      .multiply(new BigDecimal(binsize.toString())).toPlainString()
+    def binCommand = binsize.toString().toInteger() == 1 ? "" : "bin ${binsize}"
+    def buildCommand = """
     #Make genome BED file to use to fill in zero values for regions not in bigwig.
     awk '{print \$1 "\t0\t" \$2}' ${params.genome_fai} | sort -k1,1 -k2,2n > chromsizes.bed
 
-    if [[ ${binsize} -eq 1 ]]; then
-      scale_command=""
-    else
-      scale_command=\$(awk "BEGIN { printf \\"scale %.6f bin %d\\", 1/${binsize}, ${binsize} }")
-    fi
+    bin_command="${binCommand}"
+    threshold_command="${thresholdOp} ${thresholdCutoff}"
 
-    echo "scale command: \$scale_command"
-
-    if [[ ${threshold} == gt* || ${threshold} == lt* ]]; then
-      threshold_command=\$(echo ${threshold} | sed -E 's/^(gt|gte|lt|lte)([0-9.]+)/\\1 \\2/')
-    else
-      echo "ERROR: Unknown threshold type: ${threshold}"
-      exit 1
-    fi
-
+    echo "bin command: \$bin_command"
     echo "threshold command: \$threshold_command"
     
-    ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$scale_command ${region_filter_file} \
+    ${params.wiggletools_bin} \$threshold_command trim chromsizes.bed fillIn chromsizes.bed \$bin_command ${region_filter_file} \
       | ${params.wigToBigWig_bin} stdin <(cut -f 1,2 ${params.genome_fai}) ${region_filter_file}.bin${binsize}.${threshold}.bw
     """
+    cachedBuild(params.prepared_cache.regions["${region_filter_file}.bin${binsize}.${threshold}.bw".toString()], ["${region_filter_file}.bin${binsize}.${threshold}.bw"], buildCommand)
 }
 
 /*
@@ -1502,7 +1823,7 @@ process extractCallsChunk {
 
     script:
     """
-    extractCalls.R -c ${params.paramsFileName} -b ${bamFile} -s ${sample_id} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
+    extractCalls.R -c ${shellQuote(params.paramsFileName)} -b ${bamFile} -s ${sample_id} -o ${params.analysis_id}.${individual_id}.${sample_id}.extractCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -1543,7 +1864,7 @@ process filterCallsChunkChromgroupFiltergroup {
 
     script:
     """
-    filterCalls.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
+    filterCalls.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${extractCallsFile} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.filterCalls.chunk${chunkID}.qs2
     """
 }
 
@@ -1591,7 +1912,7 @@ process calculateBurdensChromgroupFiltergroup {
 
     script:
     """
-    calculateBurdens.R -c ${params.paramsFileName} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
+    calculateBurdens.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -g ${chromgroup} -v ${filtergroup} -f ${filterCallsFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}.${chromgroup}.${filtergroup}.calculateBurdens.qs2
     """
 }
 
@@ -1629,12 +1950,11 @@ process outputResultsSample {
     output:
       tuple val(individual_id), val(sample_id), emit: out_ch
       path("${params.analysis_id}.${individual_id}.${sample_id}.outputResults.qs2")
-      path("${params.analysis_id}.${individual_id}.${sample_id}.yaml_config.tsv")
       path("${params.analysis_id}.${individual_id}.${sample_id}.run_metadata.tsv")
       path("*/**/*.{tsv,vcf.bgz,vcf.bgz.tbi,pdf}")
 
     script:
     """
-    outputResults.R -c ${params.paramsFileName} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
+    outputResults.R -c ${shellQuote(params.paramsFileName)} -s ${sample_id} -f ${calculateBurdensFiles.join(',')} -o ${params.analysis_id}.${individual_id}.${sample_id}
     """
 }

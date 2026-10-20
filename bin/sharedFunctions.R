@@ -2,6 +2,325 @@
 ### Custom shared functions
 ######################
 
+# Small reusable reference summaries. Callers load BSgenome, GenomicRanges and
+# Biostrings. N ranges use literal N matching and retain sequence boundaries.
+reference_n_ranges <- function(genome) {
+  reference_info <- seqinfo(genome)
+  chromosomes <- seqnames(genome)
+  pieces <- lapply(chromosomes, function(chromosome) {
+    positions <- IRanges::reduce(ranges(matchPattern("N", genome[[chromosome]])))
+    GRanges(seqnames = rep(chromosome, length(positions)), ranges = positions,
+            strand = rep("*", length(positions)), seqinfo = reference_info)
+  })
+  if (!length(pieces)) return(GRanges(seqinfo = reference_info))
+  GenomicRanges::reduce(do.call(c, unname(pieces)), ignore.strand = TRUE)
+}
+
+reference_trinucleotide_counts <- function(genome) {
+  chromosomes <- seqnames(genome)
+  setNames(lapply(chromosomes, function(chromosome) {
+    trinucleotideFrequency(genome[[chromosome]])
+  }), chromosomes)
+}
+
+reference_counts_for_chromosomes <- function(counts, chromosomes) {
+  chromosomes <- as.character(chromosomes)
+  if (!length(chromosomes)) {
+    return(trinucleotideFrequency(DNAStringSet(), simplify.as = "collapsed") + 0)
+  }
+  if (anyNA(chromosomes) || any(!chromosomes %in% names(counts))) {
+    stop("Requested chromosome is absent from the prepared reference summary", call. = FALSE)
+  }
+  # Preserve requested order, repeated chromosomes and channel names while
+  # accumulating as doubles so totals can exceed the 32-bit integer limit.
+  Reduce(`+`, counts[chromosomes], init = 0)
+}
+
+# Both preparation tasks and standalone consumers use these builders. A
+# standalone consumer requests only the component it needs, avoiding an extra
+# reference scan. Prepared configurations must supply their declared products.
+prepare_reference_summary <- function(genome, components = c("n_ranges", "trinucleotide_counts")) {
+  builders <- list(n_ranges = reference_n_ranges,
+                   trinucleotide_counts = reference_trinucleotide_counts)
+  components <- match.arg(components, names(builders), several.ok = TRUE)
+  setNames(lapply(components, function(component) builders[[component]](genome)), components)
+}
+
+load_reference_summary <- function(yaml.config, genome,
+                                   components = c("n_ranges", "trinucleotide_counts")) {
+  if(is.null(yaml.config$reference_summary_file)) {
+    return(prepare_reference_summary(genome, components))
+  }
+  summary <- qs_read(yaml.config$reference_summary_file)
+  if(any(!components %in% names(summary))) {
+    stop("Prepared reference summary is missing requested components", call. = FALSE)
+  }
+  summary[components]
+}
+
+prepare_germline_coverage_filter <- function(bigwig, fai, threshold, wiggletools, wig_to_bigwig) {
+  if(length(threshold) != 1L || !is.finite(threshold)) {
+    stop("threshold must be one finite number", call. = FALSE)
+  }
+  tmpchromsizes <- tempfile(tmpdir = getwd(), pattern = ".germline-coverage-", fileext = ".bed")
+  tmpbw <- tempfile(tmpdir = getwd(), pattern = ".germline-coverage-", fileext = ".bw")
+  on.exit(unlink(c(tmpchromsizes, tmpbw)), add = TRUE)
+  commands <- c(
+    paste("awk '{print $1 \"\\t0\\t\" $2}'", shQuote(fai),
+          "| sort -k1,1 -k2,2n >", shQuote(tmpchromsizes)),
+    paste(shQuote(wiggletools), "lt", threshold,
+          "trim", shQuote(tmpchromsizes), "fillIn", shQuote(tmpchromsizes),
+          shQuote(bigwig), "|", shQuote(wig_to_bigwig),
+          "stdin <(cut -f 1,2", shQuote(fai), ")", shQuote(tmpbw))
+  )
+  status <- system2("/bin/bash", args = "-s", input = c("set -euo pipefail", commands))
+  if(status != 0L) stop("Failed to prepare germline coverage filter", call. = FALSE)
+  intervals <- rtracklayer::import(tmpbw, format = "bigWig")
+  plyranges::select(intervals, -score)
+}
+
+load_germline_coverage_filter <- function(yaml.config, individual_id, threshold, bigwig) {
+  if(is.null(yaml.config$germline_coverage_filters)) {
+    return(prepare_germline_coverage_filter(
+      bigwig, yaml.config$genome_fai, threshold,
+      yaml.config$wiggletools_bin, yaml.config$wigToBigWig_bin))
+  }
+  entries <- Filter(function(entry) {
+    as.character(entry$individual_id) == individual_id && as.numeric(entry$threshold) == threshold
+  }, yaml.config$germline_coverage_filters)
+  if(length(entries) != 1L) {
+    stop("Expected one prepared germline coverage filter for this individual and threshold", call. = FALSE)
+  }
+  qs_read(entries[[1]]$file)
+}
+
+# Coverage annotation works in bounded genomic windows. It never expands a
+# whole chromosome or holds its sequence alongside the coverage RleLists.
+coverage_annotation_index <- function(fasta, fai){
+  if(!file.exists(fasta) || !file.exists(fai) ||
+     file.access(fasta, 4L) != 0L || file.access(fai, 4L) != 0L)
+    stop("Coverage annotation requires readable FASTA and FAI files")
+  fields <- strsplit(readLines(fai, warn = FALSE), "\t", fixed = TRUE)
+  if(!length(fields) || any(lengths(fields) < 5L)) stop("Invalid FASTA index")
+  index <- as.data.frame(do.call(rbind, lapply(fields, `[`, 1:5)), stringsAsFactors = FALSE)
+  names(index) <- c("chromosome", "length", "offset", "line_bases", "line_bytes")
+  for(column in names(index)[-1L])
+    index[[column]] <- suppressWarnings(as.numeric(index[[column]]))
+  numbers <- as.matrix(index[-1L])
+  if(anyNA(index) || any(!is.finite(numbers) | numbers != floor(numbers) |
+                         numbers < 0 | numbers > 2^53 - 1) ||
+     any(!nzchar(index$chromosome)) || anyDuplicated(index$chromosome) ||
+     any(grepl("[\\t\\r\\n]", index$chromosome, perl = TRUE)) ||
+     any((index$length > 0 & index$line_bases == 0) |
+         index$line_bytes < index$line_bases)) stop("Invalid FASTA index")
+  index
+}
+
+with_coverage_annotation_reference <- function(fasta, fai, annotate){
+  index <- coverage_annotation_index(fasta, fai)
+  reference <- file(fasta, "rb")
+  on.exit(close(reference), add = TRUE)
+  magic <- readBin(reference, "raw", 6L)
+  compressed <- identical(head(magic, 2L), as.raw(c(31L, 139L))) ||
+    identical(head(magic, 3L), charToRaw("BZh")) ||
+    identical(magic, as.raw(c(253L, 55L, 122L, 88L, 90L, 0L)))
+  if(compressed){
+    # FAI offsets address uncompressed bytes. Expand gzip/BGZF, bzip2 or xz once for the
+    # entire annotation pass, without loading a chromosome or requiring .gzi.
+    # All reference formats then use the same indexed, bounded-window reader.
+    temporary <- tempfile("coverage-reference-", tmpdir = getwd(), fileext = ".fa")
+    on.exit(unlink(temporary), add = TRUE)
+    expand <- function(){
+      source <- gzfile(fasta, "rb"); on.exit(close(source), add = TRUE)
+      target <- file(temporary, "wb"); on.exit(close(target), add = TRUE)
+      repeat {
+        block <- readBin(source, "raw", 1048576L)
+        if(!length(block)) break
+        writeBin(block, target)
+      }
+    }
+    expand()
+    close(reference)
+    reference <- file(temporary, "rb")
+  }
+  # Check bounds even for uncovered contigs, but permit zero-length records.
+  nonempty <- index$length > 0
+  end <- with(index[nonempty, ], offset +
+    floor((length - 1) / line_bases) * line_bytes + (length - 1) %% line_bases + 1)
+  seek(reference, 0, origin = "end")
+  if(any(end > seek(reference)))
+    stop("Reference sequence length does not match its index")
+  annotate(list(index = index, connection = reference))
+}
+
+annotate_coverage_row <- function(input, fasta, fai, row_id, counts,
+                                  output = NULL, bgzip = NULL, tabix = NULL,
+                                  window_bases = 1000000L, input_rows = 65536L, reference = NULL){
+  stopifnot(length(window_bases) == 1L, is.finite(window_bases),
+            window_bases >= 1, window_bases == floor(window_bases),
+            length(input_rows) == 1L, is.finite(input_rows),
+            input_rows >= 1, input_rows == floor(input_rows))
+  if(length(row_id) != 1L || is.na(row_id) || grepl("[\t\r\n]", row_id))
+    stop("Coverage row ID must not contain delimiters")
+  if(is.null(reference)) return(with_coverage_annotation_reference(fasta, fai,
+    function(reference) annotate_coverage_row(input, fasta, fai, row_id, counts,
+      output, bgzip, tabix, window_bases, input_rows, reference)))
+  index <- reference$index
+  reference <- reference$connection
+  bed <- file(input, "r"); on.exit(close(bed), add = TRUE)
+  destination <- NULL
+  if(!is.null(output)){
+    if(is.null(bgzip) || is.null(tabix)) stop("bgzip and tabix are required for BED output")
+    destination <- pipe(paste(shQuote(bgzip), "-l 1 -c >", shQuote(output)), "w")
+    on.exit(if(!is.null(destination)) try(close(destination), silent = TRUE), add = TRUE)
+  }
+  # A failed annotation/compressor/indexer never leaves fresh counts or an index
+  # that a later stage could accept, and retains its source BED for diagnosis.
+  complete <- FALSE
+  on.exit(if(!complete){
+    unlink(counts)
+    if(!is.null(output)) unlink(paste0(output, ".tbi"))
+  }, add = TRUE)
+  alphabet <- c("A", "C", "G", "T", "N")
+  # The numeric code is left*25 + middle*5 + right (one based).
+  context_names <- c(vapply(0:124, function(k)
+    paste0(alphabet[k %/% 25L + 1L], alphabet[k %/% 5L %% 5L + 1L],
+           alphabet[k %% 5L + 1L]), character(1)), ".")
+  base_codes <- rep.int(4L, 256L)
+  base_codes[as.integer(charToRaw("ACGTacgt")) + 1L] <- rep.int(0:3, 2L)
+  sums <- numeric(126L); seen <- logical(126L)
+  previous_rank <- 0L; previous_end <- 0
+  coordinate_text <- function(x){
+    if(!length(x) || max(x) <= .Machine$integer.max) as.integer(x) else sprintf("%.0f", x)
+  }
+  write_bed <- function(chromosome, position, depth, context){
+    # fwrite's console target honors R's output sink. This writes its native
+    # formatting buffers straight into bgzip, without per-base R strings or an
+    # uncompressed temporary BED. Restore any caller sink even after failure.
+    sink(destination)
+    on.exit(sink())
+    data.table::fwrite(list(rep.int(chromosome, length(position)),
+      coordinate_text(position), coordinate_text(position + 1), depth, context),
+      file = "", sep = "\t", quote = FALSE, col.names = FALSE,
+      showProgress = FALSE, nThread = 1L)
+  }
+  repeat {
+    lines <- readLines(bed, n = input_rows, warn = FALSE)
+    if(!length(lines)) break
+    if(any(stringi::stri_count_fixed(lines, "\t") != 3L))
+      stop("Coverage BED must have exactly four tab-separated fields")
+    runs <- data.table::fread(text = paste0(paste(lines, collapse = "\n"), "\n"),
+      sep = "\t", header = FALSE, colClasses = "character", quote = "",
+      na.strings = NULL, strip.white = FALSE, showProgress = FALSE, nThread = 1L)
+    if(nrow(runs) != length(lines) || ncol(runs) != 4L)
+      stop("Coverage BED must have exactly four tab-separated fields")
+    rank <- match(runs[[1L]], index$chromosome)
+    if(anyNA(rank)) stop("Coverage contig absent from FASTA")
+    if(any(!grepl("^[0-9]+$", runs[[2L]])) || any(!grepl("^[0-9]+$", runs[[3L]])))
+      stop("BED coordinates must be nonnegative integers")
+    starts <- as.numeric(runs[[2L]]); ends <- as.numeric(runs[[3L]])
+    depths <- suppressWarnings(as.numeric(runs[[4L]]))
+    if(any(!is.finite(depths) | depths <= 0)) stop("Coverage must be a finite positive number")
+    if(any(diff(c(previous_rank, rank)) < 0)) stop("Coverage BED must follow FASTA contig order")
+    same <- c(previous_rank, head(rank, -1L)) == rank
+    if(any(!is.finite(starts) | !is.finite(ends) | ends <= starts |
+           ends > index$length[rank]) ||
+       any(same & starts < c(previous_end, head(ends, -1L))))
+      stop("Coverage intervals must be non-overlapping and inside their reference contig")
+    previous_rank <- tail(rank, 1L); previous_end <- tail(ends, 1L)
+    for(chromosome_rank in unique(rank)){
+      rows <- which(rank == chromosome_rank)
+      chromosome <- index$chromosome[[chromosome_rank]]
+      length <- index$length[[chromosome_rank]]
+      first <- floor(starts[rows[[1L]]] / window_bases) * window_bases
+      last <- ends[tail(rows, 1L)] - 1
+      for(lo in seq(from = first, to = last, by = window_bases)){
+        hi <- min(lo + window_bases, length)
+        selected <- rows[starts[rows] < hi & ends[rows] > lo]
+        if(!length(selected)) next
+        begin <- pmax(starts[selected], lo)
+        widths <- pmin(ends[selected], hi) - begin
+        position <- rep.int(begin, widths) + sequence(widths) - 1L
+        run <- rep.int(selected, widths)
+        # Fetch this window plus flanks from the prepared indexed FASTA.
+        from <- max(0, lo - 1); to <- min(length, hi + 1)
+        line_bases <- index$line_bases[[chromosome_rank]]
+        line_bytes <- index$line_bytes[[chromosome_rank]]
+        byte_offset <- function(p) index$offset[[chromosome_rank]] +
+          floor(p / line_bases) * line_bytes + p %% line_bases
+        seek(reference, byte_offset(from), origin = "start")
+        raw <- readBin(reference, "raw", byte_offset(to - 1) - byte_offset(from) + 1)
+        raw <- raw[raw != as.raw(10L) & raw != as.raw(13L)]
+        if(length(raw) != to - from) stop("Reference sequence length does not match its index")
+        bases <- base_codes[as.integer(raw) + 1L]
+        context <- rep.int(126L, length(position))
+        inner <- which(position > 0 & position + 1 < length)
+        offset <- position[inner] - from
+        context[inner] <- bases[offset] * 25L + bases[offset + 1L] * 5L + bases[offset + 2L] + 1L
+        seen[unique(context)] <- TRUE
+        # rowsum adds doubles in input order, starting with the previous total.
+        # Prepending that total preserves per-base accumulation order across
+        # windows and input batches, including fractional/large depths.
+        sums <- as.vector(rowsum(c(sums, depths[run]), c(seq_len(126L), context), reorder = FALSE))
+        if(!is.null(destination)) write_bed(chromosome, position, runs[[4L]][run], context_names[context])
+      }
+    }
+  }
+  if(!is.null(destination)){
+    status <- suppressWarnings(close(destination)); destination <- NULL
+    if(!is.null(status) && status != 0L) stop("Coverage annotation compressor failed for row ", row_id)
+    status <- suppressWarnings(system2(tabix, c("-@2", "-p", "bed", shQuote(output))))
+    if(status != 0L) stop("Coverage annotation indexer failed for row ", row_id)
+  }
+  if(any(seen)){
+    values <- sums[seen]
+    tokens <- sprintf("%.6g", values)
+    integers <- is.finite(values) & floor(values) == values & abs(values) < 2^63
+    tokens[integers] <- sprintf("%.0f", values[integers])
+    writeLines(paste(row_id, context_names[seen], tokens, sep = "\t"), counts)
+  }else writeLines(paste(row_id, "NA", 0, sep = "\t"), counts)
+  complete <- TRUE
+  invisible(file.remove(input))
+}
+
+# Workflow-generated configurations resolve prepared products to immutable,
+# process-scoped bundles. Standalone scripts use the configured cache directory.
+cache_file <- function(path, yaml.config){
+  if(is.null(yaml.config$cache_artifacts)) return(path)
+  vapply(path, function(item){
+    resolved <- yaml.config$cache_artifacts[[basename(item)]]
+    if(is.null(resolved)) stop(paste("No prepared cache artifact for", item), call.=FALSE)
+    as.character(resolved)
+  }, character(1), USE.NAMES=FALSE)
+}
+
+reference_cache_dir <- function(yaml.config){
+  if(is.null(yaml.config$reference_cache_dir)) yaml.config$cache_dir else yaml.config$reference_cache_dir
+}
+
+# Optional region-filter lists still need their column schema when no entries
+# are configured. Populated lists retain their existing inferred types/order.
+region_filter_config <- function(yaml.config, type = c("read_filters", "genome_filters")){
+  type <- match.arg(type)
+  entries <- yaml.config$region_filters %>% map(type) %>% flatten
+  if(length(entries)) return(entries %>% enframe(name = NULL) %>% unnest_wider(value))
+  result <- tibble(
+    region_filter_file = character(), binsize = integer(), threshold = character(),
+    padding = integer(), applyto_chromgroups = character(),
+    applyto_filtergroups = character(), is_germline_filter = logical()
+  )
+  if(type == "read_filters") result <- add_column(result, read_threshold = character(), .after = "padding")
+  result
+}
+
+# Independent rules can share a prepared score file. Assign labels before any
+# germline-only subset so every consumer uses the same applied-rule order.
+region_filter_labels <- function(filters, type = c("read_filters", "genome_filters")){
+  type <- match.arg(type)
+  prefix <- if(type == "read_filters") "region_read_filter_" else "region_genome_filter_"
+  str_c(prefix, make.unique(basename(filters$region_filter_threshold_file)), ".passfilter")
+}
+
 #Function to derive the BSgenome package name created from the configured FASTA
 get_bsgenome_name <- function(yaml.config){
 	genome_suffix <- yaml.config$genome_fasta %>%
@@ -11,32 +330,47 @@ get_bsgenome_name <- function(yaml.config){
 	str_c("BSgenome", yaml.config$genome_organism, "user", genome_suffix, sep=".")
 }
 
+# VCF FILTER fields may contain several semicolon-separated values. Split
+# distinct fields only, keeping the common single-value case inexpensive.
+vcf_filter_matches <- function(values, allowed){
+  fields <- unique(values)
+  keep <- fields %in% allowed
+  compound <- which(!keep & str_detect(fields, fixed(";")))
+  keep[compound] <- map_lgl(str_split(fields[compound], fixed(";")), ~ any(.x %in% allowed))
+  values %in% fields[keep]
+}
+
 #Function to load and format VCF
 # regions: optional tibble with columns: seqnames start_refspace end_refspace
+# Nearby VCF targets often fall in the same compressed blocks. Seek across
+# their combined span once, while retaining the exact original targets below.
+coalesce_vcf_regions <- function(regions, max_gap = 1000) {
+  regions %>%
+    group_by(seqnames) %>%
+    mutate(.lookup_group = cumsum(start_refspace >
+      lag(cummax(as.double(end_refspace)), default = -Inf) + max_gap)) %>%
+    group_by(seqnames, .lookup_group) %>%
+    summarize(start_refspace = min(start_refspace),
+              end_refspace = max(end_refspace), .groups = "drop") %>%
+    select(-.lookup_group)
+}
+
 load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcftools_bin){
 
-  #Check if AD, GT, and GQ tags exist
-	AD_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=AD' | wc -l"
-	)
-	)), intern=TRUE) != "0"
+  #Read FORMAT declarations once and reserve unused names for private totals.
+  vcf_header <- suppressWarnings(system(paste("/bin/bash -o pipefail -c",shQuote(paste(
+    shQuote(bcftools_bin),"view -h",shQuote(vcf_file)
+  ))), intern=TRUE))
+  status <- attr(vcf_header, "status")
+  if(!is.null(status) && status != 0L)
+    stop("bcftools header read failed (status ", status, ") for ", vcf_file, call. = FALSE)
+  format_ids <- str_match(vcf_header, "^##FORMAT=<ID=([^,>]+)")[,2]
+  format_ids <- format_ids[!is.na(format_ids)]
+  AD_exists <- "AD" %in% format_ids
+  GT_exists <- "GT" %in% format_ids
+  GQ_exists <- "GQ" %in% format_ids
+  private_AD_tags <- tail(make.unique(c(format_ids, "HIDEF_AD_DEPTH", "HIDEF_AD_MISSING")), 2L)
 
-	GT_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=GT' | wc -l"
-		)
-	 )), intern=TRUE) != "0"
-	
-	GQ_exists <- system(paste("/bin/bash -c",shQuote(paste(
-		bcftools_bin,"view -h",
-		vcf_file,"|",
-		"grep '^##FORMAT=<ID=GQ' | wc -l"
-	)
-	)), intern=TRUE) != "0"
-	
 	if(!is.null(regions) && nrow(regions) == 0){
 		return(
 			GRanges(
@@ -57,37 +391,59 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
 		)
 	}
 	
+  tmpregions <- tmp_lookup_regions <- tmpvcf <- NULL
+  on.exit(unlink(c(tmpregions, tmp_lookup_regions, tmpvcf)), add = TRUE)
 	#Create regions files if specified
 	if(!is.null(regions)){
 		tmpregions <- tempfile(tmpdir=getwd(),pattern=".")
-		regions %>%
-			arrange(seqnames,start_refspace,end_refspace) %>%
-			distinct %>%
-			write_tsv(tmpregions, col_names=FALSE)
+		regions <- regions %>%
+			arrange(seqnames,start_refspace,end_refspace) %>% distinct
+		write_tsv(regions, tmpregions, col_names=FALSE)
+    lookup_regions <- coalesce_vcf_regions(regions)
+    tmp_lookup_regions <- NULL
+    if(nrow(lookup_regions) < nrow(regions)) {
+      tmp_lookup_regions <- tempfile(tmpdir=getwd(),pattern=".")
+      write_tsv(lookup_regions, tmp_lookup_regions, col_names=FALSE)
+    }
 	}
 	
 	#Atomize and split multi-allelic sites (bcftools norm -a -f [fastaref] | bcftools norm -m -both -f [fastaref]), and filter for records containing ALT alleles.
   tmpvcf <- tempfile(tmpdir=getwd(),pattern=".")
   
-  system(paste("/bin/bash -c",shQuote(paste(
-    bcftools_bin,"view",
-    if(!is.null(regions)){paste("-R",tmpregions)},
-    vcf_file,"|",
-    bcftools_bin,"norm -a -f",genome_fasta,"2>/dev/null |",
-    bcftools_bin,"norm -m -both -f",genome_fasta,"2>/dev/null",
-    if(GT_exists){paste("|",bcftools_bin,"view -i 'GT=\"alt\"'")},
+  status <- system(paste("/bin/bash -o pipefail -c",shQuote(paste(
+    shQuote(bcftools_bin),"view",
+    if(!is.null(regions)){
+      if(is.null(tmp_lookup_regions)) paste("-R",shQuote(tmpregions)) else
+        paste("-R",shQuote(tmp_lookup_regions),"-T",shQuote(tmpregions),"--targets-overlap 1")
+    },
+    shQuote(vcf_file),"|",
+    #Preserve total per-sample allele depth before either normalization step.
+    #The missing flag distinguishes unknown original counts from missing AD
+    #values introduced later for overlapping-deletion star alleles.
+    if(AD_exists){paste(
+      shQuote(bcftools_bin), "+fill-tags -Ou -- -t",
+      shQuote(paste0(
+        "FORMAT/",private_AD_tags[[1]],":1=int(smpl_sum(FORMAT/AD)),",
+        "FORMAT/",private_AD_tags[[2]],":1=int(FORMAT/AD=\".\")"
+      )), "|"
+    )},
+    shQuote(bcftools_bin),"norm -a -f",shQuote(genome_fasta),"|",
+    shQuote(bcftools_bin),"norm -m -both -f",shQuote(genome_fasta),
+    if(GT_exists){paste("|",shQuote(bcftools_bin),"view -i 'GT=\"alt\"'")},
     ">",
-    tmpvcf
+    shQuote(tmpvcf)
     )
    )))
+  if(status != 0L)
+    stop("bcftools normalization failed (status ", status, ") for ", vcf_file, call. = FALSE)
   
   if(!is.null(regions)){
-  	file.remove(tmpregions) %>% invisible
+    file.remove(c(tmpregions, tmp_lookup_regions)) %>% invisible
   }
 
   #Load vcf file
    #Remove ALT == "*" alleles that indicate overlapping deletions (not needed because every deletion already has a separate vcf entry; seen in germline VCF files) and ALT = "<*>" alleles that are non-variant gVCF blocks (seen in bcftools mpileup files).
-   #If the AD tag exists, annotate with allele depths (AD1, AD2), Depth (AD1+AD2) and VAF (AD2 / Depth).
+   #If the AD tag exists, retain reference/selected-alternate depths (AD1, AD2), original all-allele Depth, and VAF (AD2 / Depth).
    #Annotate SBS vs insertions vs deletions
    #For deletions, change ranges to reflect position of deletion. For insertions: change start position to the base on the right of the insertion position and end to the base on the left of the insertion position.
    #For deletions, change to: REF = deleted bases and ALT = "". For insertions, change to: REF = "" and ALT = inserted bases
@@ -112,7 +468,9 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   		if(AD_exists){
 	  			mutate(
 	  				.,
-	  				AD = as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE))
+            AD = as.character(extract.gt(vcf,element="AD",IDtoRowNames=FALSE)),
+            .original_AD_depth = as.integer(extract.gt(vcf,element=private_AD_tags[[1]],as.numeric=TRUE,IDtoRowNames=FALSE)),
+            .original_AD_missing = as.integer(extract.gt(vcf,element=private_AD_tags[[2]],as.numeric=TRUE,IDtoRowNames=FALSE))
 					)
   		}else{
   			.
@@ -121,8 +479,13 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   	filter(! ALT %in% c("*","<*>")) %>%
   	{
   		if(AD_exists){
-  				separate(.,AD,c("AD1","AD2"),",",convert=TRUE) %>%
-  				mutate(Depth=AD1+AD2, VAF=AD2/Depth)
+          separate(.,AD,c("AD1","AD2"),",",fill="right") %>%
+          mutate(
+            across(c(AD1,AD2), ~ type.convert(.x, as.is=TRUE, na.strings=c(".","NA"))),
+            Depth = if_else(.original_AD_missing == 0L, .original_AD_depth, NA_integer_),
+            VAF = AD2 / Depth
+          ) %>%
+          select(-.original_AD_depth, -.original_AD_missing)
   		}else{
   			.
   		}
@@ -169,6 +532,52 @@ load_vcf <- function(vcf_file, regions = NULL, genome_fasta, BSgenome_name, bcft
   	sort
 
   return(vcf)
+}
+
+#Represent circular exclusion masks as bounded intervals before either overlap
+#or subtraction. These operations do not share consistent wrapping semantics.
+#Copy each split mask's metadata (including molecule keys) and preserve input
+#order; a mask spanning a full circumference excludes that chromosome once.
+#Empty masks contain no bases and retain their original insertion coordinates.
+#Linear sequences and already bounded circular masks are returned unchanged.
+normalize_exclusion_masks <- function(gr){
+  stopifnot(inherits(gr, "GenomicRanges"))
+  if(!length(gr)) return(gr)
+  chromosome <- as.integer(seqnames(gr))
+  selected <- which((isCircular(gr)[chromosome] %in% TRUE) & width(gr) > 0L)
+  if(!length(selected)) return(gr)
+  extent <- seqlengths(gr)[chromosome[selected]]
+  if(anyNA(extent) || any(extent <= 0L))
+    stop("Circular exclusion masks require known positive chromosome lengths")
+
+  original_left <- as.double(start(gr)[selected])
+  original_right <- as.double(end(gr)[selected])
+  full <- width(gr)[selected] >= extent
+  normalized_left <- ((original_left - 1) %% extent) + 1
+  normalized_right <- normalized_left + as.double(width(gr)[selected]) - 1
+  normalized_left[full] <- 1
+  normalized_right[full] <- extent[full]
+  wrapped <- selected[normalized_right > extent]
+  if(!length(wrapped) && identical(unname(normalized_left), original_left) &&
+     identical(unname(normalized_right), original_right)) return(gr)
+
+  left <- as.double(start(gr))
+  right <- as.double(end(gr))
+  left[selected] <- normalized_left
+  right[selected] <- normalized_right
+  copies <- rep.int(1L, length(gr))
+  copies[wrapped] <- 2L
+  source <- rep.int(seq_along(gr), copies)
+  second <- duplicated(source)
+  result_left <- left[source]
+  result_right <- right[source]
+  result_extent <- seqlengths(gr)[chromosome[source]]
+  result_right[!second & source %in% wrapped] <- result_extent[!second & source %in% wrapped]
+  result_left[second] <- 1
+  result_right[second] <- result_right[second] - result_extent[second]
+  result <- gr[source]
+  ranges(result) <- IRanges(start = result_left, end = result_right, names = names(result))
+  result
 }
 
 # Function to subtract two granges (x and y) from each other, without reducing overlaps in the final output. Modified from code written by Herve Pages.
@@ -246,13 +655,13 @@ GRanges_subtract_bymcols <- function(x, y, join_mcols, ignore.strand = FALSE){
 }
 
 #All possible trinucleotides
-trinucleotides_64 <- mkAllStrings(c("A","C","G","T"), 3)
+delayedAssign("trinucleotides_64", mkAllStrings(c("A","C","G","T"), 3))
 
 #central pyrimidine trinucleotides
-trinucleotides_32_pyr <- trinucleotides_64 %>% str_subset(".[CT].")
+delayedAssign("trinucleotides_32_pyr", trinucleotides_64 %>% str_subset(".[CT]."))
 
 #List named with trinucleotides_32_pyr sequences, each containing the corresponding trinucleotides_64 sequences
-trinucleotides_64_32_pyr_list <- split(
+delayedAssign("trinucleotides_64_32_pyr_list", split(
 	trinucleotides_64,
 	ifelse(
 		str_sub(trinucleotides_64, 2, 2) %in% c("C","T"),
@@ -260,7 +669,7 @@ trinucleotides_64_32_pyr_list <- split(
 		trinucleotides_64 %>% DNAStringSet %>% reverseComplement %>% as.character
 	) %>%
 		factor(levels = trinucleotides_32_pyr)
-)
+))
 
 #Function to reduce 64 to 32 trinucleotide frequency with central pyrimidine. Input is a 2-column tibble.
 trinucleotides_64to32 <- function(x, tri_column, count_column){
@@ -2464,4 +2873,669 @@ plot_spectrum_generic <- function(spec, lwr, upr, name, max_y, colors, boxes) {
             box(lwd = 2)
         }
     }
+}
+
+# Prepared-artifact cache protocol, shared by the small artifactCache.R CLI.
+# Linux flock locks are held by an R file connection (the same open-file
+# description is inherited by the flock subprocess). Closing that connection,
+# including on an R error or process death, releases the lock. POSIX/fcntl locks
+# do not coordinate with flock locks.
+artifact_cache_with_lock <- function(path, operation) {
+  path <- normalizePath(path, mustWork = FALSE)
+  before <- list.files("/proc/self/fd", full.names = TRUE)
+  previous_targets <- Sys.readlink(before)
+  before <- before[!is.na(previous_targets) & previous_targets == path]
+  connection <- file(path, open = "a")
+  on.exit(close(connection), add = TRUE)
+  after <- setdiff(list.files("/proc/self/fd", full.names = TRUE), before)
+  targets <- Sys.readlink(after)
+  descriptor <- after[!is.na(targets) & targets == normalizePath(path, mustWork = TRUE)]
+  if (length(descriptor) != 1L) {
+    stop("Cannot identify inherited file descriptor for cache flock", call. = FALSE)
+  }
+  artifact_cache_command("flock", c("--exclusive", basename(descriptor)))
+  operation()
+}
+
+artifact_cache_command <- function(command, arguments) {
+  status <- system2(command, args = vapply(arguments, shQuote, character(1)))
+  if (status != 0L) stop(sprintf("Cache command failed (%d): %s", status, command), call. = FALSE)
+  invisible(status)
+}
+
+artifact_cache_object <- function() setNames(list(), character())
+
+# Retain integer tokens (including integers above 2^53) separately from JSON
+# floating-point values. jsonlite's default conversion would round those integers
+# and would erase the distinction between the canonical key bytes for 1 and 1.0.
+artifact_cache_parse_json <- function(text) {
+  parsed <- jsonlite::fromJSON(text, simplifyVector = FALSE)
+  prefix <- "__hidef_cache_number__"
+  strings <- unlist(parsed, recursive = TRUE, use.names = FALSE)
+  while (any(grepl(prefix, as.character(strings), fixed = TRUE))) prefix <- paste0(prefix, "_")
+  token_pattern <- '"(?:\\\\.|[^"\\\\])*"|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?'
+  positions <- gregexpr(token_pattern, text, perl = TRUE)[[1L]]
+  if (positions[[1L]] != -1L) {
+    tokens <- regmatches(text, list(positions))[[1L]]
+    numbers <- !startsWith(tokens, '"')
+    tokens[numbers] <- paste0('"', prefix, tokens[numbers], '"')
+    regmatches(text, list(positions)) <- list(tokens)
+  }
+  restore <- function(value) {
+    if (is.list(value)) {
+      # For duplicate JSON object keys, the last value wins.
+      if (!is.null(names(value))) value <- value[!duplicated(names(value), fromLast = TRUE)]
+      return(lapply(value, restore))
+    }
+    if (is.character(value) && length(value) == 1L && startsWith(value, prefix)) {
+      return(structure(substring(value, nchar(prefix) + 1L), class = "artifact_cache_number"))
+    }
+    value
+  }
+  restore(jsonlite::fromJSON(text, simplifyVector = FALSE))
+}
+
+artifact_cache_read_json <- function(path) {
+  artifact_cache_parse_json(paste(readLines(path, warn = FALSE, encoding = "UTF-8"), collapse = "\n"))
+}
+
+artifact_cache_float <- function(value) {
+  if (!is.finite(value)) stop("Non-finite JSON number", call. = FALSE)
+  if (value == 0) return(if (1 / value < 0) "-0.0" else "0.0")
+  # Find the shortest significant-decimal representation that round trips to
+  # this IEEE double; exponents below -4 or at least 16 use scientific notation.
+  for (digits in seq_len(17L)) {
+    rendered <- sprintf(paste0("%.", digits - 1L, "e"), value)
+    if (jsonlite::fromJSON(rendered) == value) break
+  }
+  pieces <- strsplit(rendered, "e", fixed = TRUE)[[1L]]
+  exponent <- as.integer(pieces[[2L]])
+  mantissa <- sub("0+$", "", gsub(".", "", pieces[[1L]], fixed = TRUE))
+  negative <- startsWith(mantissa, "-")
+  if (negative) mantissa <- substring(mantissa, 2L)
+  sign <- if (negative) "-" else ""
+  if (exponent < -4L || exponent >= 16L) {
+    fraction <- if (nchar(mantissa) > 1L) paste0(".", substring(mantissa, 2L)) else ""
+    return(paste0(sign, substring(mantissa, 1L, 1L), fraction, "e",
+                  if (exponent >= 0L) "+" else "-", sprintf("%02d", abs(exponent))))
+  }
+  if (exponent < 0L) return(paste0(sign, "0.", strrep("0", -exponent - 1L), mantissa))
+  places <- exponent + 1L
+  if (places >= nchar(mantissa)) {
+    return(paste0(sign, mantissa, strrep("0", places - nchar(mantissa)), ".0"))
+  }
+  paste0(sign, substring(mantissa, 1L, places), ".", substring(mantissa, places + 1L))
+}
+
+artifact_cache_quote <- function(value) {
+  escaped <- as.character(jsonlite::toJSON(enc2utf8(value), auto_unbox = TRUE))
+  points <- utf8ToInt(escaped)
+  paste0(vapply(points, function(point) {
+    if (point < 127L) return(intToUtf8(point))
+    if (point <= 65535L) return(sprintf("\\u%04x", point))
+    point <- point - 65536L
+    paste0(sprintf("\\u%04x", 55296L + point %/% 1024L),
+           sprintf("\\u%04x", 56320L + point %% 1024L))
+  }, character(1)), collapse = "")
+}
+
+artifact_cache_canonical <- function(value) {
+  if (inherits(value, "artifact_cache_number")) {
+    token <- unclass(value)
+    if (!grepl("[.eE]", token)) return(if (token == "-0") "0" else token)
+    return(artifact_cache_float(jsonlite::fromJSON(token)))
+  }
+  if (is.null(value)) return("null")
+  if (is.list(value)) {
+    keys <- names(value)
+    if (!is.null(keys)) {
+      keep <- !duplicated(keys, fromLast = TRUE)
+      value <- value[keep]
+      keys <- names(value)
+      ordering <- order(enc2utf8(keys), method = "radix")
+      members <- vapply(ordering, function(i) paste0(artifact_cache_quote(keys[[i]]), ":",
+                                                   artifact_cache_canonical(value[[i]])), character(1))
+      return(paste0("{", paste(members, collapse = ","), "}"))
+    }
+    return(paste0("[", paste(vapply(value, artifact_cache_canonical, character(1)), collapse = ","), "]"))
+  }
+  if (length(value) != 1L || is.na(value)) stop("Expected a finite scalar JSON value", call. = FALSE)
+  if (is.character(value)) return(artifact_cache_quote(value))
+  if (is.logical(value)) return(if (value) "true" else "false")
+  if (is.integer(value)) return(as.character(value))
+  if (is.double(value)) return(artifact_cache_float(value))
+  stop("Unsupported JSON value", call. = FALSE)
+}
+
+artifact_cache_sha256 <- function(path) {
+  connection <- file(path, "rb")
+  on.exit(close(connection), add = TRUE)
+  unclass(as.character(openssl::sha256(connection)))
+}
+
+artifact_cache_key <- function(identity) {
+  namespace <- identity$namespace
+  if (length(identity$schema) != 1L || is.na(suppressWarnings(as.numeric(identity$schema))) ||
+      as.numeric(identity$schema) != 1) stop("unsupported identity schema", call. = FALSE)
+  if (!is.character(namespace) || length(namespace) != 1L ||
+      !grepl("^[A-Za-z0-9_.-]+$", namespace) || namespace %in% c(".", "..")) {
+    stop("invalid identity namespace", call. = FALSE)
+  }
+  serialized <- identity$serialized_identity
+  if ("serialized_identity" %in% names(identity)) {
+    if (!is.character(serialized) || length(serialized) != 1L) stop("invalid serialized identity", call. = FALSE)
+    payload <- artifact_cache_parse_json(serialized)
+    if (length(payload$schema) != 1L || is.na(suppressWarnings(as.numeric(payload$schema))) ||
+        as.numeric(payload$schema) != 1 || !identical(payload$namespace, namespace)) {
+      stop("serialized identity namespace/schema mismatch", call. = FALSE)
+    }
+  } else serialized <- artifact_cache_canonical(identity)
+  digest::digest(charToRaw(enc2utf8(serialized)), algo = "sha256", serialize = FALSE)
+}
+
+artifact_cache_location <- function(root, identity) {
+  file.path(root, identity$namespace, artifact_cache_key(identity))
+}
+
+artifact_cache_size <- function(path) {
+  structure(format(file.info(path)$size, scientific = FALSE, trim = TRUE, digits = 22L),
+            class = "artifact_cache_number")
+}
+
+artifact_cache_identify <- function(spec) {
+  unknown <- setdiff(names(spec), c("namespace", "settings", "inputs", "scripts", "tools"))
+  if (length(unknown)) stop(paste("unknown identity fields:", paste(sort(unknown), collapse = ", ")), call. = FALSE)
+  identity <- list(schema = 1L, namespace = spec$namespace,
+                   settings = if ("settings" %in% names(spec)) spec$settings else artifact_cache_object(),
+                   tools = if ("tools" %in% names(spec)) spec$tools else artifact_cache_object())
+  artifact_cache_key(identity)
+  for (category in c("inputs", "scripts")) {
+    identity[[category]] <- artifact_cache_object()
+    for (name in sort(as.character(names(spec[[category]])), method = "radix")) {
+      path <- normalizePath(spec[[category]][[name]], mustWork = TRUE)
+      # GNU stat retains nanosecond timestamps; R's POSIXct file.info loses them.
+      snapshot <- function() system2("stat", c("--printf=%s:%y:%z", "--", shQuote(path)), stdout = TRUE)
+      before <- snapshot()
+      if (!is.null(attr(before, "status"))) stop("Cannot stat cache input", call. = FALSE)
+      sha256 <- artifact_cache_sha256(path)
+      after <- snapshot()
+      if (!identical(before, after)) stop(paste("input changed while hashing:", path), call. = FALSE)
+      identity[[category]][[name]] <- list(sha256 = sha256, bytes = artifact_cache_size(path))
+    }
+  }
+  identity
+}
+
+artifact_cache_inventory <- function(directory) {
+  products <- artifact_cache_object()
+  visit <- function(parent, prefix = "") {
+    paths <- list.files(parent, all.files = TRUE, no.. = TRUE, full.names = TRUE)
+    if (!length(paths)) return(invisible(NULL))
+    modes <- character()
+    for (offset in seq.int(1L, length(paths), by = 128L)) {
+      batch <- paths[seq.int(offset, min(length(paths), offset + 127L))]
+      values <- system2("stat", c("--format=%f", "--", vapply(batch, shQuote, character(1))), stdout = TRUE)
+      if (!is.null(attr(values, "status")) || length(values) != length(batch)) stop("Cannot stat cache products", call. = FALSE)
+      modes <- c(modes, values)
+    }
+    for (i in seq_along(paths)) {
+      path <- paths[[i]]
+      link <- Sys.readlink(path)
+      if (!is.na(link) && nzchar(link)) stop(paste("cache products cannot contain symlinks:", path), call. = FALSE)
+      name <- paste0(prefix, basename(path))
+      if (dir.exists(path)) visit(path, paste0(name, "/")) else {
+        if (bitwAnd(strtoi(modes[[i]], base = 16L), 61440L) != 32768L) stop(paste("cache products must be regular files:", path), call. = FALSE)
+        if (name != "manifest.complete.json") {
+          products[[name]] <<- list(bytes = artifact_cache_size(path), sha256 = artifact_cache_sha256(path))
+        }
+      }
+    }
+  }
+  visit(directory)
+  products[order(names(products), method = "radix")]
+}
+
+artifact_cache_equal <- function(left, right) {
+  # Manifest verification uses JSON value equality; key generation distinguishes
+  # exact canonical number representations.
+  numeric_value <- function(value) inherits(value, "artifact_cache_number") || is.numeric(value) || is.logical(value)
+  if (numeric_value(left) || numeric_value(right)) {
+    if (!numeric_value(left) || !numeric_value(right) || length(left) != 1L || length(right) != 1L) return(FALSE)
+    token <- function(value) {
+      if (inherits(value, "artifact_cache_number")) return(unclass(value))
+      if (is.logical(value)) return(if (value) "1" else "0")
+      artifact_cache_canonical(value)
+    }
+    a <- token(left)
+    b <- token(right)
+    a_integer <- !grepl("[.eE]", a)
+    b_integer <- !grepl("[.eE]", b)
+    if (a_integer && b_integer) return(identical(if (a == "-0") "0" else a, if (b == "-0") "0" else b))
+    if (!a_integer && !b_integer) return(jsonlite::fromJSON(a) == jsonlite::fromJSON(b))
+    integer <- if (a_integer) a else b
+    number <- jsonlite::fromJSON(if (a_integer) b else a)
+    # Compare arbitrary-sized integers to the exact integral value of a double,
+    # avoiding lossy conversion of integers larger than 2^53.
+    return(is.finite(number) && number == trunc(number) &&
+           identical(if (integer == "-0") "0" else integer, if (number == 0) "0" else sprintf("%.0f", number)))
+  }
+  if (is.list(left) || is.list(right)) {
+    if (!is.list(left) || !is.list(right) || length(left) != length(right) ||
+        is.null(names(left)) != is.null(names(right))) return(FALSE)
+    if (!is.null(names(left))) {
+      left <- left[order(names(left), method = "radix")]
+      right <- right[order(names(right), method = "radix")]
+      if (!identical(names(left), names(right))) return(FALSE)
+    }
+    return(all(vapply(seq_along(left), function(i) artifact_cache_equal(left[[i]], right[[i]]), logical(1))))
+  }
+  identical(left, right)
+}
+
+artifact_cache_verify <- function(root, identity) {
+  destination <- artifact_cache_location(root, identity)
+  manifest <- artifact_cache_read_json(file.path(destination, "manifest.complete.json"))
+  if (!artifact_cache_equal(manifest$identity, identity) || !identical(manifest$key, artifact_cache_key(identity))) {
+    stop(paste("cache manifest identity mismatch:", destination), call. = FALSE)
+  }
+  if (length(manifest$schema) != 1L || as.numeric(manifest$schema) != 1 ||
+      !identical(manifest$state, "complete")) stop(paste("cache manifest is not complete:", destination), call. = FALSE)
+  if (!length(manifest$products) || !artifact_cache_equal(artifact_cache_inventory(destination), manifest$products)) {
+    stop(paste("cache product integrity mismatch:", destination), call. = FALSE)
+  }
+  destination
+}
+
+artifact_cache_mkdir <- function(path) {
+  if (!dir.exists(path) && !suppressWarnings(dir.create(path, recursive = TRUE)) && !dir.exists(path)) stop(paste("Cannot create cache directory:", path), call. = FALSE)
+  invisible(path)
+}
+
+artifact_cache_fsync <- function(paths) {
+  # GNU sync with FILE arguments calls fsync(2), including directory fsync.
+  # Neither --data (fdatasync) nor --file-system (syncfs) has this contract.
+  if (!length(paths)) return(invisible(NULL))
+  for (offset in seq.int(1L, length(paths), by = 128L)) {
+    selected <- paths[seq.int(offset, min(offset + 127L, length(paths)))]
+    if (length(paths)) artifact_cache_command("sync", c("--", selected))
+  }
+  invisible(NULL)
+}
+
+artifact_cache_copy <- function(source, target) {
+  link <- Sys.readlink(target)
+  if (file.exists(target) || (!is.na(link) && nzchar(link))) {
+    stop(paste("cache copy target already exists:", target), call. = FALSE)
+  }
+  # GNU cp streams large files efficiently; avoid reflinks so the published
+  # bundle receives its own data extents before the explicit fsync barrier.
+  artifact_cache_command("cp", c("--preserve=mode,timestamps", "--reflink=never", "--no-clobber", "--", source, target))
+  invisible(target)
+}
+
+artifact_cache_link_or_copy <- function(source, target, copy_across_filesystems = TRUE) {
+  # Capture R's link(2) errno diagnostic in the C locale, so only EXDEV
+  # permits a copy (including bind mounts with identical device numbers).
+  previous_locale <- Sys.getlocale("LC_MESSAGES")
+  on.exit(Sys.setlocale("LC_MESSAGES", previous_locale), add = TRUE)
+  Sys.setlocale("LC_MESSAGES", "C")
+  diagnostic <- character()
+  linked <- withCallingHandlers(file.link(source, target), warning = function(warning) {
+    diagnostic <<- c(diagnostic, conditionMessage(warning))
+    invokeRestart("muffleWarning")
+  })
+  Sys.setlocale("LC_MESSAGES", previous_locale)
+  if (linked) return(invisible(target))
+  if (!copy_across_filesystems || !any(grepl("reason 'Invalid cross-device link'", diagnostic, fixed = TRUE))) {
+    stop(paste("cache hard link failed:", target, paste(diagnostic, collapse = "; ")), call. = FALSE)
+  }
+  artifact_cache_copy(source, target)
+}
+
+artifact_cache_tree <- function(source, target, copy_across_filesystems = TRUE) {
+  link <- Sys.readlink(source)
+  if (!is.na(link) && nzchar(link)) stop(paste("cache products cannot contain symlinks:", source), call. = FALSE)
+  if (dir.exists(source)) {
+    artifact_cache_mkdir(target)
+    children <- list.files(source, all.files = TRUE, no.. = TRUE, full.names = TRUE)
+    for (child in children) artifact_cache_tree(child, file.path(target, basename(child)), copy_across_filesystems)
+  } else {
+    artifact_cache_mkdir(dirname(target))
+    artifact_cache_link_or_copy(source, target, copy_across_filesystems)
+  }
+  invisible(target)
+}
+
+artifact_cache_publish <- function(root, identity, source) {
+  source <- normalizePath(source, mustWork = TRUE)
+  destination <- artifact_cache_location(root, identity)
+  artifact_cache_mkdir(dirname(destination))
+  artifact_cache_with_lock(paste0(destination, ".lock"), function() {
+    if (file.exists(destination)) return(artifact_cache_verify(root, identity))
+    if (file.exists(file.path(source, "manifest.complete.json"))) stop("source contains reserved manifest filename", call. = FALSE)
+    source_products <- artifact_cache_inventory(source)
+    if (!length(source_products)) stop("refusing to publish an empty cache entry", call. = FALSE)
+    stage <- tempfile(pattern = paste0(".", artifact_cache_key(identity), "."), tmpdir = dirname(destination))
+    if (!dir.create(stage, mode = "0700")) stop("Cannot create cache staging directory", call. = FALSE)
+    on.exit(unlink(stage, recursive = TRUE), add = TRUE)
+    for (name in names(source_products)) {
+      target <- file.path(stage, name)
+      artifact_cache_mkdir(dirname(target))
+      artifact_cache_copy(file.path(source, name), target)
+    }
+    artifact_cache_fsync(file.path(stage, names(source_products)))
+    products <- artifact_cache_inventory(stage)
+    if (!artifact_cache_equal(products, source_products)) stop("source products changed during publication", call. = FALSE)
+    manifest <- list(schema = 1L, state = "complete", key = artifact_cache_key(identity), identity = identity, products = products)
+    manifest_path <- file.path(stage, "manifest.complete.json")
+    connection <- file(manifest_path, "wb")
+    tryCatch(writeBin(charToRaw(paste0(artifact_cache_canonical(manifest), "\n")), connection),
+             finally = close(connection))
+    artifact_cache_fsync(manifest_path)
+    directories <- list.dirs(stage, full.names = TRUE, recursive = TRUE)
+    artifact_cache_fsync(directories[order(nchar(directories), decreasing = TRUE)])
+    if (!file.rename(stage, destination)) stop("Atomic cache publication rename failed", call. = FALSE)
+    artifact_cache_fsync(dirname(destination))
+    destination
+  })
+}
+
+artifact_cache_run <- function(root, identity, products, command) {
+  for (name in products) {
+    if (startsWith(name, "/") || ".." %in% strsplit(name, "/", fixed = TRUE)[[1L]] ||
+        name == "manifest.complete.json") stop("product must be a relative path inside the task directory", call. = FALSE)
+  }
+  destination <- artifact_cache_location(root, identity)
+  artifact_cache_mkdir(dirname(destination))
+  artifact_cache_with_lock(paste0(destination, ".build.lock"), function() {
+    if (file.exists(destination)) {
+      destination <- artifact_cache_verify(root, identity)
+      for (name in products) {
+        if (file.exists(name)) stop(paste("cache restore target already exists:", name), call. = FALSE)
+        artifact_cache_tree(file.path(destination, name), name)
+      }
+      return(destination)
+    }
+    if (!length(command)) stop("run requires a build command after --", call. = FALSE)
+    artifact_cache_command(command[[1L]], command[-1L])
+    bundle <- tempfile(pattern = ".cache-products-", tmpdir = ".")
+    if (!dir.create(bundle, mode = "0700")) stop("Cannot create cache product bundle", call. = FALSE)
+    on.exit(unlink(bundle, recursive = TRUE), add = TRUE)
+    for (name in products) artifact_cache_tree(name, file.path(bundle, name), copy_across_filesystems = FALSE)
+    artifact_cache_publish(root, identity, bundle)
+  })
+}
+
+# Encode observed allele combinations with the same factor levels and codes as
+# interaction(drop = TRUE), without constructing unobserved Cartesian labels.
+observed_allele_interaction <- function(columns) {
+  if(!is.list(columns)) columns <- list(columns)
+  if(!length(columns)) stop("No factors specified")
+  factors <- lapply(columns, function(x) as.factor(x)[, drop = TRUE])
+  if(length(factors) == 1L) {
+    return(structure(as.integer(factors[[1L]]), levels = levels(factors[[1L]]), class = "factor"))
+  }
+  sizes <- lengths(factors)
+  size <- if(any(sizes == 0L)) 0L else max(sizes)
+  if(any(size %% sizes[sizes > 0L] != 0L)) {
+    warning("longer object length is not a multiple of shorter object length")
+  }
+  codes <- lapply(factors, function(x) rep_len(as.integer(x), size))
+  ids <- vctrs::vec_group_id(as.data.frame(codes, check.names = FALSE))
+  representatives <- match(seq_len(attr(ids, "n")), ids)
+  codes <- lapply(codes, `[`, representatives)
+  #Without ambiguous rendered labels, the reversed integer tuple gives the
+  #complete interaction order directly. This also handles NA rows, arbitrary
+  #factorable column types, empty inputs and large Cartesian cardinalities.
+  rendered <- lapply(factors, function(x) {
+    value <- levels(x)
+    ifelse(is.na(value), "NA", value)
+  })
+  ambiguous <- any(vapply(rendered, function(x) any(grepl(".", x, fixed = TRUE)) || anyDuplicated(x) > 0L, logical(1)))
+  if(!ambiguous) {
+    valid <- which(Reduce(`&`, lapply(codes, function(x) !is.na(x))))
+    ordered <- valid[do.call(order, rev(lapply(codes, `[`, valid)))]
+    labels <- do.call(paste, c(lapply(seq_along(codes), function(i) rendered[[i]][codes[[i]][ordered]]), sep = "."))
+    return(structure(as.integer(match(ids, ordered)), levels = labels, class = "factor"))
+  }
+  result <- codes[[length(codes)]]
+  labels <- levels(factors[[length(factors)]])
+  for(i in rev(seq_len(length(factors) - 1L))) {
+    left <- levels(factors[[i]])
+    left_text <- ifelse(is.na(left), "NA", left)
+    right_text <- ifelse(is.na(labels), "NA", labels)
+    valid <- !is.na(codes[[i]]) & !is.na(result)
+    pairs <- unique(data.frame(left = codes[[i]][valid], right = result[valid]))
+    pairs <- pairs[order(pairs$right, pairs$left), , drop = FALSE]
+    combined <- paste(left[pairs$left], labels[pairs$right], sep = ".")
+    # A literal separator can give an observed label an earlier Cartesian
+    #position through a different, unobserved split. Resolve only these labels,
+    #without ever constructing the Cartesian level vector.
+    if(any(grepl(".", c(left_text, right_text), fixed = TRUE)) ||
+       anyDuplicated(left_text) || anyDuplicated(right_text)) {
+      separators <- gregexpr(".", combined, fixed = TRUE)
+      row <- rep.int(seq_along(combined), lengths(separators))
+      position <- unlist(separators, use.names = FALSE)
+      lhs <- match(substring(combined[row], 1L, position - 1L), left_text)
+      rhs <- match(substring(combined[row], position + 1L), right_text)
+      possible <- which(!is.na(lhs) & !is.na(rhs))
+      first <- possible[order(row[possible], rhs[possible], lhs[possible])]
+      first <- first[!duplicated(row[first])]
+      pairs$left[row[first]] <- lhs[first]
+      pairs$right[row[first]] <- rhs[first]
+    }
+    next_labels <- unique(combined[order(pairs$right, pairs$left)])
+    next_result <- rep.int(NA_integer_, length(result))
+    next_result[valid] <- match(paste(left[codes[[i]][valid]], labels[result[valid]], sep = "."), next_labels)
+    result <- next_result
+    labels <- next_labels
+  }
+  structure(as.integer(result[ids]), levels = labels, class = "factor")
+}
+
+# Stage raw burden call tables in DuckDB while coverage remains in R. The final
+# QS2 contains ordinary R objects and has no dependency on this private store.
+# Supported inputs: ordinary tibbles, base scalars/unordered factors, integer
+# vector list cells without per-cell attributes, and optional per-row names.
+# Unsupported schemas fail explicitly; this is not a general R serialization API.
+new_burden_call_store <- function(buffer_rows = 50000L) {
+  task_directory <- normalizePath(getwd())
+  path <- tempfile(pattern = ".burden-calls-", tmpdir = task_directory)
+  stopifnot(dir.create(path, showWarnings = FALSE))
+  for (part in c('extensions', 'secrets', 'temp'))
+    dir.create(file.path(path, part), showWarnings = FALSE)
+  con <- DBI::dbConnect(duckdb::duckdb(dbdir = file.path(path, 'calls.duckdb'), config = list(
+    threads = '1', memory_limit = '512MB', extension_directory = file.path(path, 'extensions'),
+    secret_directory = file.path(path, 'secrets'), temp_directory = file.path(path, 'temp'))))
+  # DuckDB 1.3.1 resets this setting while opening the database.
+  DBI::dbExecute(con, paste('SET secret_directory =',
+    DBI::dbQuoteString(con, file.path(path, 'secrets'))))
+  state <- new.env(parent = emptyenv())
+  state$contracts <- list(); state$rows <- list(); state$parts <- list(); state$closed <- FALSE
+  quote_id <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
+  contract_for <- function(x) list(prototype = x[0, ],
+    named = names(x)[vapply(x, function(v) !is.null(names(v)), logical(1))],
+    lists = names(x)[vapply(x, is.list, logical(1))])
+  validate <- function(x) {
+    stopifnot(identical(class(x), c('tbl_df', 'tbl', 'data.frame')),
+      setequal(names(attributes(x)), c('class', 'row.names', 'names')),
+      !anyDuplicated(names(x)), !any(startsWith(names(x), '__hidef_')))
+    for (column in names(x)) {
+      value <- x[[column]]
+      if (is.factor(value)) {
+        stopifnot(identical(class(value), 'factor'), !anyNA(levels(value)),
+          all(names(attributes(value)) %in% c('names', 'levels', 'class')))
+      } else {
+        stopifnot(typeof(value) %in% c('logical', 'integer', 'double', 'character', 'list'),
+          all(names(attributes(value)) %in% 'names'))
+        if (is.double(value)) stopifnot(!any(is.nan(value) | is.infinite(value)))
+        if (is.list(value)) stopifnot(all(vapply(value, function(cell)
+          identical(typeof(cell), 'integer') && is.null(attributes(cell)), logical(1))))
+      }
+    }
+    invisible(NULL)
+  }
+  encode <- function(x, contract, row_ids = seq_len(nrow(x))) {
+    for (column in contract$named) {
+      x[[paste0('__hidef_names_', column)]] <- names(x[[column]])
+      names(x[[column]]) <- NULL
+    }
+    # An empty factor has no valid SQL ENUM. Keep its R prototype and
+    # store it as VARCHAR until a later chunk supplies factor levels.
+    for (column in names(x)) if (is.factor(x[[column]]) && !length(levels(x[[column]])))
+      x[[column]] <- as.character(x[[column]])
+    x[['__hidef_rowid']] <- as.integer(row_ids)
+    x
+  }
+  restore <- function(x, contract) {
+    x <- as_tibble(x)
+    for (column in intersect(contract$lists, names(x))) x[[column]] <- as.list(x[[column]])
+    for (column in intersect(names(contract$prototype), names(x))) {
+      prototype <- contract$prototype[[column]]
+      if (is.factor(prototype)) {
+        if (!is.factor(x[[column]]) || !identical(levels(x[[column]]), levels(prototype)))
+          x[[column]] <- factor(as.character(x[[column]]), levels = levels(prototype))
+      } else if (!identical(typeof(x[[column]]), typeof(prototype))) {
+        x[[column]] <- vctrs::vec_cast(x[[column]], prototype)
+      }
+    }
+    for (column in intersect(contract$named, names(x))) {
+      auxiliary <- paste0('__hidef_names_', column)
+      stopifnot(auxiliary %in% names(x))
+      names(x[[column]]) <- x[[auxiliary]]
+    }
+    x[, !startsWith(names(x), '__hidef_')]
+  }
+  append_table <- function(name, x) {
+    validate(x)
+    if (is.null(state$contracts[[name]])) {
+      state$contracts[[name]] <- contract_for(x)
+      state$rows[[name]] <- 0L; state$parts[[name]] <- 0L
+      DBI::dbWriteTable(con, name, encode(x[0, ], state$contracts[[name]]),
+        field.types = setNames(rep('INTEGER[]', length(state$contracts[[name]]$lists)),
+          state$contracts[[name]]$lists))
+      # Unnamed later chunks must get blank names, while explicit NA
+      # names remain NA. Defaults apply only when a column is omitted.
+      for (column in state$contracts[[name]]$named) DBI::dbExecute(con,
+        paste0('ALTER TABLE ', quote_id(name), ' ALTER COLUMN ',
+          quote_id(paste0('__hidef_names_', column)), " SET DEFAULT ''"))
+    }
+    contract <- state$contracts[[name]]
+    stopifnot(identical(names(x), names(contract$prototype)),
+      identical(names(x)[vapply(x, is.list, logical(1))], contract$lists),
+      state$rows[[name]] + as.double(nrow(x)) <= .Machine$integer.max)
+    # Match native bind_rows factor union and scalar promotion, retaining unused levels.
+    for (column in names(x)) {
+      old <- contract$prototype[[column]]; new <- x[[column]]
+      if (is.factor(old) || is.factor(new) || !identical(typeof(old), typeof(new))) {
+        common <- vctrs::vec_ptype_common(old, new)
+        # Use native casting for factor-name semantics. Factors may lose
+        # names on combination/promotion even when their levels match.
+        if (state$parts[[name]] > 0L) {
+          if (is.factor(old) && column %in% contract$named &&
+              is.null(names(vctrs::vec_cast(setNames(old[0], character()), common)))) {
+            if (state$rows[[name]] > 0L) DBI::dbExecute(con, paste0('UPDATE ',
+              quote_id(name), ' SET ', quote_id(paste0('__hidef_names_', column)), " = ''"))
+            contract$named <- setdiff(contract$named, column)
+          }
+          if (is.factor(new) && !is.null(names(new)) &&
+              is.null(names(vctrs::vec_cast(new[0], common)))) names(x[[column]]) <- NULL
+        }
+        if (!identical(old, common)) {
+          sqltype <- if (is.factor(common) && length(levels(common))) paste0('ENUM(',
+            paste(DBI::dbQuoteString(con, levels(common)), collapse = ','), ')') else
+            if (is.factor(common)) 'VARCHAR' else DBI::dbDataType(con, common)
+          DBI::dbExecute(con, paste0('ALTER TABLE ', quote_id(name), ' ALTER COLUMN ',
+            quote_id(column), ' SET DATA TYPE ', sqltype))
+        }
+        contract$prototype[[column]] <- common
+      }
+    }
+    if (nrow(x)) {
+      incoming_named <- names(x)[vapply(x, function(v) !is.null(names(v)), logical(1))]
+      active_named <- if (state$rows[[name]] == 0L) incoming_named else union(contract$named, incoming_named)
+      new_fields <- setdiff(paste0('__hidef_names_', active_named, recycle0 = TRUE), DBI::dbListFields(con, name))
+      for (field in new_fields) DBI::dbExecute(con, paste0('ALTER TABLE ', quote_id(name),
+        ' ADD COLUMN ', quote_id(field), " VARCHAR DEFAULT ''"))
+      contract$named <- active_named
+      for (column in contract$named) if (is.null(names(x[[column]]))) names(x[[column]]) <- rep('', nrow(x))
+    }
+    if (state$rows[[name]] == 0L && !nrow(x) && state$parts[[name]] > 0L)
+      contract <- contract_for(bind_rows(contract$prototype, x[0, ]))
+    state$parts[[name]] <- state$parts[[name]] + 1L
+    state$contracts[[name]] <- contract
+    if (nrow(x)) for (lo in seq.int(1L, nrow(x), by = buffer_rows)) {
+      rows <- seq.int(lo, min(nrow(x), as.double(lo) + buffer_rows - 1))
+      DBI::dbAppendTable(con, name, encode(x[rows, ], contract, state$rows[[name]] + rows))
+    }
+    state$rows[[name]] <- state$rows[[name]] + nrow(x)
+    invisible(NULL)
+  }
+  read_table <- function(name, columns = NULL, where = NULL) {
+    contract <- state$contracts[[name]]
+    if (is.null(columns)) columns <- names(contract$prototype)
+    stopifnot(length(columns) > 0L, all(columns %in% names(contract$prototype)))
+    auxiliary <- paste0('__hidef_names_', intersect(columns, contract$named), recycle0 = TRUE)
+    query <- paste0('SELECT ', paste(quote_id(c(columns, auxiliary)), collapse = ','),
+      ' FROM ', quote_id(name), if (!is.null(where)) paste0(' WHERE ', where) else '',
+      ' ORDER BY __hidef_rowid')
+    value <- restore(DBI::dbGetQuery(con, query), contract)
+    if (!nrow(value)) value <- bind_rows(value)
+    value
+  }
+  append_calls <- function(final, germline, chunk) {
+    append_table('finalCalls', add_column(final,
+      analysis_chunk = rep.int(as.integer(chunk), nrow(final)), .before = 1L))
+    append_table('germlineVariantCalls', add_column(germline,
+      analysis_chunk = rep.int(as.integer(chunk), nrow(germline)), .before = 1L) %>% select(-call_toanalyze))
+    invisible(NULL)
+  }
+  project_final <- function() {
+    # Select public columns from schema metadata before reading call rows.
+    columns <- names(state$contracts$finalCalls$prototype %>%
+      select(-c('germline_vcf_types_detected', 'germline_vcf_files_detected',
+        'call_toanalyze', contains('passfilter'))))
+    read_table('finalCalls', columns)
+  }
+  append_sensitivity_candidates <- function(keys) {
+    append_table('sensitivityCandidates', distinct(keys))
+  }
+  append_sensitivity_evidence <- function(keys, category_id) {
+    append_table('sensitivityEvidence', add_column(keys,
+      category_id = rep.int(as.integer(category_id), nrow(keys)), .before = 1L))
+  }
+  sensitivity_summary <- function() {
+    # Pool evidence before requiring duplex support at both flanks. Molecules
+    # and candidate calls can recur in several analysis chunks.
+    DBI::dbGetQuery(con, paste0(
+      'WITH eligible AS (SELECT category_id,allele_id,run_id,zm ',
+      'FROM sensitivityEvidence GROUP BY category_id,allele_id,run_id,zm ',
+      'HAVING BOOL_OR(left_plus) AND BOOL_OR(left_minus) ',
+      'AND BOOL_OR(right_plus) AND BOOL_OR(right_minus)), ',
+      'detected AS (SELECT DISTINCT allele_id,run_id,zm FROM sensitivityCandidates) ',
+      'SELECT category_id,CAST(COUNT(d.allele_id) AS DOUBLE) AS num_zm_detected,',
+      'CAST(COUNT(*) AS DOUBLE) AS duplex_coverage FROM eligible e ',
+      'LEFT JOIN detected d USING(allele_id,run_id,zm) GROUP BY category_id'
+    )) %>% as_tibble()
+  }
+  close <- function() {
+    if (!state$closed) {
+      DBI::dbExecute(con, 'CHECKPOINT')
+      DBI::dbDisconnect(con, shutdown = TRUE)
+      state$closed <- TRUE
+    }
+    invisible(NULL)
+  }
+  # The caller removes this exact directory only after qs_save succeeds.
+  cleanup <- function() {
+    stopifnot(state$closed, identical(dirname(normalizePath(path)), task_directory),
+      unlink(path, recursive = TRUE) == 0L, !file.exists(path))
+    invisible(NULL)
+  }
+  list(append_table = append_table, read_table = read_table, append_calls = append_calls,
+    project_final = project_final,
+    append_sensitivity_candidates = append_sensitivity_candidates,
+    append_sensitivity_evidence = append_sensitivity_evidence,
+    sensitivity_summary = sensitivity_summary, close = close,
+    cleanup = cleanup, state = state)
 }

@@ -106,28 +106,11 @@ def fileSha256(path) {
     .toString()
 }
 
-// Metadata identities avoid reading large BAMs or references on the
-// orchestration node. They are intentionally not described as content hashes.
+// Match lenient caching: identify prepared inputs by canonical path and size.
 def preparedInputIdentity(rawPath) {
   def source = file(rawPath).toRealPath()
-  def attrs = java.nio.file.Files.readAttributes(source, java.nio.file.attribute.BasicFileAttributes)
-  def changed = null
-  def inode = null
-  try {
-    changed = java.nio.file.Files.getAttribute(source, 'unix:ctime').toString()
-  } catch (UnsupportedOperationException ignored) {
-    changed = null
-  }
-  try {
-    // UnixFileKey includes st_dev, which is local to a node's mount table.
-    // The same shared file can therefore have different fileKeys across nodes.
-    inode = java.nio.file.Files.getAttribute(source, 'unix:ino').toString()
-  } catch (UnsupportedOperationException ignored) {
-    inode = null
-  }
-  return [kind: 'canonical-path-size-mtime-ctime-inode', path: source.toString(),
-          bytes: attrs.size(), modified: attrs.lastModifiedTime().toString(),
-          changed: changed, inode: inode]
+  return [kind: 'canonical-path-size', path: source.toString(),
+          bytes: java.nio.file.Files.size(source)]
 }
 
 def canonicalCacheValue(value) {
@@ -403,8 +386,7 @@ workflow {
   params.paramsFileName = effectiveParametersFile
 
   // Define parameters file components that are checked for changes to determine if a process is rerun upon resume
-  // Include prepared input identities so changes at the same source path
-  // invalidate the affected process signatures.
+  // Include prepared input identities so path/size changes invalidate dependent tasks.
   signature_params = params + [
     sharedFunctionsHash: fileSha256("${workflow.projectDir}/bin/sharedFunctions.R"),
     referenceCacheKey: referenceEntry.key,
@@ -761,12 +743,8 @@ workflow {
   pbmm2Align_input_ch = pbmm2_round1_final_ch
     .mix(pbmm2_round2_final_ch)
 
-  // Track the supplied index and its configured reference even with lenient
-  // Nextflow caching, which otherwise ignores changes to a file's timestamp.
-  alignmentReference = [mmi: identifyInput.call(params.genome_mmi),
-    fasta: identifyInput.call(params.genome_fasta), fai: identifyInput.call(params.genome_fai)]
   alignment_reference_ch = channel.value(tuple(
-    file(params.genome_mmi), file(params.genome_fai), alignmentReference))
+    file(params.genome_mmi), file(params.genome_fai), file(params.genome_fasta)))
 
   // Run process
   pbmm2Align(pbmm2Align_input_ch, alignment_reference_ch)
@@ -1337,7 +1315,7 @@ process pbmm2Align {
 
     input:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path(bamFile)
-      tuple path(genomeIndex), path(genomeFai), val(alignmentReference)
+      tuple path(genomeIndex), path(genomeFai), path(genomeFasta)
 
     output:
       tuple val(run_id), val(individual_id), val(sample_id), val(barcode_id), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam"), path("${run_id}.${individual_id}.${sample_id}.${barcode_id}.ccs.filtered.aligned.bam.pbi")

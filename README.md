@@ -62,7 +62,7 @@ The pipeline requires reference genome files and multiple derivative files, whic
 
 3. Create a pbmm2 index: `pbmm2 index genome.fasta genome.mmi --preset CCS` for both Revio CCS and Sequel II subread inputs. The pipeline converts subreads to CCS before alignment.
 
-   Build both indexes from `genome_fasta` and rebuild them when it changes. Index replacements trigger reruns on resume; reference checks compare chromosome names and lengths, not sequences.
+   Build both indexes from `genome_fasta` and rebuild them when it changes.
 
 4. Extract chromosome contig sizes in a tab-delimited file (columns: `chrom\tchrom_size`): `cut -f 1,2 genome.fa.fai > genome.chromsizes.tsv` 
 

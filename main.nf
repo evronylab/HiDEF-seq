@@ -1577,7 +1577,6 @@ process installBSgenome {
 
     script:
     def buildCommand = """
-    export HIDEF_REFERENCE_BUILD_DIR="\$PWD/library"
     installBSgenome.R -c ${shellQuote(params.paramsFileName)}
     """
     cachedBuild(params.prepared_cache.reference, ['library', 'BSgenome_name.txt'], buildCommand)

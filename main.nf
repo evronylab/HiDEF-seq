@@ -846,7 +846,7 @@ workflow {
 
   countAnalysisZMWs(mergeAlignedSampleBAMs.out)
   bam_splitter_ch = channel.value(tuple(
-    file("${projectDir}/bin/splitBamByZmw.py", checkIfExists: true),
+    file("${projectDir}/bin/splitBamByZmw.py"),
     fileSha256("${projectDir}/bin/splitBamByZmw.py")))
 
   // Enumerate ZMW IDs once, preserving their order, then split the BAM into chunks.

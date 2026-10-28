@@ -178,8 +178,6 @@ def shellQuote(value) {
   return "'" + value.toString().replace("'", "'\"'\"'") + "'"
 }
 
-params.python_bin = params.containsKey('python_bin') && params.python_bin ? params.python_bin : 'python3'
-
 def cachedBuild(entry, products, command) {
   def productOptions = products.collect { '--product ' + shellQuote(it) }.join(' ')
   return """

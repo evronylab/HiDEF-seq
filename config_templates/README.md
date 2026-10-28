@@ -81,6 +81,7 @@ Barcode uniqueness rules within a run:
 | `hidefseq_container` | string | yes | Docker image reference (`docker://gevrony/hidef-seq:3.5`) or corresponding Singularity `.sif` path used for all processes. |
 | `conda_base_script` | path | defaults to `/hidef/miniconda3/etc/profile.d/conda.sh` | Script sourced prior to activating conda environment in the docker image. |
 | `conda_pbbioconda_env` | path | defaults to `/hidef/bin/pbconda` | Conda environment housing PacBio command-line tools in the docker image. |
+| `python_bin` | string | yes | Python interpreter with `pysam` installed. |
 | `samtools_bin`, `bcftools_bin`, `bedGraphToBigWig_bin`, `wiggletools_bin`, `wigToBigWig_bin`, `bgzip_bin`, `tabix_bin` | string | yes | Absolute paths to binaries of tools inside the docker image. |
 | `verifybamid_bin` | string | optional | Absolute path to the VerifyBamID2 binary inside the container. Leave blank to skip the `verifyBAMID` task. |
 | `verifybamid_resource_UD`, `verifybamid_resource_Bed`, `verifybamid_resource_Mean` | string | required if `verifybamid_bin` is set | Paths to VerifyBamID2 resource files (UD, BED, and mean tables). Resource downloads are available from the [VerifyBamID2 repository](https://github.com/Griffan/VerifyBamID). The `verifyBAMID` task is skipped if any of these parameters are not set. |

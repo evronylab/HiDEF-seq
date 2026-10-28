@@ -75,6 +75,7 @@ hidefseq_container: # HiDEF-seq v3.5 docker path or singularity sif file
 # Tool paths inside HiDEF-seq container
 conda_base_script: /hidef/miniconda3/etc/profile.d/conda.sh
 conda_pbbioconda_env: /hidef/bin/pbconda
+python_bin: /usr/bin/python3 # must have pysam installed
 samtools_bin: samtools
 # the verifyBAMID task will be skipped if any of the verifybamid parameters are blank
 verifybamid_bin: /hidef/bin/VerifyBamID
